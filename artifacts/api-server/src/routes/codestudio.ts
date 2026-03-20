@@ -207,7 +207,7 @@ router.post("/projects/:id/git-clone", async (req, res) => {
     res.status(400).json({ error: "repoUrl is required" });
     return;
   }
-  if (!/^https?:\/\//i.test(repoUrl)) {
+  if (!/^https:\/\//i.test(repoUrl)) {
     res.status(400).json({ error: "Only https:// Git URLs are allowed" });
     return;
   }
