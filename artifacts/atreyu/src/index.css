@@ -333,6 +333,14 @@
     100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); }
   }
 
+  @keyframes shimmer {
+    0%   { transform: translateX(-200%); }
+    100% { transform: translateX(200%); }
+  }
+  .animate-shimmer {
+    animation: shimmer 1.8s ease-in-out infinite;
+  }
+
   /* Data readout numbers */
   .data-value {
     font-family: var(--app-font-mono);
