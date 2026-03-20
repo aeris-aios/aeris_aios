@@ -120,9 +120,6 @@ router.post("/workspace/files/extract-zip", async (req: Request, res: Response) 
         const name      = entryPath.split("/").pop() ?? entryPath;
         const mimeType  = guessMimeType(name);
 
-        /* Skip binary / non-text files that would bloat context */
-        if (content.length > 500_000) return;
-
         const storedPath = await uploadBufferToStorage(content, mimeType);
         const [row] = await db
           .insert(agentWorkspaceFilesTable)
@@ -204,10 +201,14 @@ export async function loadWorkspaceFileContexts(fileIds: number[]): Promise<stri
     .from(agentWorkspaceFilesTable)
     .where(isNull(agentWorkspaceFilesTable.deletedAt));
 
-  const selected = records.filter(r => fileIds.includes(r.id));
-  const chunks: string[] = [];
+  /* Preserve selection order (by fileIds order), sort secondarily by path for ties */
+  const selected = records
+    .filter(r => fileIds.includes(r.id))
+    .sort((a, b) => fileIds.indexOf(a.id) - fileIds.indexOf(b.id) || a.path.localeCompare(b.path));
 
-  await Promise.all(selected.map(async (record) => {
+  /* Fetch contents sequentially to guarantee deterministic output order */
+  const chunks: string[] = [];
+  for (const record of selected) {
     try {
       const file = await storage.getObjectEntityFile(record.objectPath);
       const response = await storage.downloadObject(file, 0);
@@ -215,13 +216,14 @@ export async function loadWorkspaceFileContexts(fileIds: number[]): Promise<stri
         const nodeStream = Readable.fromWeb(response.body as ReadableStream<Uint8Array>);
         const parts: Buffer[] = [];
         for await (const chunk of nodeStream) parts.push(Buffer.from(chunk));
+        /* Truncate at 20 KB per file for context safety; files are still stored at full size */
         const text = Buffer.concat(parts).toString("utf8").slice(0, 20_000);
         chunks.push(`### FILE: ${record.path}\n\`\`\`\n${text}\n\`\`\``);
       }
     } catch (err) {
       console.warn(`Could not load workspace file ${record.path}:`, err);
     }
-  }));
+  }
 
   return chunks.join("\n\n");
 }
