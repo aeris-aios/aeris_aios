@@ -171,7 +171,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const dragSrcIdx    = useRef<number | null>(null);
   const dragTgtIdx    = useRef<number | null>(null);
   const iconMids      = useRef<number[]>([]);  /* centre-x of each icon slot at drag start */
-  const [dragState, setDragState] = useState<{ src: number; tgt: number } | null>(null);
+  const [dragState, setDragState] = useState<{
+    src: number; tgt: number; x: number; y: number;
+  } | null>(null);
 
   const saveOrder = useCallback((items: typeof navItems) => {
     localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(items.map(it => it.url)));
@@ -198,7 +200,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     });
     dragSrcIdx.current = idx;
     dragTgtIdx.current = idx;
-    setDragState({ src: idx, tgt: idx });
+    setDragState({ src: idx, tgt: idx, x: e.clientX, y: e.clientY });
     /* pointer capture on the dock so we get move/up even outside the dock */
     dock.setPointerCapture(e.pointerId);
   }, []);
@@ -206,10 +208,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const onDockPointerMove = useCallback((e: React.PointerEvent) => {
     if (dragSrcIdx.current === null) return;
     const t = snapTgt(e.clientX);
-    if (t !== dragTgtIdx.current) {
-      dragTgtIdx.current = t;
-      setDragState(d => d ? { ...d, tgt: t } : null);
-    }
+    dragTgtIdx.current = t;
+    setDragState(d => d ? { ...d, tgt: t, x: e.clientX, y: e.clientY } : null);
   }, []);
 
   const onDockPointerUp = useCallback(() => {
@@ -664,6 +664,61 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
 
       </div>{/* end frame */}
+
+      {/* ── Drag ghost — fixed, follows cursor, outside frame so it escapes overflow:hidden ── */}
+      {dragState && (() => {
+        const ghost = orderedItems[dragState.src];
+        if (!ghost) return null;
+        const GhostIcon = ghost.icon;
+        return (
+          <div
+            style={{
+              position: "fixed",
+              left: dragState.x, top: dragState.y,
+              transform: "translate(-50%, -60%)",
+              pointerEvents: "none",
+              zIndex: 9999,
+              display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
+              filter: `drop-shadow(0 6px 20px ${ghost.glow})`,
+              transition: "none",
+            }}
+          >
+            <div style={{
+              width: ICON_SZ + 8, height: ICON_SZ + 8, borderRadius: "28%",
+              background: frameBg,
+              boxShadow: `${raisedSm}, 0 0 0 2px ${ghost.color}66`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              position: "relative", overflow: "hidden",
+            }}>
+              <div style={{
+                position: "absolute", inset: 0, borderRadius: "inherit",
+                background: ghost.bg, opacity: 0.3,
+              }} />
+              <div style={{
+                position: "absolute", top: 0, left: 0, right: 0, height: "42%",
+                borderRadius: "inherit",
+                background: `linear-gradient(180deg, ${fslite}66 0%, transparent 100%)`,
+              }} />
+              <GhostIcon style={{
+                width: 22, height: 22, position: "relative",
+                color: ghost.color,
+                filter: `drop-shadow(0 0 5px ${ghost.glow})`,
+              }} />
+            </div>
+            <div style={{
+              background: isLight ? `${fsdark}ee` : `${fslite}ee`,
+              color: isLight ? "#fff" : "#0f111a",
+              fontSize: 9, fontWeight: 700, letterSpacing: "0.10em",
+              textTransform: "uppercase", padding: "3px 9px",
+              borderRadius: 6, whiteSpace: "nowrap",
+              boxShadow: raisedSm,
+            }}>
+              {ghost.title}
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
