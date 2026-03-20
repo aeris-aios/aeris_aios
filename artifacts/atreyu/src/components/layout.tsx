@@ -423,15 +423,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <path d={svgBotPocket} fill={frameBg} />
           </svg>
 
-          {/* Input container — vertically centered in the pocket */}
+          {/* Input container — centered across FULL overlay (pocket + bar) for optical balance */}
           <div style={{
             position: "absolute",
-            top: 0, bottom: BOT_BAR_H,
+            top: 0, bottom: 0,
             left: "50%", transform: "translateX(-50%)",
             width: BOT_PILL_W,
             display: "flex", alignItems: "center", justifyContent: "center",
             pointerEvents: "auto", zIndex: 2,
-            padding: `${BOT_V_PAD}px 0`,
           }}>
             <div style={{
               display: "flex", alignItems: "flex-start", gap: 8,
