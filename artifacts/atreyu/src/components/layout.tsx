@@ -22,26 +22,33 @@ const navItems = [
 ───────────────────────────────────────────────────────────── */
 const BAR_H    = 42;
 const POCKET_H = 68;
-const TOTAL_H  = BAR_H + POCKET_H;   /* total header overlay height */
-const DOCK_W   = 490;                 /* dock pocket pixel width     */
-const INNER_R  = 22;                  /* dock bottom corner radius   */
+const TOTAL_H  = BAR_H + POCKET_H;
+const DOCK_W   = 490;
+const OUTER_R  = 40;   /* concave join radius */
+const INNER_R  = 22;   /* dock bottom corner radius */
 const ICON_SZ  = 42;
 
-/* ── Pocket-only SVG path ──────────────────────────────────────
-   Only fills the CENTER dock pocket. Wings are transparent so the
-   workspace scrolls visibly behind them.
+/* ── Full-width sculpted path ──────────────────────────────────
+   Draws the complete header surface: flat wings left & right,
+   center dock pocket dipping downward — one unified shape.
 ─────────────────────────────────────────────────────────────── */
-function pocketPath(dockHalf: number) {
+function buildPath(dockHalf: number) {
   const cx = 500;
+  const or = OUTER_R;
   const ir = INNER_R;
-  /* Rounded-bottom rectangle, centered, full height of TOTAL_H */
   return [
-    `M ${cx - dockHalf} 0`,
-    `L ${cx + dockHalf} 0`,
+    `M 0 0`,
+    `L 1000 0`,
+    `L 1000 ${BAR_H}`,
+    `L ${cx + dockHalf + or} ${BAR_H}`,
+    `Q ${cx + dockHalf} ${BAR_H} ${cx + dockHalf} ${BAR_H + or}`,
     `L ${cx + dockHalf} ${TOTAL_H - ir}`,
     `Q ${cx + dockHalf} ${TOTAL_H} ${cx + dockHalf - ir} ${TOTAL_H}`,
     `L ${cx - dockHalf + ir} ${TOTAL_H}`,
     `Q ${cx - dockHalf} ${TOTAL_H} ${cx - dockHalf} ${TOTAL_H - ir}`,
+    `L ${cx - dockHalf} ${BAR_H + or}`,
+    `Q ${cx - dockHalf} ${BAR_H} ${cx - dockHalf - or} ${BAR_H}`,
+    `L 0 ${BAR_H}`,
     `Z`,
   ].join(" ");
 }
@@ -93,23 +100,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const insetSm   = `inset 3px 3px 8px ${fsdark}, inset -3px -3px 8px ${fslite}`;
   const insetMd   = `inset 6px 6px 16px ${fsdark}, inset -6px -6px 16px ${fslite}`;
 
-  /* Dock pocket path — dockHalf in SVG's 0-1000 coordinate space */
+  /* SVG path — dockHalf in SVG's 0-1000 coordinate space */
   const dockHalf = frameW > 0 ? (DOCK_W / 2 / frameW) * 1000 : 204;
-  const svgPocket = pocketPath(dockHalf);
-
-  /* Neumorphic shadow for the pocket shape itself (no filter on SVG) */
-  const pocketShadow = isLight
-    ? `6px 8px 22px ${fsdark}cc, -4px -4px 12px ${fslite}`
-    : `6px 8px 22px ${fsdark}, -2px -4px 10px ${fslite}44`;
-
-  /* Subtle wing fade: left/right brand area gets a soft gradient so
-     text stays readable even when workspace content scrolls behind */
-  const wingFadeL = isLight
-    ? `linear-gradient(to right, ${frameBg}e8 0%, ${frameBg}b0 60%, transparent 100%)`
-    : `linear-gradient(to right, ${frameBg}e0 0%, ${frameBg}a0 60%, transparent 100%)`;
-  const wingFadeR = isLight
-    ? `linear-gradient(to left, ${frameBg}e8 0%, ${frameBg}b0 60%, transparent 100%)`
-    : `linear-gradient(to left, ${frameBg}e0 0%, ${frameBg}a0 60%, transparent 100%)`;
+  const svgPath  = buildPath(dockHalf);
 
   function onCmd(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && cmd.trim()) { navigate("/assistant"); setCmd(""); }
@@ -148,81 +141,35 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         }} />
 
         {/* ══════════════════════════════════════════════════════
-            WORKSPACE (flex:1, overflows vertically)
-            Starts at the TOP of the frame (y=0).
-            padding-top pushes initial content below the header.
-            When scrolled, content rises into the transparent wings.
+            SCULPTED HEADER — in the flex flow, flexShrink:0
         ══════════════════════════════════════════════════════ */}
-        <div style={{
-          flex: 1,
-          overflowY: "auto",
-          overflowX: "hidden",
-          paddingTop: TOTAL_H,    /* clear the header overlay initially */
-          scrollbarWidth: "none",
-          position: "relative",
-          zIndex: 1,
-        }}>
-          <style>{`::-webkit-scrollbar{display:none}`}</style>
-          <div style={{ padding: "0 32px 32px" }}>
-            {children}
-          </div>
-        </div>
+        <div style={{ position: "relative", height: TOTAL_H, flexShrink: 0 }}>
 
-        {/* ══════════════════════════════════════════════════════
-            HEADER OVERLAY — absolute, always on top of workspace.
-            Wings (left/right) are transparent.
-            Only the center pocket SVG has a solid fill.
-        ══════════════════════════════════════════════════════ */}
-        <div style={{
-          position: "absolute",
-          top: 0, left: 0, right: 0,
-          height: TOTAL_H,
-          zIndex: 20,
-          pointerEvents: "none",   /* pass clicks through wings to workspace */
-        }}>
-
-          {/* ── Pocket SVG — no filter, no drop-shadow ─────────── */}
+          {/* Full-width sculpted SVG surface with drop-shadow */}
           <svg
             style={{
               position: "absolute", top: 0, left: 0,
               width: "100%", height: TOTAL_H,
               overflow: "visible",
-              /* NO drop-shadow filter — clean removal as requested */
+              filter: isLight
+                ? `drop-shadow(0 6px 16px ${fsdark}99) drop-shadow(0 -1px 2px ${fslite})`
+                : `drop-shadow(0 6px 16px ${fsdark}) drop-shadow(0 -1px 2px ${fslite}44)`,
             }}
             viewBox={`0 0 1000 ${TOTAL_H}`}
             preserveAspectRatio="none"
           >
-            {/* Only the pocket, not the wings */}
-            <path d={svgPocket} fill={frameBg} />
-            {/* Neumorphic shadow on just the pocket via SVG filter */}
-            <defs>
-              <filter id="neu" x="-20%" y="-20%" width="140%" height="140%">
-                <feDropShadow dx="3" dy="5" stdDeviation="7"
-                  floodColor={fsdark} floodOpacity="0.55" />
-                <feDropShadow dx="-2" dy="-3" stdDeviation="6"
-                  floodColor={fslite} floodOpacity={isLight ? "0.9" : "0.25"} />
-              </filter>
-            </defs>
-            <path d={svgPocket} fill={frameBg} filter="url(#neu)" />
-            {/* Top edge highlight on pocket */}
-            <line
-              x1={500 - dockHalf} y1="0.5"
-              x2={500 + dockHalf} y2="0.5"
-              stroke={fslite} strokeWidth="1.5"
-              strokeOpacity={isLight ? 0.95 : 0.18}
+            <path d={svgPath} fill={frameBg} />
+            <line x1="0" y1="0.5" x2="1000" y2="0.5"
+              stroke={fslite} strokeWidth="1.2"
+              strokeOpacity={isLight ? 0.9 : 0.18}
             />
           </svg>
 
-          {/* ── Left wing brand area (transparent bg, fades to clear) */}
+          {/* Brand bar */}
           <div style={{
-            position: "absolute", top: 0, left: 0,
-            height: BAR_H,
-            /* Width up to left edge of pocket */
-            width: `calc(50% - ${DOCK_W / 2}px)`,
-            background: wingFadeL,
-            display: "flex", alignItems: "center",
-            padding: "0 20px",
-            pointerEvents: "auto",    /* logo area is clickable */
+            position: "absolute", top: 0, left: 0, right: 0, height: BAR_H,
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "0 24px", zIndex: 2,
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{
@@ -237,18 +184,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <div style={{ fontFamily: "var(--app-font-mono)", fontSize: 7.5, letterSpacing: "0.14em", textTransform: "uppercase", opacity: 0.28, marginTop: 2 }}>MARKETING OS</div>
               </div>
             </div>
-          </div>
-
-          {/* ── Right wing controls area (transparent bg, fades to clear) */}
-          <div style={{
-            position: "absolute", top: 0, right: 0,
-            height: BAR_H,
-            width: `calc(50% - ${DOCK_W / 2}px)`,
-            background: wingFadeR,
-            display: "flex", alignItems: "center", justifyContent: "flex-end",
-            padding: "0 20px",
-            pointerEvents: "auto",
-          }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                 <div className="status-active" />
@@ -266,14 +201,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* ── Dock icons inside the pocket ────────────────────── */}
+          {/* Dock icons */}
           <div style={{
             position: "absolute",
             top: BAR_H, left: "50%", transform: "translateX(-50%)",
             width: DOCK_W, height: POCKET_H,
             display: "flex", alignItems: "center", justifyContent: "center", gap: 14,
-            pointerEvents: "auto",
-            zIndex: 2,
+            zIndex: 3,
           }}>
             {navItems.map((item, idx) => {
               const isActive = location === item.url;
@@ -347,7 +281,24 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               );
             })}
           </div>
-        </div>{/* end header overlay */}
+        </div>{/* end sculpted header */}
+
+        {/* ══════════════════════════════════════════════════════
+            WORKSPACE — flex:1, scrollable
+        ══════════════════════════════════════════════════════ */}
+        <div style={{
+          flex: 1,
+          overflowY: "auto",
+          overflowX: "hidden",
+          scrollbarWidth: "none",
+          position: "relative",
+          zIndex: 1,
+        }}>
+          <style>{`::-webkit-scrollbar{display:none}`}</style>
+          <div style={{ padding: "0 32px 32px" }}>
+            {children}
+          </div>
+        </div>
 
         {/* ══════════════════════════════════════════════════════
             BOTTOM COMMAND BAR — flex-shrink:0, always anchored
