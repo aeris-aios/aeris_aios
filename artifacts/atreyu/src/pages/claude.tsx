@@ -172,8 +172,8 @@ export default function AgentStudio() {
 
   return (
     <div style={{
-      margin: "-32px -32px 0 -32px",
-      height: "calc(100vh - 142px)",
+      margin: "-24px -32px 0 -32px",
+      height: "calc(100vh - 172px)",
       display: "grid",
       gridTemplateColumns: "240px 1fr 300px",
       gridTemplateRows: "1fr",
