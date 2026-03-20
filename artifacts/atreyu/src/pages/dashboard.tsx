@@ -81,7 +81,7 @@ function StatCard({
       </div>
 
       {/* Label */}
-      <div className="hud-label text-foreground/38">{a.label}</div>
+      <div className="hud-label">{a.label}</div>
 
       {/* Subtle left accent bar */}
       <div className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full opacity-40"
@@ -100,7 +100,7 @@ export default function Dashboard() {
         <div className="text-center">
           <div className="h-12 w-12 rounded-2xl mx-auto mb-4 animate-pulse"
             style={{ background: n.bg, boxShadow: n.raised }} />
-          <p className="hud-label text-foreground/35">INITIALIZING SYSTEMS…</p>
+          <p className="hud-label">INITIALIZING SYSTEMS…</p>
         </div>
       </div>
     );
@@ -115,13 +115,13 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-end justify-between">
         <div>
-          <p className="hud-label text-foreground/32 mb-1">COMMAND CENTER</p>
+          <p className="hud-label mb-1">COMMAND CENTER</p>
           <h1 className="text-3xl font-black tracking-tight text-foreground">Marketing Universe</h1>
         </div>
         <div className="flex items-center gap-2 px-4 py-2 rounded-xl"
           style={{ background: n.bg, boxShadow: n.insetSm }}>
           <div className="status-active" />
-          <span className="hud-label text-foreground/38">ALL SYSTEMS NOMINAL</span>
+          <span className="hud-label">ALL SYSTEMS NOMINAL</span>
         </div>
       </div>
 
@@ -140,7 +140,7 @@ export default function Dashboard() {
           style={{ background: n.bg, boxShadow: n.raised }}>
           <div className="flex items-center justify-between mb-4">
             <div>
-              <p className="hud-label text-foreground/32 mb-0.5">EXECUTION VELOCITY</p>
+              <p className="hud-label mb-0.5">EXECUTION VELOCITY</p>
               <h3 className="text-base font-bold text-foreground">Weekly Task Output</h3>
             </div>
             <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl"
@@ -189,7 +189,7 @@ export default function Dashboard() {
         {/* Recent activity */}
         <div className="rounded-2xl p-5"
           style={{ background: n.bg, boxShadow: n.raised }}>
-          <p className="hud-label text-foreground/32 mb-0.5">SIGNAL FEED</p>
+          <p className="hud-label mb-0.5">SIGNAL FEED</p>
           <h3 className="text-base font-bold text-foreground mb-4">Recent Activity</h3>
           <div className="space-y-2.5">
             {stats.recentActivity && stats.recentActivity.length > 0 ? (
@@ -202,9 +202,9 @@ export default function Dashboard() {
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground truncate">{activity.title}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="hud-label text-foreground/30">{activity.type}</span>
-                      <span className="hud-label text-foreground/20">·</span>
-                      <span className="hud-label text-foreground/30">
+                      <span className="hud-label">{activity.type}</span>
+                      <span className="hud-label opacity-50">·</span>
+                      <span className="hud-label">
                         {format(new Date(activity.createdAt), "MMM d")}
                       </span>
                     </div>
@@ -212,7 +212,7 @@ export default function Dashboard() {
                 </div>
               ))
             ) : (
-              <div className="text-center py-8 hud-label text-foreground/28">NO SIGNALS DETECTED</div>
+              <div className="text-center py-8 hud-label">NO SIGNALS DETECTED</div>
             )}
           </div>
         </div>
@@ -228,7 +228,7 @@ export default function Dashboard() {
           <div key={item.label}
             className="flex items-center justify-between px-4 py-3 rounded-xl"
             style={{ background: n.bg, boxShadow: n.insetSm }}>
-            <span className="hud-label text-foreground/35">{item.label}</span>
+            <span className="hud-label">{item.label}</span>
             <div className="flex items-center gap-1.5">
               <div className="status-active" />
               <span className="hud-label" style={{ color: item.color }}>{item.val}</span>

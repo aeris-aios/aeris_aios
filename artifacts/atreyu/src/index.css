@@ -111,7 +111,7 @@
   --secondary: 220 20% 86%;
   --secondary-foreground: 225 30% 13%;
   --muted: 220 20% 86%;
-  --muted-foreground: 220 15% 46%;
+  --muted-foreground: 220 15% 33%;
   --accent: 187 100% 42%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 84% 60%;
@@ -182,7 +182,7 @@
   --secondary: 228 20% 14%;
   --secondary-foreground: 220 20% 95%;
   --muted: 228 20% 14%;
-  --muted-foreground: 220 15% 55%;
+  --muted-foreground: 220 15% 72%;
   --accent: 187 100% 42%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 72% 51%;
@@ -316,7 +316,7 @@
     font-size: 0.65rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    opacity: 0.5;
+    color: hsl(var(--muted-foreground));
   }
 
   /* Status dot pulse */
