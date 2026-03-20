@@ -31,10 +31,11 @@ const ICON_SZ  = 42;
 /* ── Bottom command bar geometry (mirror of top, pocket goes UP) */
 const BOT_BAR_H        = 16;   /* thin full-width strip at very bottom */
 const BOT_MIN_INPUT_H  = 46;   /* single-line textarea height */
-const BOT_V_PAD        = 22;   /* vertical breathing room above+below input */
-const BOT_MIN_POCKET_H = BOT_MIN_INPUT_H + BOT_V_PAD * 2;   /* 90 */
-const BOT_DOCK_W       = 640;  /* notch width — wider than the pill (570) for clean margins */
-const BOT_PILL_W       = 570;  /* actual pill / input container width */
+const BOT_V_PAD        = 13;   /* tight vertical gap — notch hugs pill closely */
+const BOT_MIN_POCKET_H = BOT_MIN_INPUT_H + BOT_V_PAD * 2;   /* 72 */
+const BOT_DOCK_W       = 596;  /* notch width — pill (570) + 13px each side */
+const BOT_PILL_W       = 560;  /* actual pill / input container width */
+const BOT_PILL_R       = 20;   /* pill border-radius — notch inner corners match this */
 
 /* ── Full-width sculpted path (solid wings) ────────────────── */
 function buildPath(dockHalf: number) {
@@ -82,8 +83,8 @@ function pocketPath(dockHalf: number) {
 ─────────────────────────────────────────────────────────────── */
 function bottomPocketPath(dockHalf: number, botPocketH: number, botTotalH: number) {
   const cx = 500;
-  const or = OUTER_R;
-  const ir = INNER_R;
+  const or = 26;          /* tighter concave wing join (vs top's 40) */
+  const ir = BOT_PILL_R;  /* matches pill border-radius so corners align */
   const barY = botPocketH;
   const totalY = botTotalH;
   return [
