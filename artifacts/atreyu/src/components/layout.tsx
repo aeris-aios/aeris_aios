@@ -466,32 +466,75 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </svg>
           )}
 
-          {/* Minimized bar — thin strip with a centered expand pill */}
+          {/* Minimized state — floating neumorphic expand button */}
           {botMinimized && (
-            <div style={{
-              position: "absolute", bottom: 0, left: 0, right: 0,
-              height: BOT_BAR_H,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              pointerEvents: "auto",
-            }}>
+            <>
+              <style>{`
+                @keyframes cs-float-in {
+                  from { opacity: 0; transform: translateX(-50%) translateY(14px) scale(0.92); }
+                  to   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1);    }
+                }
+                @keyframes cs-bob {
+                  0%, 100% { transform: translateX(-50%) translateY(0); }
+                  50%       { transform: translateX(-50%) translateY(-3px); }
+                }
+                .cs-expand-btn {
+                  animation: cs-float-in 0.32s cubic-bezier(0.34,1.56,0.64,1) both,
+                             cs-bob 2.8s ease-in-out 0.5s infinite;
+                }
+                .cs-expand-btn:hover {
+                  animation: cs-float-in 0.32s cubic-bezier(0.34,1.56,0.64,1) both !important;
+                }
+              `}</style>
               <button
+                className="cs-expand-btn"
                 onClick={() => setBotMinimized(false)}
                 style={{
-                  display: "flex", alignItems: "center", gap: 6,
-                  padding: "4px 14px 4px 12px",
-                  borderRadius: 20, border: "none", cursor: "pointer",
-                  background: frameBg, boxShadow: raisedSm,
-                  color: "var(--foreground,#1e2030)", opacity: 0.55,
-                  fontSize: 10, fontFamily: "inherit", letterSpacing: "0.06em",
-                  transition: "opacity 0.15s",
+                  position: "absolute",
+                  bottom: 10,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  display: "flex", alignItems: "center", gap: 7,
+                  padding: "9px 20px 9px 16px",
+                  borderRadius: 28, border: "none", cursor: "pointer",
+                  background: frameBg,
+                  boxShadow: isLight
+                    ? `6px 6px 18px ${fsdark}bb, -4px -4px 12px ${fslite}, 0 0 0 1px rgba(255,255,255,0.7)`
+                    : `6px 6px 18px ${fsdark}, -4px -4px 12px ${fslite}33, 0 0 0 1px rgba(255,255,255,0.05)`,
+                  color: "var(--foreground,#1e2030)",
+                  fontSize: 11, fontFamily: "inherit", letterSpacing: "0.07em",
+                  fontWeight: 500, whiteSpace: "nowrap",
+                  pointerEvents: "auto",
+                  transition: "box-shadow 0.2s ease, opacity 0.2s",
+                  opacity: 0.72,
                 }}
-                onMouseEnter={e => (e.currentTarget.style.opacity = "0.85")}
-                onMouseLeave={e => (e.currentTarget.style.opacity = "0.55")}
+                onMouseEnter={e => {
+                  e.currentTarget.style.opacity = "1";
+                  e.currentTarget.style.boxShadow = isLight
+                    ? `8px 8px 24px ${fsdark}cc, -5px -5px 16px ${fslite}, 0 0 0 1px rgba(255,255,255,0.9)`
+                    : `8px 8px 24px ${fsdark}, -5px -5px 16px ${fslite}44, 0 0 0 1px rgba(255,255,255,0.08)`;
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.opacity = "0.72";
+                  e.currentTarget.style.boxShadow = isLight
+                    ? `6px 6px 18px ${fsdark}bb, -4px -4px 12px ${fslite}, 0 0 0 1px rgba(255,255,255,0.7)`
+                    : `6px 6px 18px ${fsdark}, -4px -4px 12px ${fslite}33, 0 0 0 1px rgba(255,255,255,0.05)`;
+                }}
               >
-                <ChevronUp style={{ width: 11, height: 11 }} />
-                Ask ATREYU anything
+                <div style={{
+                  width: 22, height: 22, borderRadius: "50%",
+                  background: frameBg,
+                  boxShadow: isLight
+                    ? `inset 2px 2px 5px ${fsdark}88, inset -2px -2px 5px ${fslite}`
+                    : `inset 2px 2px 5px ${fsdark}, inset -2px -2px 5px ${fslite}22`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0,
+                }}>
+                  <ChevronUp style={{ width: 12, height: 12, opacity: 0.65 }} />
+                </div>
+                <span style={{ opacity: 0.6 }}>Ask ATREYU anything</span>
               </button>
-            </div>
+            </>
           )}
 
           {/* Input container — only rendered when expanded */}
