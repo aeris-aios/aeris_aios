@@ -478,7 +478,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 onClick={() => setBotMinimized(false)}
                 style={{
                   padding: "7px 22px",
-                  marginBottom: 20,
+                  marginBottom: 70,
                   borderRadius: 20, border: "none", cursor: "pointer",
                   background: frameBg,
                   boxShadow: raisedSm,
