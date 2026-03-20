@@ -135,18 +135,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const [cmd, setCmd]             = useState("");
   const [hov, setHov]             = useState<number | null>(null);
-  const [inputH, setInputH]       = useState(BOT_MIN_INPUT_H);
+  const [inputH, setInputH]       = useState(21);  /* natural single-line textarea height */
   const frameRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [frameW, setFrameW]       = useState(1200);
 
   /* ── Dynamic bottom bar geometry based on textarea content ── */
-  const botPocketH = inputH + BOT_V_PAD * 2;
+  const botPocketH = Math.max(BOT_MIN_POCKET_H, inputH + BOT_V_PAD * 2);
   const botTotalH  = BOT_BAR_H + botPocketH;
 
   function autoGrow(el: HTMLTextAreaElement) {
     el.style.height = "auto";
-    const h = Math.max(BOT_MIN_INPUT_H, el.scrollHeight);
+    const h = el.scrollHeight;   /* no forced minimum — pocket floor handles it */
     el.style.height = `${h}px`;
     setInputH(h);
   }
@@ -461,7 +461,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           }}>
             <div style={{
               display: "flex", alignItems: "center", gap: 8,
-              padding: "10px 16px", borderRadius: 20,
+              padding: "0 16px", minHeight: 66, borderRadius: 20,
               background: frameBg,
               boxShadow: insetSm,
               width: "100%", position: "relative", overflow: "hidden",
@@ -484,7 +484,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   fontSize: 13, fontFamily: "inherit", lineHeight: "1.55",
                   color: "var(--foreground,#1e2030)", opacity: 0.8,
                   resize: "none", overflow: "hidden",
-                  height: inputH, minHeight: BOT_MIN_INPUT_H,
+                  height: inputH,
                   position: "relative", zIndex: 1,
                 }}
               />
