@@ -28,18 +28,13 @@ const OUTER_R  = 40;   /* concave join radius */
 const INNER_R  = 22;   /* dock bottom corner radius */
 const ICON_SZ  = 42;
 
-/* ── Full-width sculpted path ──────────────────────────────────
-   Draws the complete header surface: flat wings left & right,
-   center dock pocket dipping downward — one unified shape.
-─────────────────────────────────────────────────────────────── */
+/* ── Full-width sculpted path (solid wings) ────────────────── */
 function buildPath(dockHalf: number) {
   const cx = 500;
   const or = OUTER_R;
   const ir = INNER_R;
   return [
-    `M 0 0`,
-    `L 1000 0`,
-    `L 1000 ${BAR_H}`,
+    `M 0 0`, `L 1000 0`, `L 1000 ${BAR_H}`,
     `L ${cx + dockHalf + or} ${BAR_H}`,
     `Q ${cx + dockHalf} ${BAR_H} ${cx + dockHalf} ${BAR_H + or}`,
     `L ${cx + dockHalf} ${TOTAL_H - ir}`,
@@ -48,7 +43,27 @@ function buildPath(dockHalf: number) {
     `Q ${cx - dockHalf} ${TOTAL_H} ${cx - dockHalf} ${TOTAL_H - ir}`,
     `L ${cx - dockHalf} ${BAR_H + or}`,
     `Q ${cx - dockHalf} ${BAR_H} ${cx - dockHalf - or} ${BAR_H}`,
-    `L 0 ${BAR_H}`,
+    `L 0 ${BAR_H}`, `Z`,
+  ].join(" ");
+}
+
+/* ── Pocket-only path (transparent wings / island effect) ─────
+   Only fills the center dock pocket. Wings stay transparent so
+   workspace content scrolls visibly behind them.
+─────────────────────────────────────────────────────────────── */
+function pocketPath(dockHalf: number) {
+  const cx = 500;
+  const or = OUTER_R;
+  const ir = INNER_R;
+  return [
+    `M ${cx - dockHalf - or} ${BAR_H}`,
+    `Q ${cx - dockHalf} ${BAR_H} ${cx - dockHalf} ${BAR_H + or}`,
+    `L ${cx - dockHalf} ${TOTAL_H - ir}`,
+    `Q ${cx - dockHalf} ${TOTAL_H} ${cx - dockHalf + ir} ${TOTAL_H}`,
+    `L ${cx + dockHalf - ir} ${TOTAL_H}`,
+    `Q ${cx + dockHalf} ${TOTAL_H} ${cx + dockHalf} ${TOTAL_H - ir}`,
+    `L ${cx + dockHalf} ${BAR_H + or}`,
+    `Q ${cx + dockHalf} ${BAR_H} ${cx + dockHalf + or} ${BAR_H}`,
     `Z`,
   ].join(" ");
 }
@@ -100,9 +115,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const insetSm   = `inset 3px 3px 8px ${fsdark}, inset -3px -3px 8px ${fslite}`;
   const insetMd   = `inset 6px 6px 16px ${fsdark}, inset -6px -6px 16px ${fslite}`;
 
-  /* SVG path — dockHalf in SVG's 0-1000 coordinate space */
-  const dockHalf = frameW > 0 ? (DOCK_W / 2 / frameW) * 1000 : 204;
-  const svgPath  = buildPath(dockHalf);
+  /* SVG paths — dockHalf in SVG's 0-1000 coordinate space */
+  const dockHalf  = frameW > 0 ? (DOCK_W / 2 / frameW) * 1000 : 204;
+  const svgPocket = pocketPath(dockHalf);   /* island/peninsula — only the center pocket */
 
   function onCmd(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && cmd.trim()) { navigate("/assistant"); setCmd(""); }
@@ -141,35 +156,64 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         }} />
 
         {/* ══════════════════════════════════════════════════════
-            SCULPTED HEADER — in the flex flow, flexShrink:0
+            WORKSPACE — flex:1, scrollable; starts at top.
+            paddingTop clears the absolute header overlay.
         ══════════════════════════════════════════════════════ */}
-        <div style={{ position: "relative", height: TOTAL_H, flexShrink: 0 }}>
+        <div style={{
+          flex: 1,
+          overflowY: "auto",
+          overflowX: "hidden",
+          paddingTop: TOTAL_H,
+          scrollbarWidth: "none",
+          position: "relative",
+          zIndex: 1,
+        }}>
+          <style>{`::-webkit-scrollbar{display:none}`}</style>
+          <div style={{ padding: "0 32px 32px" }}>
+            {children}
+          </div>
+        </div>
 
-          {/* Full-width sculpted SVG surface with drop-shadow */}
+        {/* ══════════════════════════════════════════════════════
+            HEADER OVERLAY — absolute, floats above workspace.
+            Wings are fully transparent — workspace scrolls behind.
+            Only the center pocket SVG has a solid fill (island).
+        ══════════════════════════════════════════════════════ */}
+        <div style={{
+          position: "absolute", top: 0, left: 0, right: 0,
+          height: TOTAL_H, zIndex: 20,
+          pointerEvents: "none",   /* let clicks fall through to workspace in wing zones */
+        }}>
+
+          {/* Pocket-only SVG with drop-shadow */}
           <svg
             style={{
               position: "absolute", top: 0, left: 0,
               width: "100%", height: TOTAL_H,
               overflow: "visible",
               filter: isLight
-                ? `drop-shadow(0 6px 16px ${fsdark}99) drop-shadow(0 -1px 2px ${fslite})`
-                : `drop-shadow(0 6px 16px ${fsdark}) drop-shadow(0 -1px 2px ${fslite}44)`,
+                ? `drop-shadow(0 6px 18px ${fsdark}99) drop-shadow(0 -1px 0 ${fslite})`
+                : `drop-shadow(0 6px 18px ${fsdark}) drop-shadow(0 -1px 0 ${fslite}33)`,
             }}
             viewBox={`0 0 1000 ${TOTAL_H}`}
             preserveAspectRatio="none"
           >
-            <path d={svgPath} fill={frameBg} />
-            <line x1="0" y1="0.5" x2="1000" y2="0.5"
-              stroke={fslite} strokeWidth="1.2"
+            <path d={svgPocket} fill={frameBg} />
+            {/* Top edge highlight spanning just the pocket width */}
+            <line
+              x1={500 - dockHalf} y1={`${BAR_H}.5`}
+              x2={500 + dockHalf} y2={`${BAR_H}.5`}
+              stroke={fslite} strokeWidth="1.5"
               strokeOpacity={isLight ? 0.9 : 0.18}
             />
           </svg>
 
-          {/* Brand bar */}
+          {/* Left wing — transparent, brand text only */}
           <div style={{
-            position: "absolute", top: 0, left: 0, right: 0, height: BAR_H,
-            display: "flex", alignItems: "center", justifyContent: "space-between",
-            padding: "0 24px", zIndex: 2,
+            position: "absolute", top: 0, left: 0,
+            width: `calc(50% - ${DOCK_W / 2}px)`, height: BAR_H,
+            display: "flex", alignItems: "center", padding: "0 20px",
+            pointerEvents: "auto",
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{
@@ -184,6 +228,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <div style={{ fontFamily: "var(--app-font-mono)", fontSize: 7.5, letterSpacing: "0.14em", textTransform: "uppercase", opacity: 0.28, marginTop: 2 }}>MARKETING OS</div>
               </div>
             </div>
+          </div>
+
+          {/* Right wing — transparent, controls only */}
+          <div style={{
+            position: "absolute", top: 0, right: 0,
+            width: `calc(50% - ${DOCK_W / 2}px)`, height: BAR_H,
+            display: "flex", alignItems: "center", justifyContent: "flex-end", padding: "0 20px",
+            pointerEvents: "auto",
+          }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
                 <div className="status-active" />
@@ -201,13 +254,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* Dock icons */}
+          {/* Dock icons inside the pocket */}
           <div style={{
             position: "absolute",
             top: BAR_H, left: "50%", transform: "translateX(-50%)",
             width: DOCK_W, height: POCKET_H,
             display: "flex", alignItems: "center", justifyContent: "center", gap: 14,
-            zIndex: 3,
+            pointerEvents: "auto", zIndex: 2,
           }}>
             {navItems.map((item, idx) => {
               const isActive = location === item.url;
@@ -281,24 +334,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               );
             })}
           </div>
-        </div>{/* end sculpted header */}
-
-        {/* ══════════════════════════════════════════════════════
-            WORKSPACE — flex:1, scrollable
-        ══════════════════════════════════════════════════════ */}
-        <div style={{
-          flex: 1,
-          overflowY: "auto",
-          overflowX: "hidden",
-          scrollbarWidth: "none",
-          position: "relative",
-          zIndex: 1,
-        }}>
-          <style>{`::-webkit-scrollbar{display:none}`}</style>
-          <div style={{ padding: "0 32px 32px" }}>
-            {children}
-          </div>
-        </div>
+        </div>{/* end header overlay */}
 
         {/* ══════════════════════════════════════════════════════
             BOTTOM COMMAND BAR — flex-shrink:0, always anchored
