@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   LayoutDashboard, Bot, Microscope, PenTool,
   Megaphone, Library, Zap, Settings, Search, Sun, Moon, Palette, Code2,
@@ -18,6 +18,24 @@ const navItems = [
   { title: "Brand Kit",   url: "/brand",       icon: Palette,         color: "#ec4899", glow: "rgba(236,72,153,0.6)", bg: "linear-gradient(145deg,#f472b6,#be185d)" },
   { title: "Settings",    url: "/settings",    icon: Settings,        color: "#6b7280", glow: "rgba(150,150,160,0.5)", bg: "linear-gradient(145deg,#a8b0be,#555f6d)" },
 ];
+
+const NAV_ORDER_KEY = "atreyu-nav-order";
+
+/* Restore user's saved order. New items not in saved order are appended at end. */
+function loadNavOrder(): typeof navItems {
+  try {
+    const raw = localStorage.getItem(NAV_ORDER_KEY);
+    if (!raw) return navItems;
+    const urls: string[] = JSON.parse(raw);
+    const byUrl = Object.fromEntries(navItems.map(it => [it.url, it]));
+    const ordered = urls.flatMap(u => (byUrl[u] ? [byUrl[u]] : []));
+    const seen = new Set(urls);
+    navItems.forEach(it => { if (!seen.has(it.url)) ordered.push(it); });
+    return ordered;
+  } catch {
+    return navItems;
+  }
+}
 
 /* ─────────────────────────────────────────────────────────────
    GEOMETRY
@@ -145,6 +163,52 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const frameRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [frameW, setFrameW]       = useState(1200);
+
+  /* ── Drag-to-reorder dock icons ─────────────────────────── */
+  const [orderedItems, setOrderedItems] = useState(() => loadNavOrder());
+  const dragSrcIdx  = useRef<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const saveOrder = useCallback((items: typeof navItems) => {
+    localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(items.map(it => it.url)));
+  }, []);
+
+  const onDragStart = useCallback((idx: number) => {
+    dragSrcIdx.current = idx;
+    setIsDragging(true);
+  }, []);
+
+  const onDragOver = useCallback((e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    setDragOverIdx(idx);
+  }, []);
+
+  const onDrop = useCallback((e: React.DragEvent, dropIdx: number) => {
+    e.preventDefault();
+    const src = dragSrcIdx.current;
+    if (src === null || src === dropIdx) {
+      setDragOverIdx(null);
+      setIsDragging(false);
+      return;
+    }
+    setOrderedItems(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(src, 1);
+      next.splice(dropIdx, 0, moved);
+      saveOrder(next);
+      return next;
+    });
+    dragSrcIdx.current = null;
+    setDragOverIdx(null);
+    setIsDragging(false);
+  }, [saveOrder]);
+
+  const onDragEnd = useCallback(() => {
+    dragSrcIdx.current = null;
+    setDragOverIdx(null);
+    setIsDragging(false);
+  }, []);
 
   /* ── Dynamic bottom bar geometry based on textarea content ── */
   const botPocketH = Math.max(BOT_MIN_POCKET_H, inputH + BOT_V_PAD * 2);
@@ -349,79 +413,97 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             display: "flex", alignItems: "center", justifyContent: "center", gap: ICON_GAP,
             pointerEvents: "auto", zIndex: 2,
           }}>
-            {navItems.map((item, idx) => {
-              const isActive = location === item.url;
-              const isHov    = hov === idx;
-              const isAdj    = hov !== null && Math.abs(hov - idx) === 1;
-              const scale    = 1;
+            {orderedItems.map((item, idx) => {
+              const isActive  = location === item.url;
+              const isHov     = hov === idx && !isDragging;
+              const isSrc     = dragSrcIdx.current === idx;
+              const isTarget  = dragOverIdx === idx && !isSrc;
 
               return (
-                <Link key={item.url} href={item.url}>
-                  <div
-                    style={{
-                      display: "flex", flexDirection: "column", alignItems: "center",
-                      cursor: "pointer", position: "relative",
-                      transform: `scale(${scale})`, transformOrigin: "center bottom",
-                      transition: "transform 0.18s cubic-bezier(0.34,1.56,0.64,1)",
-                    }}
-                    onMouseEnter={() => setHov(idx)}
-                    onMouseLeave={() => setHov(null)}
-                  >
-                    <div style={{
-                      width: ICON_SZ, height: ICON_SZ, borderRadius: "28%",
-                      background: frameBg,
-                      boxShadow: isActive ? insetSm : raisedSm,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      position: "relative", overflow: "hidden",
-                      transition: "box-shadow 0.2s ease",
-                    }}>
+                <div
+                  key={item.url}
+                  draggable
+                  onDragStart={() => onDragStart(idx)}
+                  onDragOver={e => onDragOver(e, idx)}
+                  onDrop={e => onDrop(e, idx)}
+                  onDragEnd={onDragEnd}
+                  style={{
+                    display: "flex", flexDirection: "column", alignItems: "center",
+                    cursor: isDragging ? "grabbing" : "grab",
+                    position: "relative",
+                    transition: "opacity 0.15s, transform 0.15s",
+                    opacity: isSrc ? 0.35 : 1,
+                    transform: isTarget ? "scale(1.12)" : "scale(1)",
+                    outline: isTarget ? `2px solid ${item.color}88` : "none",
+                    borderRadius: "28%",
+                  }}
+                  onMouseEnter={() => !isDragging && setHov(idx)}
+                  onMouseLeave={() => setHov(null)}
+                >
+                  <Link href={item.url}>
+                    <div
+                      style={{
+                        display: "flex", flexDirection: "column", alignItems: "center",
+                        cursor: "inherit", position: "relative",
+                      }}
+                      onClick={e => { if (isDragging) e.preventDefault(); }}
+                    >
                       <div style={{
-                        position: "absolute", inset: 0, borderRadius: "inherit",
-                        background: item.bg,
-                        opacity: isActive ? 0.22 : isHov ? 0.16 : 0.10,
-                        transition: "opacity 0.2s",
-                      }} />
-                      {!isActive && (
+                        width: ICON_SZ, height: ICON_SZ, borderRadius: "28%",
+                        background: frameBg,
+                        boxShadow: isActive ? insetSm : raisedSm,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        position: "relative", overflow: "hidden",
+                        transition: "box-shadow 0.2s ease",
+                      }}>
                         <div style={{
-                          position: "absolute", top: 0, left: 0, right: 0, height: "42%",
-                          borderRadius: "inherit",
-                          background: `linear-gradient(180deg, ${fslite}55 0%, transparent 100%)`,
-                          pointerEvents: "none",
+                          position: "absolute", inset: 0, borderRadius: "inherit",
+                          background: item.bg,
+                          opacity: isActive ? 0.22 : isHov ? 0.16 : 0.10,
+                          transition: "opacity 0.2s",
                         }} />
-                      )}
-                      <item.icon style={{
-                        width: 19, height: 19, position: "relative",
-                        color: isActive ? item.color : `${item.color}99`,
-                        filter: isActive ? `drop-shadow(0 0 4px ${item.glow})` : "none",
-                        transition: "color 0.2s, filter 0.2s",
+                        {!isActive && (
+                          <div style={{
+                            position: "absolute", top: 0, left: 0, right: 0, height: "42%",
+                            borderRadius: "inherit",
+                            background: `linear-gradient(180deg, ${fslite}55 0%, transparent 100%)`,
+                            pointerEvents: "none",
+                          }} />
+                        )}
+                        <item.icon style={{
+                          width: 19, height: 19, position: "relative",
+                          color: isActive ? item.color : `${item.color}99`,
+                          filter: isActive ? `drop-shadow(0 0 4px ${item.glow})` : "none",
+                          transition: "color 0.2s, filter 0.2s",
+                        }} />
+                      </div>
+                      <div style={{
+                        marginTop: 4,
+                        width: isActive ? ICON_SZ : 0,
+                        height: 2.5,
+                        borderRadius: 2,
+                        background: isActive ? item.color : "transparent",
+                        boxShadow: isActive ? `0 0 6px ${item.glow}, 0 0 12px ${item.glow}` : "none",
+                        transition: "width 0.28s cubic-bezier(0.34,1.56,0.64,1), background 0.2s, box-shadow 0.2s",
+                        overflow: "hidden",
                       }} />
                     </div>
+                  </Link>
+                  {isHov && (
                     <div style={{
-                      marginTop: 4,
-                      width: isActive ? ICON_SZ : 0,
-                      height: 2.5,
-                      borderRadius: 2,
-                      background: isActive ? item.color : "transparent",
-                      boxShadow: isActive ? `0 0 6px ${item.glow}, 0 0 12px ${item.glow}` : "none",
-                      transition: "width 0.28s cubic-bezier(0.34,1.56,0.64,1), background 0.2s, box-shadow 0.2s",
-                      overflow: "hidden",
-                    }} />
-                    {isHov && (
-                      <div style={{
-                        position: "absolute", bottom: "calc(100% + 10px)",
-                        left: "50%", transform: "translateX(-50%)",
-                        background: isLight ? `${fsdark}f0` : `${fslite}f0`,
-                        color: isLight ? "#fff" : "#0f111a",
-                        fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
-                        textTransform: "uppercase", padding: "3px 9px",
-                        borderRadius: 7, whiteSpace: "nowrap",
-                        pointerEvents: "none", boxShadow: raisedSm,
-                      }}>
-                        {item.title}
-                      </div>
-                    )}
-                  </div>
-                </Link>
+                      position: "absolute", bottom: "calc(100% + 10px)",
+                      left: "50%", transform: "translateX(-50%)",
+                      background: isLight ? `${fsdark}f0` : `${fslite}f0`,
+                      color: isLight ? "#fff" : "#0f111a",
+                      fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+                      textTransform: "uppercase", padding: "3px 9px",
+                      borderRadius: 7, whiteSpace: "nowrap",
+                      pointerEvents: "none", boxShadow: raisedSm,
+                    }}>
+                      {item.title}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
