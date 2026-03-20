@@ -251,18 +251,20 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             display: "flex", alignItems: "center", justifyContent: "center",
             pointerEvents: "none",
           }}>
-            <img
-              src="/atreyu-logo.png"
-              alt="ATREYU"
-              style={{
-                height: 30,
-                width: "auto",
-                opacity: isLight ? 0.75 : 0.5,
-                filter: isLight ? "none" : "brightness(3) saturate(0.3)",
-                userSelect: "none",
-                display: "block",
-              }}
-            />
+            <Link href="/" style={{ pointerEvents: "auto", display: "flex", alignItems: "center", cursor: "pointer" }}>
+              <img
+                src="/atreyu-logo.png"
+                alt="ATREYU"
+                style={{
+                  height: 30,
+                  width: "auto",
+                  opacity: isLight ? 0.75 : 0.5,
+                  filter: isLight ? "none" : "brightness(3) saturate(0.3)",
+                  userSelect: "none",
+                  display: "block",
+                }}
+              />
+            </Link>
           </div>
 
           {/* Right wing — transparent, controls only */}
