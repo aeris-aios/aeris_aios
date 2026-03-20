@@ -275,7 +275,7 @@ router.post("/content/scrape-profile", async (req, res) => {
       res.status(404).json({ error: "Profile not found or is private." }); return;
     }
 
-    /* Normalise across platforms */
+    /* Normalize across platforms */
     let posts: Array<{ imageUrl: string; caption: string; likes: number }> = [];
 
     if (platform === "instagram") {

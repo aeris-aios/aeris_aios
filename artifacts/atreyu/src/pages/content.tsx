@@ -107,7 +107,7 @@ function fmtFollowers(n: number) {
    CANVAS UTILITIES & PROFESSIONAL TEMPLATE SYSTEM
 ══════════════════════════════════════════════ */
 
-/* ── Colour helpers ── */
+/* ── Color helpers ── */
 function luminance(hex: string): number {
   const h = hex.replace("#", "").padEnd(6, "0");
   const r = parseInt(h.substring(0,2),16);
@@ -630,7 +630,7 @@ function ProfileCard({ profile, styleProfile, loading, error }: {
     <div className="neu-inset-sm rounded-2xl p-5 flex items-center gap-3">
       <Loader2 className="h-5 w-5 animate-spin text-primary flex-shrink-0" />
       <div>
-        <p className="text-sm font-semibold">Analysing profile…</p>
+        <p className="text-sm font-semibold">Analyzing profile…</p>
         <p className="text-xs text-muted-foreground mt-0.5">Scraping posts and extracting visual style — this takes ~30 seconds</p>
       </div>
     </div>
@@ -682,7 +682,7 @@ function ProfileCard({ profile, styleProfile, loading, error }: {
           </div>
         </div>
         <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400 text-xs font-semibold flex-shrink-0">
-          <CheckCircle2 className="h-3 w-3" /> Analysed
+          <CheckCircle2 className="h-3 w-3" /> Analyzed
         </div>
       </div>
 
@@ -1287,7 +1287,7 @@ export default function ContentStudio() {
                       </div>
                     ) : (
                       <div className="space-y-1.5">
-                        <p className="text-sm text-muted-foreground">Uses your saved brand identity, voice, colours, and style examples.</p>
+                        <p className="text-sm text-muted-foreground">Uses your saved brand identity, voice, colors, and style examples.</p>
                         <span onClick={e=>{e.stopPropagation();navigate("/brand");}}
                           className="text-xs text-primary hover:underline flex items-center gap-1 cursor-pointer">
                           <Palette className="h-3 w-3"/> Set up Brand Kit first →
@@ -1494,7 +1494,7 @@ export default function ContentStudio() {
                   <div className="flex items-center gap-2 p-4 rounded-2xl neu-inset-sm">
                     <Sparkles className="h-4 w-4 text-primary flex-shrink-0"/>
                     <p className="text-xs text-muted-foreground">
-                      <strong className="text-foreground">Style-matching active.</strong> Output images will use @{profileData?.username}'s colour palette: &nbsp;
+                      <strong className="text-foreground">Style-matching active.</strong> Output images will use @{profileData?.username}'s color palette: &nbsp;
                       {[styleProfile.colorPalette.primary, styleProfile.colorPalette.secondary, styleProfile.colorPalette.accent].map((c,i)=>(
                         <span key={i} className="inline-block w-3 h-3 rounded-full mr-0.5 align-middle border border-white/20" style={{background:c}}/>
                       ))}
