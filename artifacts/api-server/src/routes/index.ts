@@ -8,6 +8,8 @@ import knowledgeRouter from "./knowledge";
 import automationsRouter from "./automations";
 import projectsRouter from "./projects";
 import agentsRouter from "./agents/index";
+import brandRouter from "./brand";
+import storageRouter from "./storage";
 
 const router: IRouter = Router();
 
@@ -20,5 +22,7 @@ router.use(knowledgeRouter);
 router.use(automationsRouter);
 router.use(projectsRouter);
 router.use("/agents", agentsRouter);
+router.use(brandRouter);
+router.use(storageRouter);
 
 export default router;

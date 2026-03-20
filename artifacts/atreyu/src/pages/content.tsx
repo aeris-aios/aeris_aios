@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { PenTool, Wand2, Download, Save } from "lucide-react";
+import { useState, useEffect } from "react";
+import { PenTool, Wand2, Download, Save, Palette, CheckCircle2, Link as LinkIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,8 +9,22 @@ import { useSSE } from "@/hooks/use-sse";
 import ReactMarkdown from "react-markdown";
 import { useCreateContentAsset } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 
 export default function ContentStudio() {
+  const [, navigate] = useLocation();
+  const [brandProfile, setBrandProfile] = useState<{ name: string; styleExamplesCount?: number } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/brand/profile").then(r => r.json()).then(p => {
+      if (p?.name) setBrandProfile({ name: p.name });
+    }).catch(() => {});
+    fetch("/api/brand/examples").then(r => r.json()).then((examples: any[]) => {
+      const analyzed = examples.filter((e: any) => e.analysisResult);
+      if (analyzed.length > 0) setBrandProfile(prev => prev ? { ...prev, styleExamplesCount: analyzed.length } : null);
+    }).catch(() => {});
+  }, []);
+
   const [formData, setFormData] = useState({
     type: "ad_copy",
     platform: "Meta",
@@ -48,12 +62,32 @@ export default function ContentStudio() {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-12">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
-          <PenTool className="h-8 w-8 text-primary" />
-          Content Studio
-        </h1>
-        <p className="text-muted-foreground mt-2 text-sm">Synthesize high-converting copy across all channels.</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
+            <PenTool className="h-8 w-8 text-primary" />
+            Content Studio
+          </h1>
+          <p className="text-muted-foreground mt-2 text-sm">Synthesize high-converting copy across all channels.</p>
+        </div>
+        {brandProfile ? (
+          <button
+            onClick={() => navigate("/brand")}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-pink-500/10 border border-pink-500/20 text-pink-600 dark:text-pink-400 text-xs font-medium hover:bg-pink-500/20 transition-colors"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            <span>{brandProfile.name}</span>
+            {brandProfile.styleExamplesCount ? <span className="opacity-60">· {brandProfile.styleExamplesCount} style {brandProfile.styleExamplesCount === 1 ? "example" : "examples"}</span> : null}
+          </button>
+        ) : (
+          <button
+            onClick={() => navigate("/brand")}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-muted/60 border border-border text-muted-foreground text-xs font-medium hover:bg-muted transition-colors"
+          >
+            <Palette className="h-3.5 w-3.5" />
+            Set up Brand Kit
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">

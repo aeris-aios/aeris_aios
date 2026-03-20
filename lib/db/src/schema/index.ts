@@ -7,3 +7,4 @@ export * from "./content";
 export * from "./knowledge";
 export * from "./automations";
 export * from "./agents";
+export * from "./brand";

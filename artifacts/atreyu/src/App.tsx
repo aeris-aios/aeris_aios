@@ -16,6 +16,7 @@ import Campaigns from "@/pages/campaigns";
 import KnowledgeBase from "@/pages/knowledge";
 import Automations from "@/pages/automations";
 import Settings from "@/pages/settings";
+import BrandKit from "@/pages/brand";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,7 @@ function Router() {
             <Route path="/campaigns"   component={Campaigns}    />
             <Route path="/knowledge"   component={KnowledgeBase}/>
             <Route path="/automations" component={Automations}  />
+            <Route path="/brand"       component={BrandKit}     />
             <Route path="/settings"    component={Settings}     />
             <Route component={NotFound} />
           </Switch>

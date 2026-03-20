@@ -1,26 +1,26 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { contentAssetsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { contentAssetsTable, brandProfilesTable, styleExamplesTable } from "@workspace/db";
+import { eq, isNull } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
 
 const MODEL_MAP: Record<string, string> = {
   sonnet: "claude-sonnet-4-6",
-  opus: "claude-opus-4-6",
-  haiku: "claude-haiku-4-5",
+  opus:   "claude-opus-4-6",
+  haiku:  "claude-haiku-4-5",
 };
 
 const CONTENT_TYPE_PROMPTS: Record<string, string> = {
-  ad_copy: "Create compelling ad copy",
-  email: "Write a high-converting email",
+  ad_copy:      "Create compelling ad copy",
+  email:        "Write a high-converting email sequence",
   landing_page: "Write persuasive landing page copy",
-  social: "Create engaging social media content",
-  headline: "Generate powerful headlines",
-  hook: "Write attention-grabbing hooks",
-  offer: "Craft an irresistible offer",
-  cta: "Write compelling calls-to-action",
+  social:       "Create engaging social media content",
+  headline:     "Generate powerful headlines and sub-headlines",
+  hook:         "Write attention-grabbing hooks",
+  offer:        "Craft an irresistible offer",
+  cta:          "Write compelling calls-to-action",
   blog_outline: "Create a detailed blog post outline",
 };
 
@@ -42,10 +42,7 @@ router.post("/content/assets", async (req, res) => {
 router.get("/content/assets/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   const [asset] = await db.select().from(contentAssetsTable).where(eq(contentAssetsTable.id, id));
-  if (!asset) {
-    res.status(404).json({ error: "Content asset not found" });
-    return;
-  }
+  if (!asset) { res.status(404).json({ error: "Content asset not found" }); return; }
   res.json(asset);
 });
 
@@ -63,17 +60,46 @@ router.post("/content/generate", async (req, res) => {
     return;
   }
 
+  /* ── Load brand context ── */
+  const [brand] = await db.select().from(brandProfilesTable).limit(1);
+  const styleExamples = await db.select()
+    .from(styleExamplesTable)
+    .where(isNull(styleExamplesTable.deletedAt))
+    .limit(3);
+
+  const analyzedExamples = styleExamples.filter(e => e.analysisResult);
+
+  /* ── Build brand context block ── */
+  let brandContext = "";
+  if (brand) {
+    brandContext = `
+## BRAND IDENTITY
+Brand Name: ${brand.name}${brand.tagline ? `\nTagline: ${brand.tagline}` : ""}${brand.industry ? `\nIndustry: ${brand.industry}` : ""}${brand.description ? `\nBrand Description: ${brand.description}` : ""}${brand.voiceDescription ? `\nBrand Voice & Tone: ${brand.voiceDescription}` : ""}${brand.primaryAudience ? `\nPrimary Target Audience: ${brand.primaryAudience}` : ""}${brand.usps ? `\nUnique Selling Points / Key Differentiators:\n${brand.usps}` : ""}${brand.competitors ? `\nKey Competitors (write to stand out from): ${brand.competitors}` : ""}${brand.styleNotes ? `\nStyle & Aesthetic Notes: ${brand.styleNotes}` : ""}${brand.colorPalette ? `\nBrand Colors: Primary: ${brand.colorPalette.primary ?? "—"}, Secondary: ${brand.colorPalette.secondary ?? "—"}, Accent: ${brand.colorPalette.accent ?? "—"}` : ""}
+`;
+  }
+
+  let styleContext = "";
+  if (analyzedExamples.length > 0) {
+    styleContext = `
+## STYLE REFERENCE (replicate this aesthetic)
+${analyzedExamples.map((e, i) => `### Example ${i + 1}: ${e.name}\n${e.analysisResult}`).join("\n\n")}
+`;
+  }
+
   const selectedModel = MODEL_MAP[model ?? "sonnet"] ?? MODEL_MAP["sonnet"];
   const basePrompt = CONTENT_TYPE_PROMPTS[type] ?? "Create marketing content";
 
   const prompt = `${basePrompt}${platform ? ` for ${platform}` : ""}${tone ? ` with a ${tone} tone` : ""}${audience ? ` targeting ${audience}` : ""}.
 
-Context and requirements:
+## CONTENT BRIEF
 ${context}
+${variants > 1 ? `\nGenerate ${variants} distinct variants, clearly labeled as Variant 1, Variant 2, etc.` : ""}
 
-${variants > 1 ? `Generate ${variants} distinct variants, clearly labeled as Variant 1, Variant 2, etc.` : ""}
+Be specific, compelling, and optimized for conversion. Every word should feel unmistakably on-brand.`;
 
-Be specific, compelling, and optimized for conversion. Focus on real marketing impact.`;
+  const systemPrompt = `You are ATREYU, an elite marketing copywriter and strategist specializing in branded content.${brandContext ? `\n${brandContext}` : ""}${styleContext ? `\n${styleContext}` : ""}
+
+Your role: Create high-converting, professional marketing content that is unmistakably ON-BRAND. Use the brand identity and style references above as your creative DNA — every word, structural choice, and tone decision should reflect this brand perfectly.${brand ? "" : "\n\nNo brand profile is set up yet — write professional, compelling marketing content based on the brief provided."}`;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -83,7 +109,7 @@ Be specific, compelling, and optimized for conversion. Focus on real marketing i
     const stream = anthropic.messages.stream({
       model: selectedModel,
       max_tokens: 8192,
-      system: "You are ATREYU, an elite marketing copywriter and strategist. Create high-converting, professional marketing content that drives real results. Be specific, compelling, and strategic.",
+      system: systemPrompt,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -93,7 +119,7 @@ Be specific, compelling, and optimized for conversion. Focus on real marketing i
       }
     }
 
-    res.write(`data: ${JSON.stringify({ done: true, model: selectedModel })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true, model: selectedModel, brandActive: !!brand, styleExamplesUsed: analyzedExamples.length })}\n\n`);
     res.end();
   } catch (err) {
     res.write(`data: ${JSON.stringify({ error: "AI request failed" })}\n\n`);

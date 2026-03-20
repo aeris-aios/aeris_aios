@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard, Bot, Microscope, PenTool,
-  Megaphone, Library, Zap, Settings, Search, Sun, Moon,
+  Megaphone, Library, Zap, Settings, Search, Sun, Moon, Palette,
 } from "lucide-react";
 import { useTheme } from "@/contexts/theme";
 
@@ -14,6 +14,7 @@ const navItems = [
   { title: "Campaigns",   url: "/campaigns",   icon: Megaphone,       color: "#dc2626", glow: "rgba(255,80,80,0.6)",   bg: "linear-gradient(145deg,#ff6b6b,#b91c1c)" },
   { title: "Knowledge",   url: "/knowledge",   icon: Library,         color: "#7c3aed", glow: "rgba(167,100,255,0.6)", bg: "linear-gradient(145deg,#c474ff,#6220c4)" },
   { title: "Automations", url: "/automations", icon: Zap,             color: "#059669", glow: "rgba(48,209,88,0.6)",   bg: "linear-gradient(145deg,#3de87a,#047349)" },
+  { title: "Brand Kit",   url: "/brand",       icon: Palette,         color: "#ec4899", glow: "rgba(236,72,153,0.6)", bg: "linear-gradient(145deg,#f472b6,#be185d)" },
   { title: "Settings",    url: "/settings",    icon: Settings,        color: "#6b7280", glow: "rgba(150,150,160,0.5)", bg: "linear-gradient(145deg,#a8b0be,#555f6d)" },
 ];
 
