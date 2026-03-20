@@ -9,7 +9,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useSSE } from "@/hooks/use-sse";
-import ReactMarkdown from "react-markdown";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 
@@ -95,34 +94,432 @@ function fmtFollowers(n: number) {
   return String(n);
 }
 
-/* ──────────── Contrast colour ──────────── */
-function contrastColor(hex: string): string {
-  const h = hex.replace("#","");
+/* ══════════════════════════════════════════════
+   CANVAS UTILITIES & PROFESSIONAL TEMPLATE SYSTEM
+══════════════════════════════════════════════ */
+
+/* ── Colour helpers ── */
+function luminance(hex: string): number {
+  const h = hex.replace("#", "").padEnd(6, "0");
   const r = parseInt(h.substring(0,2),16);
   const g = parseInt(h.substring(2,4),16);
   const b = parseInt(h.substring(4,6),16);
-  const luminance = (0.299*r + 0.587*g + 0.114*b) / 255;
-  return luminance > 0.5 ? "#1A1A1A" : "#FFFFFF";
+  return (0.299*r + 0.587*g + 0.114*b) / 255;
+}
+function isDarkColor(hex: string)   { return luminance(hex) < 0.4; }
+function contrastColor(hex: string) { return luminance(hex) > 0.55 ? "#1A1A1A" : "#FFFFFF"; }
+
+/* ── Aggressively strip ALL markdown and symbols from output text ── */
+function deepCleanText(raw: string): string {
+  return raw
+    .replace(/\*\*(.*?)\*\*/gs, "$1")         // **bold**
+    .replace(/\*(.*?)\*/gs, "$1")              // *italic*
+    .replace(/_{1,2}(.*?)_{1,2}/gs, "$1")      // _under_
+    .replace(/^#{1,6}\s+/gm, "")               // ## Headers
+    .replace(/[—–]/g, ",")                    // em/en dash → comma
+    .replace(/^[-•*+]\s+/gm, "")               // Bullet hyphens
+    .replace(/`{1,3}[\s\S]*?`{1,3}/g, "")      // `code`
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")   // [link](url)
+    .replace(/^>\s*/gm, "")                    // > blockquote
+    .replace(/^={3,}|-{3,}\s*$/gm, "")         // --- rules
+    .replace(/\n{3,}/g, "\n\n")                // ≥3 newlines → 2
+    .trim();
 }
 
-/* ─────────────── Canvas export ─────────────── */
-function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number, lineH: number, maxLines: number): string[] {
-  const out: string[] = [];
-  for (const para of text.split("\n")) {
-    if (!para.trim()) { out.push(""); continue; }
-    const words = para.split(" "); let line = "";
-    for (const word of words) {
-      const test = line ? line + " " + word : word;
-      if (ctx.measureText(test).width > maxW && line) { out.push(line); line = word; }
-      else line = test;
-    }
-    if (line) out.push(line);
-    out.push("");
-    if (out.length >= maxLines) break;
+/* ── Extract hook sentence + optional supporting line for the image ── */
+function extractHook(text: string): { hook: string; supporting: string } {
+  const paras = deepCleanText(text).split(/\n+/).map(l => l.trim()).filter(Boolean);
+
+  /* Hook = first paragraph, trimmed to first sentence if very long */
+  let hook = paras[0] ?? "";
+  if (hook.length > 130) {
+    const sentEnd = hook.search(/[.!?]/);
+    hook = sentEnd > 20 ? hook.slice(0, sentEnd + 1) : hook.slice(0, 130).trim() + "…";
   }
-  return out.slice(0, maxLines);
+
+  /* Supporting = second paragraph, shortened */
+  let supporting = paras[1] ?? "";
+  if (supporting.length > 90) {
+    const sentEnd = supporting.search(/[.!?]/);
+    supporting = sentEnd > 10 ? supporting.slice(0, sentEnd + 1) : supporting.slice(0, 90).trim() + "…";
+  }
+
+  return { hook, supporting };
 }
 
+/* ── Canvas text wrapping ── */
+function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const lines: string[] = [];
+  const words = text.split(" ");
+  let line = "";
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = word; }
+    else line = test;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/* ── Rounded rectangle path ── */
+function rrect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x+w, y,   x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h,   x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y,     x+r, y);
+  ctx.closePath();
+}
+
+/* ── Hex to rgba helper ── */
+function hexA(hex: string, alpha: number): string {
+  const h = hex.replace("#","").padEnd(6,"0");
+  const r = parseInt(h.substring(0,2),16);
+  const g = parseInt(h.substring(2,4),16);
+  const b = parseInt(h.substring(4,6),16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/* ════════════════════════════════════════════
+   TEMPLATE 1: CINEMATIC  (dark profiles)
+   Deep dark, centered, glowing accent
+════════════════════════════════════════════ */
+function renderCinematic(
+  ctx: CanvasRenderingContext2D,
+  W: number, H: number, PAD: number,
+  pal: StyleProfile["colorPalette"],
+  hook: string, supporting: string,
+  brandName: string, variantNum: number,
+) {
+  const SF = "-apple-system,'Helvetica Neue',Arial,sans-serif";
+
+  /* BG: deep dark solid */
+  const bgBase = isDarkColor(pal.primary) ? pal.primary : "#0B0B12";
+  ctx.fillStyle = bgBase; ctx.fillRect(0,0,W,H);
+
+  /* Radial glow — accent at centre */
+  const glow = ctx.createRadialGradient(W/2, H*0.44, 0, W/2, H*0.44, W*0.78);
+  glow.addColorStop(0,   hexA(pal.accent, 0.14));
+  glow.addColorStop(1,   "rgba(0,0,0,0)");
+  ctx.fillStyle = glow; ctx.fillRect(0,0,W,H);
+
+  /* Subtle vignette */
+  const vig = ctx.createRadialGradient(W/2,H/2,W*0.25, W/2,H/2,W*0.85);
+  vig.addColorStop(0, "rgba(0,0,0,0)");
+  vig.addColorStop(1, "rgba(0,0,0,0.5)");
+  ctx.fillStyle = vig; ctx.fillRect(0,0,W,H);
+
+  /* Arc decoration — bottom-left */
+  ctx.strokeStyle = hexA(pal.accent, 0.18);
+  ctx.lineWidth   = Math.round(W * 0.038);
+  ctx.beginPath(); ctx.arc(-W*0.05, H*1.06, W*0.45, 0, Math.PI*2); ctx.stroke();
+
+  /* Arc decoration — top-right smaller */
+  ctx.strokeStyle = hexA(pal.accent, 0.10);
+  ctx.lineWidth   = Math.round(W * 0.018);
+  ctx.beginPath(); ctx.arc(W*1.05, -H*0.04, W*0.30, 0, Math.PI*2); ctx.stroke();
+
+  /* Thin top accent bar */
+  const topGrd = ctx.createLinearGradient(0,0,W,0);
+  topGrd.addColorStop(0,   "rgba(0,0,0,0)");
+  topGrd.addColorStop(0.3, pal.accent);
+  topGrd.addColorStop(0.7, pal.accent);
+  topGrd.addColorStop(1,   "rgba(0,0,0,0)");
+  ctx.fillStyle = topGrd; ctx.fillRect(0, 0, W, 3);
+
+  /* ── Hook text ── */
+  const hookSize = Math.min(Math.round(W * 0.065), 90);
+  const maxHookW = W - PAD * 2.4;
+  ctx.textBaseline = "top"; ctx.textAlign = "center";
+
+  /* Measure hook lines */
+  ctx.font = `700 ${hookSize}px ${SF}`;
+  const hookLines = wrapCanvasText(ctx, hook, maxHookW);
+
+  /* Vertical centering of text block */
+  const hookLineH = hookSize * 1.22;
+  const supSize   = Math.round(hookSize * 0.33);
+  const sepGap    = hookSize * 0.55;
+  const supLineH  = supSize * 1.5;
+  const supLines  = supporting ? wrapCanvasText(ctx, supporting, maxHookW) : [];
+  const totalH    = hookLines.length * hookLineH + (supporting ? sepGap + supLines.length * supLineH : 0);
+  let y = (H * 0.88 - totalH) / 2;  /* top of text block, excluding footer */
+  y = Math.max(H * 0.12, y);
+
+  /* Hook lines — bold white */
+  ctx.font = `700 ${hookSize}px ${SF}`;
+  hookLines.forEach((line, i) => {
+    ctx.fillStyle = i === 0 ? "#FFFFFF" : hexA("#FFFFFF", 0.88);
+    ctx.fillText(line, W/2, y);
+    y += hookLineH;
+  });
+
+  /* Separator pill */
+  if (supporting) {
+    y += hookSize * 0.18;
+    const pillW = Math.round(W * 0.09), pillH = 3;
+    rrect(ctx, W/2 - pillW/2, y, pillW, pillH, pillH/2);
+    ctx.fillStyle = pal.accent; ctx.fill();
+    y += hookSize * 0.32;
+
+    /* Supporting text */
+    ctx.font = `300 ${supSize}px ${SF}`;
+    supLines.slice(0,2).forEach(line => {
+      ctx.fillStyle = hexA("#FFFFFF", 0.52);
+      ctx.fillText(line, W/2, y);
+      y += supLineH;
+    });
+  }
+
+  /* ── Footer ── */
+  const footH = Math.round(H * 0.10);
+  const footY = H - footH;
+
+  /* Gradient overlay for readability */
+  const footGrd = ctx.createLinearGradient(0, footY - footH*0.4, 0, H);
+  footGrd.addColorStop(0, "rgba(0,0,0,0)");
+  footGrd.addColorStop(1, "rgba(0,0,0,0.82)");
+  ctx.fillStyle = footGrd; ctx.fillRect(0, footY - footH*0.4, W, footH*1.4);
+
+  /* Brand name */
+  const bfSize = Math.round(footH * 0.33);
+  ctx.font = `600 ${bfSize}px ${SF}`;
+  ctx.fillStyle = "#FFFFFF";
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(brandName.toUpperCase(), PAD, footY + footH/2);
+
+  /* Accent dot */
+  ctx.fillStyle = pal.accent;
+  ctx.beginPath(); ctx.arc(PAD * 0.55, footY + footH/2, bfSize * 0.2, 0, Math.PI*2); ctx.fill();
+
+  /* Variant tag */
+  if (variantNum > 1) {
+    ctx.font = `400 ${bfSize * 0.82}px ${SF}`;
+    ctx.fillStyle = hexA("#FFFFFF", 0.45);
+    ctx.textAlign = "right";
+    ctx.fillText(`V${variantNum}`, W - PAD, footY + footH/2);
+  }
+}
+
+/* ════════════════════════════════════════════
+   TEMPLATE 2: EDITORIAL  (serif / light profiles)
+   Cream background, left-aligned, thick accent bar
+════════════════════════════════════════════ */
+function renderEditorial(
+  ctx: CanvasRenderingContext2D,
+  W: number, H: number, PAD: number,
+  pal: StyleProfile["colorPalette"],
+  hook: string, supporting: string,
+  brandName: string, variantNum: number,
+) {
+  const SANS = "-apple-system,'Helvetica Neue',Arial,sans-serif";
+  const SERIF = "Georgia,'Times New Roman',serif";
+
+  /* BG: clean off-white/cream */
+  const bgColor = (!isDarkColor(pal.primary) && luminance(pal.primary) > 0.75)
+    ? pal.primary : "#FAF9F6";
+  ctx.fillStyle = bgColor; ctx.fillRect(0,0,W,H);
+
+  /* Fine dot grid */
+  ctx.fillStyle = hexA("#000000", 0.035);
+  const dotSpacing = Math.round(W * 0.028);
+  for (let gx = dotSpacing; gx < W; gx += dotSpacing) {
+    for (let gy = dotSpacing; gy < H; gy += dotSpacing) {
+      ctx.beginPath(); ctx.arc(gx, gy, 1, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  /* Left accent bar */
+  const barX = Math.round(PAD * 0.55);
+  const barW = Math.round(W * 0.007);
+  const barY1 = H * 0.10, barY2 = H * 0.87;
+  ctx.fillStyle = pal.accent;
+  ctx.fillRect(barX, barY1, barW, barY2 - barY1);
+
+  /* Small accent top-left square */
+  const sqSize = Math.round(W * 0.025);
+  ctx.fillStyle = pal.accent;
+  ctx.fillRect(barX, barY1 - sqSize, sqSize, sqSize);
+
+  /* ── Hook text ── */
+  const hookSize = Math.min(Math.round(W * 0.066), 86);
+  const textLeft = barX + barW + Math.round(W * 0.045);
+  const maxW     = W - textLeft - PAD;
+
+  ctx.font = `800 ${hookSize}px ${SERIF}`;
+  const hookLines = wrapCanvasText(ctx, hook, maxW);
+  const hookLineH = hookSize * 1.15;
+
+  /* Position hook vertically — start at ~16% from top */
+  let y = Math.round(H * 0.16);
+
+  ctx.textAlign    = "left";
+  ctx.textBaseline = "top";
+  hookLines.forEach(line => {
+    ctx.font = `800 ${hookSize}px ${SERIF}`;
+    ctx.fillStyle = "#1A1A1A";
+    ctx.fillText(line, textLeft, y);
+    y += hookLineH;
+  });
+
+  /* Hairline rule after hook */
+  y += hookSize * 0.40;
+  ctx.fillStyle = hexA(pal.accent, 0.45);
+  ctx.fillRect(textLeft, y, W - textLeft - PAD, 1);
+  y += hookSize * 0.45;
+
+  /* Supporting */
+  if (supporting) {
+    const supSize = Math.round(hookSize * 0.33);
+    ctx.font = `400 ${supSize}px ${SANS}`;
+    const supLines = wrapCanvasText(ctx, supporting, maxW);
+    supLines.slice(0, 3).forEach(line => {
+      ctx.fillStyle = hexA("#1A1A1A", 0.55);
+      ctx.fillText(line, textLeft, y);
+      y += supSize * 1.65;
+    });
+  }
+
+  /* ── Footer ── */
+  const footY = H * 0.89;
+  ctx.fillStyle = hexA(pal.accent, 0.35);
+  ctx.fillRect(textLeft, footY, W - textLeft - PAD, 1);
+
+  const bfSize = Math.round(W * 0.022);
+  ctx.font = `600 ${bfSize}px ${SANS}`;
+  ctx.fillStyle = hexA(pal.accent, 0.9);
+  ctx.textAlign = "right"; ctx.textBaseline = "top";
+  ctx.fillText(
+    variantNum > 1 ? `— ${brandName.toUpperCase()}  ·  V${variantNum}` : `— ${brandName.toUpperCase()}`,
+    W - PAD,
+    footY + bfSize * 0.6,
+  );
+}
+
+/* ════════════════════════════════════════════
+   TEMPLATE 3: MODERN CARD  (default)
+   Pastel gradient BG, floating white card, clean hierarchy
+════════════════════════════════════════════ */
+function renderModern(
+  ctx: CanvasRenderingContext2D,
+  W: number, H: number, PAD: number,
+  pal: StyleProfile["colorPalette"],
+  hook: string, supporting: string,
+  brandName: string, variantNum: number,
+  isGradient: boolean,
+) {
+  const SF = "-apple-system,'Helvetica Neue',Arial,sans-serif";
+
+  /* BG: very light gradient */
+  const bgLight = isDarkColor(pal.primary) ? "#EEF0F6" : pal.primary;
+  const bgSecond = isDarkColor(pal.secondary) ? "#E0E4F0" : (pal.secondary || "#E8ECF4");
+  const bgGrd = ctx.createLinearGradient(0, 0, W, H);
+  bgGrd.addColorStop(0, bgLight);
+  bgGrd.addColorStop(1, bgSecond);
+  ctx.fillStyle = bgGrd; ctx.fillRect(0,0,W,H);
+
+  /* Large decorative circle — bottom-right */
+  ctx.fillStyle = hexA(pal.accent, 0.07);
+  ctx.beginPath(); ctx.arc(W*0.92, H*0.88, W*0.55, 0, Math.PI*2); ctx.fill();
+
+  /* Small circle — top-left */
+  ctx.fillStyle = hexA(pal.accent, 0.05);
+  ctx.beginPath(); ctx.arc(W*0.06, H*0.08, W*0.18, 0, Math.PI*2); ctx.fill();
+
+  /* ── White card ── */
+  const cardX  = Math.round(W * 0.075);
+  const cardY  = Math.round(H * 0.09);
+  const cardW  = W - cardX * 2;
+  const cardH  = Math.round(H * 0.76);
+  const radius = Math.round(W * 0.028);
+
+  /* Shadow layers */
+  [
+    {o:0.06, dx:0, dy:W*0.008},
+    {o:0.04, dx:0, dy:W*0.016},
+    {o:0.02, dx:0, dy:W*0.030},
+  ].forEach(s => {
+    ctx.fillStyle = `rgba(0,0,0,${s.o})`;
+    rrect(ctx, cardX+s.dx, cardY+s.dy, cardW, cardH, radius); ctx.fill();
+  });
+
+  /* Card fill */
+  ctx.fillStyle = "#FFFFFF";
+  rrect(ctx, cardX, cardY, cardW, cardH, radius); ctx.fill();
+
+  /* Left accent border */
+  const borderW = Math.round(W * 0.009);
+  ctx.fillStyle = pal.accent;
+  rrect(ctx, cardX, cardY, borderW, cardH, radius); ctx.fill();
+
+  /* Card inner padding */
+  const CP  = Math.round(cardW * 0.085);
+  const CX  = cardX + borderW + CP;
+  const CW  = cardW - borderW - CP * 2;
+
+  /* Brand tag */
+  const tagSize = Math.round(W * 0.020);
+  ctx.font = `700 ${tagSize}px ${SF}`;
+  ctx.fillStyle = pal.accent;
+  ctx.textAlign = "left"; ctx.textBaseline = "top";
+  ctx.fillText(brandName.toUpperCase(), CX, cardY + CP * 0.8);
+
+  /* Hook text */
+  const hookSize = Math.min(Math.round(W * 0.058), 78);
+  ctx.font = `700 ${hookSize}px ${SF}`;
+  const maxHW = CW;
+  const hookLines = wrapCanvasText(ctx, hook, maxHW);
+  const hookLineH = hookSize * 1.22;
+
+  let y = cardY + CP * 0.8 + tagSize * 1.8;
+  hookLines.forEach(line => {
+    ctx.font = `700 ${hookSize}px ${SF}`;
+    ctx.fillStyle = "#111111";
+    ctx.fillText(line, CX, y);
+    y += hookLineH;
+  });
+
+  /* Supporting */
+  if (supporting) {
+    y += hookSize * 0.30;
+    const supSize = Math.round(hookSize * 0.34);
+    ctx.font = `400 ${supSize}px ${SF}`;
+    const supLines = wrapCanvasText(ctx, supporting, CW);
+    supLines.slice(0,2).forEach(line => {
+      ctx.fillStyle = hexA("#1A1A1A", 0.50);
+      ctx.fillText(line, CX, y);
+      y += supSize * 1.65;
+    });
+  }
+
+  /* Bottom rule inside card */
+  const ruleY = cardY + cardH - Math.round(cardH * 0.10);
+  ctx.fillStyle = hexA(pal.accent, 0.18);
+  ctx.fillRect(cardX + borderW, ruleY, cardW - borderW, 1);
+
+  /* Bottom label inside card */
+  const blSize = Math.round(W * 0.018);
+  ctx.font = `500 ${blSize}px ${SF}`;
+  ctx.fillStyle = hexA(pal.accent, 0.85);
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(variantNum > 1 ? `V${variantNum}` : "", cardX + borderW + CP, ruleY + Math.round(cardH*0.05));
+
+  /* Footer below card */
+  const ftSize = Math.round(W * 0.018);
+  ctx.font = `400 ${ftSize}px ${SF}`;
+  ctx.fillStyle = hexA("#1A1A1A", 0.32);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(`MADE WITH ATREYU`, W/2, cardY + cardH + (H - cardY - cardH) * 0.5);
+}
+
+/* ════════════════════════════════════════════
+   MAIN EXPORT — picks template, renders, returns PNG Blob
+════════════════════════════════════════════ */
 async function exportToImage(
   text: string, fmt: OutputFormat, brandName: string,
   variantNum: number, styleProfile?: StyleProfile,
@@ -132,163 +529,36 @@ async function exportToImage(
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d")!;
 
-  /* ── Colors from style profile or elegant defaults ── */
-  const palette = styleProfile?.colorPalette ?? {
-    primary: "#E8ECF4", secondary: "#D0D6E8", accent: "#6366f1", text: "#1A1A1A",
+  /* Default palette if no style profile */
+  const pal: StyleProfile["colorPalette"] = styleProfile?.colorPalette ?? {
+    primary: "#E8ECF4", secondary: "#D6DDF0", accent: "#6366f1", text: "#1A1A1A",
   };
-  const bgStyle     = styleProfile?.backgroundStyle ?? "gradient";
-  const typoStyle   = styleProfile?.typographyStyle ?? "serif";
-  const layoutStyle = styleProfile?.layoutStyle     ?? "centered";
 
-  /* ── Background ── */
-  if (bgStyle === "dark" || palette.primary.match(/^#[0-3]/)) {
-    const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, palette.primary);
-    g.addColorStop(1, palette.secondary);
-    ctx.fillStyle = g;
-  } else if (bgStyle === "gradient") {
-    const g = ctx.createLinearGradient(0, H * 0.3, W, H);
-    g.addColorStop(0, palette.primary);
-    g.addColorStop(1, palette.secondary || palette.primary + "cc");
-    ctx.fillStyle = g;
+  const { hook, supporting } = extractHook(text);
+  const PAD = Math.round(W * 0.08);
+
+  /* Choose template */
+  const bg  = styleProfile?.backgroundStyle ?? "gradient";
+  const typ = styleProfile?.typographyStyle ?? "sans-serif";
+
+  const isDark = bg === "dark" || isDarkColor(pal.primary);
+  const isEditorial = (typ === "serif" || styleProfile?.layoutStyle === "editorial" || styleProfile?.layoutStyle === "left-aligned") && !isDark;
+  const isGradient  = bg === "gradient" && !isDark;
+
+  if (isDark) {
+    renderCinematic(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
+  } else if (isEditorial) {
+    renderEditorial(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
   } else {
-    ctx.fillStyle = palette.primary;
+    renderModern(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum, isGradient);
   }
-  ctx.fillRect(0, 0, W, H);
-
-  /* ── Design elements ── */
-  const PAD = Math.round(W * 0.075);
-  const isWide = W > H;
-
-  /* Accent top bar */
-  ctx.fillStyle = palette.accent;
-  ctx.fillRect(0, 0, W, Math.round(H * 0.012));
-
-  /* Vertical accent stripe (editorial layouts) */
-  if (layoutStyle === "editorial" || layoutStyle === "left-aligned") {
-    ctx.fillStyle = palette.accent + "80";
-    ctx.fillRect(PAD - 20, PAD * 1.5, 4, H - PAD * 3);
-  }
-
-  /* Geometric corner accent */
-  ctx.fillStyle = palette.accent + "18";
-  ctx.beginPath();
-  const cSize = Math.round(W * 0.35);
-  ctx.arc(W, 0, cSize, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = palette.secondary + "30";
-  ctx.beginPath();
-  ctx.arc(0, H, cSize * 0.7, 0, Math.PI * 2);
-  ctx.fill();
-
-  /* ── Text setup ── */
-  const clean = text
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\*(.*?)\*/g, "$1")
-    .replace(/#{1,6}\s/g, "")
-    .replace(/^[-•]\s/gm, "")
-    .trim();
-
-  const textColor = contrastColor(palette.primary);
-  const isLight   = textColor === "#1A1A1A";
-
-  /* Font family based on typography style */
-  const fontFamily =
-    typoStyle === "serif"      ? `Georgia, "Times New Roman", serif` :
-    typoStyle === "script"     ? `"Palatino Linotype", Palatino, serif` :
-    typoStyle === "bold"       ? `-apple-system, "Helvetica Neue", Arial, sans-serif` :
-                                 `-apple-system, "Helvetica Neue", Arial, sans-serif`;
-
-  const maxTextW = W - PAD * 2 - (layoutStyle === "editorial" ? 20 : 0);
-  const textX    = PAD + (layoutStyle === "editorial" || layoutStyle === "left-aligned" ? 8 : 0);
-
-  /* Dynamic font size */
-  const baseFontSize = isWide ? Math.round(W * 0.026) : Math.round(W * 0.038);
-  const dynamicSize  = clean.length > 500 ? Math.max(Math.round(baseFontSize * 0.8), 24) : baseFontSize;
-
-  ctx.font      = `${typoStyle === "bold" ? 700 : 400} ${dynamicSize}px ${fontFamily}`;
-  ctx.fillStyle = textColor;
-  ctx.textBaseline = "top";
-
-  const lineH   = Math.round(dynamicSize * 1.6);
-  const maxLines = Math.floor((H - PAD * 2.5 - 100) / lineH);
-  const lines   = wrapLines(ctx, clean, maxTextW, lineH, maxLines);
-
-  /* First line styled differently (like a headline) */
-  const [firstLine, ...restLines] = lines;
-  const usableH = H - PAD * 2 - 100;
-  const totalTextH = lines.length * lineH;
-
-  let startY: number;
-  if (layoutStyle === "centered") {
-    startY = Math.max(PAD + 60, (H - totalTextH - 100) / 2);
-  } else {
-    startY = PAD + 60;
-  }
-
-  /* Draw text alignment */
-  const textAlign = (layoutStyle === "centered") ? "center" : "left";
-  ctx.textAlign = textAlign as CanvasTextAlign;
-  const drawX = textAlign === "center" ? W / 2 : textX;
-
-  /* First line / hook — larger + bolder */
-  if (firstLine) {
-    ctx.font      = `${typoStyle === "bold" ? 800 : 600} ${Math.round(dynamicSize * 1.1)}px ${fontFamily}`;
-    ctx.fillStyle = textColor;
-    ctx.fillText(firstLine, drawX, startY);
-    startY += lineH * 1.25;
-  }
-
-  /* Rest of lines — regular weight */
-  ctx.font = `${typoStyle === "bold" ? 600 : 400} ${dynamicSize}px ${fontFamily}`;
-  let y = startY;
-  for (const line of restLines) {
-    if (!line) { y += lineH * 0.4; continue; }
-    ctx.fillStyle = isLight ? textColor + "dd" : textColor;
-    ctx.fillText(line, drawX, y);
-    y += lineH;
-    if (y > H - 110) {
-      ctx.fillText("…", drawX, y);
-      break;
-    }
-  }
-
-  /* ── Bottom brand strip ── */
-  const stripH = Math.round(H * 0.075);
-  const stripY = H - stripH;
-
-  /* Frosted strip */
-  ctx.fillStyle = isLight ? "rgba(0,0,0,0.75)" : "rgba(255,255,255,0.10)";
-  ctx.fillRect(0, stripY, W, stripH);
-
-  /* Brand name */
-  const brandFontSize = Math.round(stripH * 0.38);
-  ctx.font        = `700 ${brandFontSize}px -apple-system, "Helvetica Neue", Arial, sans-serif`;
-  ctx.fillStyle   = isLight ? "#ffffff" : "#1A1A1A";
-  ctx.textBaseline = "middle";
-  ctx.textAlign    = "left";
-  ctx.fillText(brandName.toUpperCase(), PAD * 0.8, stripY + stripH / 2);
-
-  /* Accent dot before brand name */
-  ctx.fillStyle = palette.accent;
-  ctx.beginPath();
-  ctx.arc(PAD * 0.55, stripY + stripH / 2, brandFontSize * 0.22, 0, Math.PI * 2);
-  ctx.fill();
-
-  /* Variant tag (right side) */
-  if (variantNum > 1) {
-    ctx.font      = `500 ${brandFontSize * 0.85}px -apple-system, Arial, sans-serif`;
-    ctx.fillStyle = isLight ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.45)";
-    ctx.textAlign = "right";
-    ctx.fillText(`V${variantNum}`, W - PAD * 0.8, stripY + stripH / 2);
-  }
-
-  /* Accent line above strip */
-  ctx.fillStyle = palette.accent;
-  ctx.fillRect(0, stripY - 3, W, 3);
 
   return new Promise(r => canvas.toBlob(b => r(b!), "image/png", 1.0));
+}
+
+/* Legacy alias kept for wrapLines calls inside CarouselPreview */
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number, _lineH: number, maxLines: number): string[] {
+  return wrapCanvasText(ctx, text, maxW).slice(0, maxLines);
 }
 
 async function downloadVariant(
@@ -572,7 +842,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          <button onClick={()=>{navigator.clipboard.writeText(text);setCopied(true);setTimeout(()=>setCopied(false),1800);}}
+          <button onClick={()=>{navigator.clipboard.writeText(deepCleanText(text));setCopied(true);setTimeout(()=>setCopied(false),1800);}}
             disabled={!text}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium neu-raised-sm disabled:opacity-40">
             {copied?<><Check className="h-3 w-3 text-green-500"/>Copied</>:<><Copy className="h-3 w-3 text-muted-foreground"/>Copy</>}
@@ -607,11 +877,11 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         </div>
       )}
 
-      {/* Text content */}
+      {/* Text content — plain cleaned text, ready to copy-paste as social caption */}
       <div className="p-5 flex-1 min-h-[120px]">
         {text ? (
-          <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed">
-            <ReactMarkdown>{text}</ReactMarkdown>
+          <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap font-[inherit]">
+            {deepCleanText(text)}
             {streaming && variantNum===totalVariants && (
               <span className="inline-block w-2 h-4 ml-0.5 bg-primary animate-pulse align-middle rounded-sm" />
             )}

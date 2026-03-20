@@ -25,6 +25,18 @@ const CONTENT_TYPE_PROMPTS: Record<string, string> = {
   linkedin_post:  "Write a high-performing LinkedIn post",
 };
 
+/* ─── Universal formatting rules (injected into every prompt) ── */
+const PLAIN_TEXT_RULES = `
+CRITICAL OUTPUT FORMAT — READ THIS FIRST:
+- Write in plain text only. Zero markdown.
+- BANNED: ## headers, **bold**, *italic*, — em dash, – en dash, bullet hyphens (- item)
+- BANNED: "Here's your post:", "Sure!", "Here's the content:" or any preamble
+- Write exactly as the text will appear when posted on social media
+- Use line breaks between short paragraphs instead of any markdown structure
+- Em dash and en dash: replace with a comma or period instead
+- Never use hyphens as list bullets; weave points into flowing sentences
+`;
+
 /* ─── Adam Robinson writing style ─────────────────────────── */
 const ADAM_ROBINSON_STYLE = `
 ## WRITING STYLE: Adam Robinson (LinkedIn voice)
@@ -423,7 +435,7 @@ ${socialProfileUrl ? `Competitor profile: ${socialProfileUrl}` : ""}
       ? "\n\nIMPORTANT: Write ONLY the LinkedIn post caption text here. The carousel slides will be generated separately.\n"
       : "";
 
-    systemPrompt = `You are an expert LinkedIn content strategist and ghostwriter.${brandContext ? `\n${brandContext}` : ""}${styleBlock}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}${brand ? "" : "\n\nNo brand profile set — write for a generic professional brand based on the brief."}`;
+    systemPrompt = `You are an expert LinkedIn content strategist and ghostwriter.${PLAIN_TEXT_RULES}${brandContext ? `\n${brandContext}` : ""}${styleBlock}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}${brand ? "" : "\n\nNo brand profile set — write for a generic professional brand based on the brief."}`;
 
     userPrompt = `${methodBlock}${originalPost && method === "viral_replication" ? originalPost + "\n\n---\n\nNow write the adapted version:\n" : ""}
 
@@ -438,7 +450,7 @@ ${variants > 1 ? `\nGenerate ${variants} distinct variants, clearly labeled as V
 Write the LinkedIn post now.`;
 
   } else {
-    systemPrompt = `You are ATREYU, an elite marketing copywriter and strategist.${brandContext ? `\n${brandContext}` : ""}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}
+    systemPrompt = `You are ATREYU, an elite marketing copywriter and strategist.${PLAIN_TEXT_RULES}${brandContext ? `\n${brandContext}` : ""}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}
 
 Create high-converting, professional marketing content that is unmistakably ON-BRAND.${brand ? "" : "\n\nNo brand profile set — write professional content based on the brief provided."}`;
 
