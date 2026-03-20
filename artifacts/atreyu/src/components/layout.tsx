@@ -29,9 +29,10 @@ const INNER_R  = 22;   /* dock bottom corner radius */
 const ICON_SZ  = 42;
 
 /* ── Bottom command bar geometry (mirror of top, pocket goes UP) */
-const BOT_BAR_H    = 16;   /* thin full-width strip at very bottom */
-const BOT_POCKET_H = 60;   /* pocket going upward — holds the search input */
-const BOT_TOTAL_H  = BOT_BAR_H + BOT_POCKET_H;   /* 76 */
+const BOT_BAR_H        = 16;   /* thin full-width strip at very bottom */
+const BOT_MIN_INPUT_H  = 46;   /* single-line textarea height */
+const BOT_V_PAD        = 22;   /* vertical breathing room above+below input */
+const BOT_MIN_POCKET_H = BOT_MIN_INPUT_H + BOT_V_PAD * 2;   /* 90 */
 
 /* ── Full-width sculpted path (solid wings) ────────────────── */
 function buildPath(dockHalf: number) {
@@ -77,12 +78,12 @@ function pocketPath(dockHalf: number) {
    Full-width thin bar at the bottom + center pocket going up.
    Wings between pocket and edges remain transparent.
 ─────────────────────────────────────────────────────────────── */
-function bottomPocketPath(dockHalf: number) {
+function bottomPocketPath(dockHalf: number, botPocketH: number, botTotalH: number) {
   const cx = 500;
   const or = OUTER_R;
   const ir = INNER_R;
-  const barY = BOT_POCKET_H;      /* y where pocket meets the bottom bar */
-  const totalY = BOT_TOTAL_H;
+  const barY = botPocketH;
+  const totalY = botTotalH;
   return [
     `M 0 ${totalY}`,                          /* bottom-left */
     `L 1000 ${totalY}`,                        /* bottom-right */
@@ -126,8 +127,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const { theme, toggleTheme } = useTheme();
   const [cmd, setCmd]             = useState("");
   const [hov, setHov]             = useState<number | null>(null);
-  const frameRef = useRef<HTMLDivElement>(null);
+  const [inputH, setInputH]       = useState(BOT_MIN_INPUT_H);
+  const frameRef   = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [frameW, setFrameW]       = useState(1200);
+
+  /* ── Dynamic bottom bar geometry based on textarea content ── */
+  const botPocketH = inputH + BOT_V_PAD * 2;
+  const botTotalH  = BOT_BAR_H + botPocketH;
+
+  function autoGrow(el: HTMLTextAreaElement) {
+    el.style.height = "auto";
+    const h = Math.max(BOT_MIN_INPUT_H, el.scrollHeight);
+    el.style.height = `${h}px`;
+    setInputH(h);
+  }
 
   const isLight = theme === "light";
 
@@ -158,10 +172,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   /* SVG paths — dockHalf in SVG's 0-1000 coordinate space */
   const dockHalf     = frameW > 0 ? (DOCK_W / 2 / frameW) * 1000 : 204;
   const svgPocket    = buildPath(dockHalf);
-  const svgBotPocket = bottomPocketPath(dockHalf);
+  const svgBotPocket = bottomPocketPath(dockHalf, botPocketH, botTotalH);
 
-  function onCmd(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" && cmd.trim()) { navigate("/assistant"); setCmd(""); }
+  function onCmd(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey && cmd.trim()) {
+      e.preventDefault();
+      navigate("/assistant");
+      setCmd("");
+      setInputH(BOT_MIN_INPUT_H);
+      if (textareaRef.current) textareaRef.current.style.height = `${BOT_MIN_INPUT_H}px`;
+    }
   }
 
   return (
@@ -205,13 +225,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           overflowY: "auto",
           overflowX: "hidden",
           paddingTop: TOTAL_H,
-          paddingBottom: BOT_TOTAL_H,
+          paddingBottom: botTotalH,
           scrollbarWidth: "none",
           position: "relative",
           zIndex: 1,
         }}>
           <style>{`::-webkit-scrollbar{display:none}`}</style>
-          <div style={{ padding: `24px 32px ${BOT_TOTAL_H + 16}px` }}>
+          <div style={{ padding: `24px 32px ${botTotalH + 16}px` }}>
             {children}
           </div>
         </div>
@@ -379,55 +399,66 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         ══════════════════════════════════════════════════════ */}
         <div style={{
           position: "absolute", bottom: 0, left: 0, right: 0,
-          height: BOT_TOTAL_H, zIndex: 20,
-          pointerEvents: "none",
+          height: botTotalH,
+          transition: "height 0.18s cubic-bezier(0.4,0,0.2,1)",
+          zIndex: 20, pointerEvents: "none",
         }}>
-          {/* Inverted pocket SVG — shadow goes upward */}
+          {/* Inverted pocket SVG — shadow goes upward, animates with notch */}
           <svg
             style={{
               position: "absolute", top: 0, left: 0,
-              width: "100%", height: BOT_TOTAL_H,
+              width: "100%", height: "100%",
               overflow: "visible",
               filter: isLight
                 ? `drop-shadow(0 -10px 28px ${fsdark}cc) drop-shadow(0 -4px 10px ${fsdark}88)`
                 : `drop-shadow(0 -10px 28px ${fsdark}) drop-shadow(0 -4px 10px rgba(0,0,0,0.9))`,
             }}
-            viewBox={`0 0 1000 ${BOT_TOTAL_H}`}
+            viewBox={`0 0 1000 ${botTotalH}`}
             preserveAspectRatio="none"
           >
             <path d={svgBotPocket} fill={frameBg} />
           </svg>
 
-          {/* Search input centered inside the upward pocket */}
+          {/* Input container — vertically centered in the pocket */}
           <div style={{
             position: "absolute",
-            top: 0, left: "50%", transform: "translateX(-50%)",
-            width: DOCK_W + 60, height: BOT_POCKET_H,
+            top: 0, bottom: BOT_BAR_H,
+            left: "50%", transform: "translateX(-50%)",
+            width: DOCK_W + 80,
             display: "flex", alignItems: "center", justifyContent: "center",
             pointerEvents: "auto", zIndex: 2,
+            padding: `${BOT_V_PAD}px 0`,
           }}>
             <div style={{
-              display: "flex", alignItems: "center", gap: 8,
-              height: 38, padding: "0 16px", borderRadius: 19,
+              display: "flex", alignItems: "flex-start", gap: 8,
+              padding: "10px 16px", borderRadius: 20,
               background: frameBg, boxShadow: insetMd,
               width: "100%",
             }}>
-              <Search style={{ width: 13, height: 13, opacity: 0.3, flexShrink: 0, color: "var(--foreground,#1e2030)" }} />
-              <input
+              <Search style={{
+                width: 14, height: 14, opacity: 0.3, flexShrink: 0,
+                color: "var(--foreground,#1e2030)", marginTop: 2,
+              }} />
+              <textarea
+                ref={textareaRef}
                 value={cmd}
-                onChange={e => setCmd(e.target.value)}
+                rows={1}
+                onChange={e => { setCmd(e.target.value); autoGrow(e.target); }}
                 onKeyDown={onCmd}
                 placeholder="Ask ATREYU anything…"
                 style={{
                   flex: 1, background: "transparent", border: "none", outline: "none",
-                  fontSize: 13, fontFamily: "inherit",
+                  fontSize: 13, fontFamily: "inherit", lineHeight: "1.55",
                   color: "var(--foreground,#1e2030)", opacity: 0.75,
+                  resize: "none", overflow: "hidden",
+                  height: inputH, minHeight: BOT_MIN_INPUT_H,
                 }}
               />
               <kbd style={{
                 fontFamily: "var(--app-font-mono)", fontSize: 9, letterSpacing: "0.10em",
                 opacity: 0.22, background: "rgba(128,128,128,0.08)",
-                border: "1px solid rgba(128,128,128,0.12)", borderRadius: 5, padding: "2px 6px",
+                border: "1px solid rgba(128,128,128,0.12)", borderRadius: 5,
+                padding: "2px 6px", flexShrink: 0, marginTop: 2,
               }}>⌘K</kbd>
             </div>
           </div>
