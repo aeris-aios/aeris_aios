@@ -245,7 +245,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               const isActive = location === item.url;
               const isHov    = hov === idx;
               const isAdj    = hov !== null && Math.abs(hov - idx) === 1;
-              const scale    = isHov ? 1.25 : isAdj ? 1.10 : 1;
+              const scale    = 1;
 
               return (
                 <Link key={item.url} href={item.url}>
