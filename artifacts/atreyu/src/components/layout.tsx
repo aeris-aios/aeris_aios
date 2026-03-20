@@ -33,6 +33,8 @@ const BOT_BAR_H        = 16;   /* thin full-width strip at very bottom */
 const BOT_MIN_INPUT_H  = 46;   /* single-line textarea height */
 const BOT_V_PAD        = 22;   /* vertical breathing room above+below input */
 const BOT_MIN_POCKET_H = BOT_MIN_INPUT_H + BOT_V_PAD * 2;   /* 90 */
+const BOT_DOCK_W       = 640;  /* notch width — wider than the pill (570) for clean margins */
+const BOT_PILL_W       = 570;  /* actual pill / input container width */
 
 /* ── Full-width sculpted path (solid wings) ────────────────── */
 function buildPath(dockHalf: number) {
@@ -170,9 +172,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const insetMd   = `inset 6px 6px 16px ${fsdark}, inset -6px -6px 16px ${fslite}`;
 
   /* SVG paths — dockHalf in SVG's 0-1000 coordinate space */
-  const dockHalf     = frameW > 0 ? (DOCK_W / 2 / frameW) * 1000 : 204;
+  const dockHalf     = frameW > 0 ? (DOCK_W     / 2 / frameW) * 1000 : 204;
+  const botDockHalf  = frameW > 0 ? (BOT_DOCK_W / 2 / frameW) * 1000 : 267;
   const svgPocket    = buildPath(dockHalf);
-  const svgBotPocket = bottomPocketPath(dockHalf, botPocketH, botTotalH);
+  const svgBotPocket = bottomPocketPath(botDockHalf, botPocketH, botTotalH);
 
   function onCmd(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey && cmd.trim()) {
@@ -424,7 +427,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             position: "absolute",
             top: 0, bottom: BOT_BAR_H,
             left: "50%", transform: "translateX(-50%)",
-            width: DOCK_W + 80,
+            width: BOT_PILL_W,
             display: "flex", alignItems: "center", justifyContent: "center",
             pointerEvents: "auto", zIndex: 2,
             padding: `${BOT_V_PAD}px 0`,
