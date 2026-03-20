@@ -392,10 +392,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       }} />
                     </div>
                     <div style={{
-                      marginTop: 3, width: 3, height: 3, borderRadius: "50%",
+                      marginTop: 4,
+                      width: isActive ? ICON_SZ : 0,
+                      height: 2.5,
+                      borderRadius: 2,
                       background: isActive ? item.color : "transparent",
-                      boxShadow: isActive ? `0 0 5px ${item.glow}` : "none",
-                      transition: "background 0.2s, box-shadow 0.2s",
+                      boxShadow: isActive ? `0 0 6px ${item.glow}, 0 0 12px ${item.glow}` : "none",
+                      transition: "width 0.28s cubic-bezier(0.34,1.56,0.64,1), background 0.2s, box-shadow 0.2s",
+                      overflow: "hidden",
                     }} />
                     {isHov && (
                       <div style={{
