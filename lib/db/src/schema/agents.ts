@@ -53,14 +53,30 @@ export const agentSkillsTable = pgTable("agent_skills", {
   deletedAt:   timestamp("deleted_at"),
 });
 
-export const insertAgentRepoSchema   = createInsertSchema(agentReposTable).omit({ id: true, createdAt: true, deletedAt: true, context: true, owner: true, repo: true, description: true });
-export const insertAgentJobSchema    = createInsertSchema(agentJobsTable).omit({ id: true, createdAt: true, updatedAt: true, status: true, output: true });
-export const insertAgentSkillSchema  = createInsertSchema(agentSkillsTable).omit({ id: true, trainedAt: true, deletedAt: true });
+export const contentItemsTable = pgTable("content_items", {
+  id:            varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  prompt:        text("prompt").notNull(),
+  platforms:     text("platforms").notNull(),    /* JSON array of platform IDs */
+  tone:          text("tone").notNull().default("professional"),
+  brandVoice:    text("brand_voice").default(""),
+  skillsUsed:    text("skills_used").default("[]"),   /* JSON array of {skill_name, reason} */
+  content:       text("content").default("[]"),        /* JSON array of platform content objects */
+  strategyNotes: text("strategy_notes").default(""),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+  deletedAt:     timestamp("deleted_at"),
+});
+
+export const insertAgentRepoSchema    = createInsertSchema(agentReposTable).omit({ id: true, createdAt: true, deletedAt: true, context: true, owner: true, repo: true, description: true });
+export const insertAgentJobSchema     = createInsertSchema(agentJobsTable).omit({ id: true, createdAt: true, updatedAt: true, status: true, output: true });
+export const insertAgentSkillSchema   = createInsertSchema(agentSkillsTable).omit({ id: true, trainedAt: true, deletedAt: true });
+export const insertContentItemSchema  = createInsertSchema(contentItemsTable).omit({ id: true, createdAt: true, deletedAt: true });
 
 export type AgentRepo          = typeof agentReposTable.$inferSelect;
 export type AgentJob           = typeof agentJobsTable.$inferSelect;
 export type AgentWorkspaceFile = typeof agentWorkspaceFilesTable.$inferSelect;
 export type AgentSkill         = typeof agentSkillsTable.$inferSelect;
+export type ContentItem        = typeof contentItemsTable.$inferSelect;
 export type InsertAgentRepo    = z.infer<typeof insertAgentRepoSchema>;
 export type InsertAgentJob     = z.infer<typeof insertAgentJobSchema>;
 export type InsertAgentSkill   = z.infer<typeof insertAgentSkillSchema>;
+export type InsertContentItem  = z.infer<typeof insertContentItemSchema>;

@@ -13,6 +13,7 @@ import ClaudeCode from "@/pages/claude";
 import CodeStudio from "@/pages/codestudio";
 import ResearchLab from "@/pages/research";
 import ContentStudio from "@/pages/content";
+import ContentStudioAI from "@/pages/content-studio";
 import Campaigns from "@/pages/campaigns";
 import KnowledgeBase from "@/pages/knowledge";
 import Automations from "@/pages/automations";
@@ -33,8 +34,9 @@ function Router() {
             <Route path="/claude"      component={ClaudeCode}   />
             <Route path="/codestudio"  component={CodeStudio}   />
             <Route path="/research"    component={ResearchLab}  />
-            <Route path="/content"     component={ContentStudio}/>
-            <Route path="/campaigns"   component={Campaigns}    />
+            <Route path="/content"          component={ContentStudio}   />
+            <Route path="/content-studio"  component={ContentStudioAI} />
+            <Route path="/campaigns"       component={Campaigns}       />
             <Route path="/knowledge"   component={KnowledgeBase}/>
             <Route path="/automations" component={Automations}  />
             <Route path="/brand"       component={BrandKit}     />

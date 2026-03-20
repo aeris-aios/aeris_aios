@@ -11,6 +11,7 @@ import agentsRouter from "./agents/index";
 import brandRouter from "./brand";
 import storageRouter from "./storage";
 import codestudioRouter from "./codestudio";
+import contentStudioRouter from "./content-studio";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use("/agents", agentsRouter);
 router.use(brandRouter);
 router.use(storageRouter);
 router.use("/codestudio", codestudioRouter);
+router.use(contentStudioRouter);
 
 export default router;

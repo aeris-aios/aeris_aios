@@ -1,0 +1,1774 @@
+===========================================================
+ATREYU AIOS — COMPLETE CODEBASE V2 (WITH CONTENT STUDIO)
+===========================================================
+
+This is the full codebase for ATREYU AIOS including:
+- IDE with file upload, Monaco editor, and Claude-powered chat
+- Agent Studio: train skills from GitHub repos, browse skill cards
+- Content Studio: AI content generation that uses trained skills
+  to create Instagram posts/stories, YouTube Shorts, copy, etc.
+
+INSTRUCTIONS FOR REPLIT:
+1. Create a new Node.js Repl
+2. Create each file below at the exact path shown
+3. Click Run (auto-installs dependencies and starts)
+4. Connect your Anthropic API key on the main page
+5. Train skills at /agent-studio.html
+6. Generate content at /content.html using those skills
+
+===========================================================
+FILE: .replit
+===========================================================
+
+run = "npm install && npm start"
+entrypoint = "server/index.js"
+
+[nix]
+channel = "stable-24_05"
+
+[deployment]
+run = ["sh", "-c", "npm start"]
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+===========================================================
+FILE: replit.nix
+===========================================================
+
+{ pkgs }: {
+  deps = [
+    pkgs.nodejs-20_x
+    pkgs.nodePackages.npm
+    pkgs.git
+  ];
+}
+
+===========================================================
+FILE: package.json
+===========================================================
+
+{
+  "name": "atreyu-aios",
+  "version": "2.0.0",
+  "description": "ATREYU AIOS - AI-powered IDE, Agent Studio, and Content Studio",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.0"
+  }
+}
+
+===========================================================
+FILE: .gitignore
+===========================================================
+
+node_modules/
+user-projects/
+uploads/
+data/repos/
+.env
+
+===========================================================
+FILE: server/index.js
+===========================================================
+
+const express = require("express");
+const session = require("express-session");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs/promises");
+const { v4: uuidv4 } = require("uuid");
+const { runAgent } = require("./claude-agent");
+const { cloneRepo, analyzeRepo, cleanupRepo } = require("./trainer");
+const skillsStore = require("./skills-store");
+const contentStore = require("./content-store");
+const { generateContent } = require("./content-engine");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const PROJECTS_DIR = path.join(process.cwd(), "user-projects");
+
+fs.mkdir(PROJECTS_DIR, { recursive: true }).catch(() => {});
+
+// --- Middleware ---
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "atreyu-aios-secret-" + uuidv4(),
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 24 * 60 * 60 * 1000 },
+  })
+);
+app.use(express.static(path.join(__dirname, "../public")));
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dest = path.join(PROJECTS_DIR, req.session.userId || "tmp", "uploads");
+    fs.mkdir(dest, { recursive: true }).then(() => cb(null, dest));
+  },
+  filename: (req, file, cb) => cb(null, file.originalname),
+});
+const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+function requireAuth(req, res, next) {
+  if (!req.session.apiKey) {
+    return res.status(401).json({ error: "Not authenticated. Please connect your Anthropic API key." });
+  }
+  next();
+}
+
+// ======================
+// AUTH ROUTES
+// ======================
+
+app.post("/api/auth/connect", async (req, res) => {
+  const { apiKey } = req.body;
+  if (!apiKey || !apiKey.startsWith("sk-ant-")) {
+    return res.status(400).json({ error: "Invalid API key. Anthropic keys start with sk-ant-" });
+  }
+
+  try {
+    const Anthropic = require("@anthropic-ai/sdk");
+    const client = new Anthropic({ apiKey });
+    await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 10,
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    req.session.apiKey = apiKey;
+    req.session.userId = "user-" + uuidv4();
+    req.session.chatSessions = {};
+
+    const userDir = path.join(PROJECTS_DIR, req.session.userId);
+    await fs.mkdir(userDir, { recursive: true });
+
+    res.json({ success: true, userId: req.session.userId });
+  } catch (err) {
+    if (err.status === 401) {
+      return res.status(401).json({ error: "Invalid API key. Please check and try again." });
+    }
+    return res.status(500).json({ error: "Failed to validate key: " + err.message });
+  }
+});
+
+app.get("/api/auth/status", (req, res) => {
+  res.json({
+    authenticated: !!req.session.apiKey,
+    userId: req.session.userId || null,
+    keyHint: req.session.apiKey ? "sk-ant-..." + req.session.apiKey.slice(-6) : null,
+  });
+});
+
+app.post("/api/auth/disconnect", (req, res) => {
+  req.session.destroy(() => {
+    res.json({ success: true });
+  });
+});
+
+// ======================
+// PROJECT ROUTES
+// ======================
+
+app.get("/api/projects", requireAuth, async (req, res) => {
+  const userDir = path.join(PROJECTS_DIR, req.session.userId);
+  try {
+    await fs.mkdir(userDir, { recursive: true });
+    const entries = await fs.readdir(userDir, { withFileTypes: true });
+    const projects = entries
+      .filter((e) => e.isDirectory() && e.name !== "uploads")
+      .map((e) => ({ id: e.name, name: e.name }));
+    res.json(projects);
+  } catch {
+    res.json([]);
+  }
+});
+
+app.post("/api/projects", requireAuth, async (req, res) => {
+  const { name } = req.body;
+  const projectId = (name || "project").replace(/[^a-zA-Z0-9_-]/g, "-") + "-" + Date.now();
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, projectId);
+  await fs.mkdir(projectDir, { recursive: true });
+  res.json({ id: projectId, name: projectId });
+});
+
+app.post("/api/projects/:projectId/upload", requireAuth, upload.array("files", 100), async (req, res) => {
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId);
+  await fs.mkdir(projectDir, { recursive: true });
+  const files = req.files || [];
+  for (const file of files) {
+    const relativePath = req.body[`path_${file.originalname}`] || file.originalname;
+    const safePath = path.normalize(relativePath).replace(/^(\.\.[/\\])+/, "");
+    const dest = path.join(projectDir, safePath);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.rename(file.path, dest);
+  }
+  res.json({ uploaded: files.length });
+});
+
+app.post("/api/projects/clone", requireAuth, async (req, res) => {
+  const { repoUrl } = req.body;
+  if (!repoUrl) return res.status(400).json({ error: "repoUrl required" });
+  if (!/^https?:\/\/.+/.test(repoUrl) && !repoUrl.match(/^git@/)) {
+    return res.status(400).json({ error: "Invalid repository URL" });
+  }
+  const repoName = path.basename(repoUrl, ".git") + "-" + Date.now();
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, repoName);
+  try {
+    const { execSync } = require("child_process");
+    execSync(`git clone --depth 50 "${repoUrl}" "${projectDir}"`, { timeout: 120000, stdio: "pipe" });
+    res.json({ id: repoName, name: repoName });
+  } catch (err) {
+    res.status(500).json({ error: "Clone failed: " + err.stderr?.toString().slice(0, 200) });
+  }
+});
+
+app.delete("/api/projects/:projectId", requireAuth, async (req, res) => {
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId);
+  const resolved = path.resolve(projectDir);
+  const allowed = path.resolve(path.join(PROJECTS_DIR, req.session.userId));
+  if (!resolved.startsWith(allowed)) return res.status(403).json({ error: "Forbidden" });
+  await fs.rm(projectDir, { recursive: true, force: true });
+  res.json({ success: true });
+});
+
+// ======================
+// FILE ROUTES
+// ======================
+
+app.get("/api/files/:projectId", requireAuth, async (req, res) => {
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId);
+  async function buildTree(dir, prefix = "") {
+    let entries;
+    try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return []; }
+    const result = [];
+    const skip = new Set([".git", "node_modules", "__pycache__", ".next", "dist", ".venv"]);
+    for (const e of entries.sort((a, b) => {
+      if (a.isDirectory() && !b.isDirectory()) return -1;
+      if (!a.isDirectory() && b.isDirectory()) return 1;
+      return a.name.localeCompare(b.name);
+    })) {
+      if (skip.has(e.name) || e.name.startsWith(".")) continue;
+      const rel = path.join(prefix, e.name);
+      if (e.isDirectory()) {
+        result.push({ name: e.name, path: rel, type: "dir", children: await buildTree(path.join(dir, e.name), rel) });
+      } else {
+        result.push({ name: e.name, path: rel, type: "file" });
+      }
+    }
+    return result;
+  }
+  res.json(await buildTree(projectDir));
+});
+
+app.get("/api/files/:projectId/*", requireAuth, async (req, res) => {
+  const filePath = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId, req.params[0]);
+  const resolved = path.resolve(filePath);
+  const allowed = path.resolve(path.join(PROJECTS_DIR, req.session.userId));
+  if (!resolved.startsWith(allowed)) return res.status(403).json({ error: "Forbidden" });
+  try {
+    const content = await fs.readFile(filePath, "utf-8");
+    res.type("text/plain").send(content);
+  } catch {
+    res.status(404).json({ error: "File not found" });
+  }
+});
+
+app.put("/api/files/:projectId/*", requireAuth, async (req, res) => {
+  const filePath = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId, req.params[0]);
+  const resolved = path.resolve(filePath);
+  const allowed = path.resolve(path.join(PROJECTS_DIR, req.session.userId));
+  if (!resolved.startsWith(allowed)) return res.status(403).json({ error: "Forbidden" });
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, req.body.content);
+  res.json({ success: true });
+});
+
+// ======================
+// CHAT / CLAUDE AGENT
+// ======================
+
+app.post("/api/chat", requireAuth, async (req, res) => {
+  const { projectId, message, sessionId } = req.body;
+  if (!projectId || !message) return res.status(400).json({ error: "projectId and message required" });
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, projectId);
+  const chatId = sessionId || "default";
+  if (!req.session.chatSessions) req.session.chatSessions = {};
+  const history = req.session.chatSessions[chatId] || [];
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  try {
+    const updatedHistory = await runAgent(req.session.apiKey, message, projectDir, history, (event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    });
+    req.session.chatSessions[chatId] = updatedHistory.slice(-40);
+    req.session.save();
+    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ type: "error", text: err.message })}\n\n`);
+  }
+  res.end();
+});
+
+app.delete("/api/chat/:sessionId", requireAuth, (req, res) => {
+  if (req.session.chatSessions) delete req.session.chatSessions[req.params.sessionId];
+  res.json({ success: true });
+});
+
+// ======================
+// SKILLS / AGENT STUDIO
+// ======================
+
+app.get("/api/skills", async (req, res) => {
+  const skills = await skillsStore.getAllSkills();
+  res.json(skills);
+});
+
+app.get("/api/skills/:id", async (req, res) => {
+  const skill = await skillsStore.getSkillById(req.params.id);
+  if (!skill) return res.status(404).json({ error: "Skill not found" });
+  res.json(skill);
+});
+
+app.post("/api/skills/train", requireAuth, async (req, res) => {
+  const { repoUrl } = req.body;
+  if (!repoUrl) return res.status(400).json({ error: "repoUrl is required" });
+  if (!/^https?:\/\/.+/.test(repoUrl)) {
+    return res.status(400).json({ error: "Invalid repository URL." });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const send = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+  let repoDir = null;
+  try {
+    send({ stage: "cloning", message: "Cloning repository..." });
+    repoDir = await cloneRepo(repoUrl);
+    const newSkills = await analyzeRepo(req.session.apiKey, repoDir, repoUrl, send);
+    send({ stage: "saving", message: `Saving ${newSkills.length} skills...` });
+    await skillsStore.addSkills(newSkills);
+    send({ stage: "done", message: `Training complete! Learned ${newSkills.length} new skills.`, skills: newSkills });
+  } catch (err) {
+    send({ stage: "error", message: err.message });
+  } finally {
+    if (repoDir) await cleanupRepo(repoDir);
+    res.end();
+  }
+});
+
+app.delete("/api/skills/:id", async (req, res) => {
+  const remaining = await skillsStore.deleteSkill(req.params.id);
+  res.json({ success: true, remaining: remaining.length });
+});
+
+app.delete("/api/skills", async (req, res) => {
+  await skillsStore.clearAllSkills();
+  res.json({ success: true });
+});
+
+// ======================
+// CONTENT STUDIO
+// ======================
+
+// Generate content using trained skills
+app.post("/api/content/generate", requireAuth, async (req, res) => {
+  const { prompt, platforms, tone, brandVoice, additionalContext } = req.body;
+
+  if (!prompt) return res.status(400).json({ error: "prompt is required" });
+  if (!platforms || platforms.length === 0) return res.status(400).json({ error: "Select at least one platform" });
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const send = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+
+  try {
+    // Step 1: Load all trained skills
+    send({ stage: "loading_skills", message: "Loading trained skills..." });
+    const allSkills = await skillsStore.getAllSkills();
+
+    // Step 2: Generate content using skills
+    send({ stage: "selecting_skills", message: `Reviewing ${allSkills.length} skills for relevant expertise...` });
+
+    const result = await generateContent({
+      apiKey: req.session.apiKey,
+      prompt,
+      platforms,
+      tone: tone || "professional",
+      brandVoice: brandVoice || "",
+      additionalContext: additionalContext || "",
+      skills: allSkills,
+      onProgress: send,
+    });
+
+    // Step 3: Save to history
+    send({ stage: "saving", message: "Saving to content history..." });
+    await contentStore.addContent(result);
+
+    send({ stage: "done", message: "Content generated!", content: result });
+  } catch (err) {
+    send({ stage: "error", message: err.message });
+  }
+
+  res.end();
+});
+
+// Get content history
+app.get("/api/content/history", async (req, res) => {
+  const history = await contentStore.getAllContent();
+  res.json(history);
+});
+
+// Get single content item
+app.get("/api/content/:id", async (req, res) => {
+  const item = await contentStore.getContentById(req.params.id);
+  if (!item) return res.status(404).json({ error: "Content not found" });
+  res.json(item);
+});
+
+// Delete content item
+app.delete("/api/content/:id", async (req, res) => {
+  await contentStore.deleteContent(req.params.id);
+  res.json({ success: true });
+});
+
+// ======================
+// START
+// ======================
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`ATREYU AIOS running on port ${PORT}`);
+});
+
+===========================================================
+FILE: server/claude-agent.js
+===========================================================
+
+const Anthropic = require("@anthropic-ai/sdk");
+const fs = require("fs/promises");
+const path = require("path");
+const { execSync } = require("child_process");
+
+const TOOLS = [
+  { name: "read_file", description: "Read a file from the project.", input_schema: { type: "object", properties: { file_path: { type: "string", description: "Relative path to the file" } }, required: ["file_path"] } },
+  { name: "write_file", description: "Create or overwrite a file.", input_schema: { type: "object", properties: { file_path: { type: "string", description: "Relative path" }, content: { type: "string", description: "File content" } }, required: ["file_path", "content"] } },
+  { name: "edit_file", description: "Replace specific text in a file.", input_schema: { type: "object", properties: { file_path: { type: "string" }, old_text: { type: "string" }, new_text: { type: "string" } }, required: ["file_path", "old_text", "new_text"] } },
+  { name: "list_directory", description: "List files in a directory.", input_schema: { type: "object", properties: { directory: { type: "string" } }, required: ["directory"] } },
+  { name: "search_files", description: "Search for text across files.", input_schema: { type: "object", properties: { pattern: { type: "string" }, file_glob: { type: "string" } }, required: ["pattern"] } },
+  { name: "run_command", description: "Run a shell command.", input_schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] } },
+  { name: "create_directory", description: "Create a directory.", input_schema: { type: "object", properties: { directory: { type: "string" } }, required: ["directory"] } },
+  { name: "delete_file", description: "Delete a file.", input_schema: { type: "object", properties: { file_path: { type: "string" } }, required: ["file_path"] } },
+];
+
+const BLOCKED = [/rm\s+-rf\s+[/~]/, /mkfs\./, /dd\s+if=/, />\s*\/dev\/sd/, /curl.*\|\s*(bash|sh)/, /wget.*\|\s*(bash|sh)/];
+
+function safePath(projectDir, rel) {
+  const normalized = path.normalize(rel).replace(/^(\.\.[/\\])+/, "");
+  const resolved = path.resolve(projectDir, normalized);
+  if (!resolved.startsWith(path.resolve(projectDir))) throw new Error("Path outside project");
+  return resolved;
+}
+
+async function executeTool(name, input, dir) {
+  switch (name) {
+    case "read_file": return await fs.readFile(safePath(dir, input.file_path), "utf-8");
+    case "write_file": { const p = safePath(dir, input.file_path); await fs.mkdir(path.dirname(p), { recursive: true }); await fs.writeFile(p, input.content); return `Written: ${input.file_path}`; }
+    case "edit_file": { const p = safePath(dir, input.file_path); const c = await fs.readFile(p, "utf-8"); if (!c.includes(input.old_text)) return "Error: text not found"; await fs.writeFile(p, c.replace(input.old_text, input.new_text)); return `Edited: ${input.file_path}`; }
+    case "list_directory": { const entries = await fs.readdir(safePath(dir, input.directory), { withFileTypes: true }); return entries.map(e => `${e.isDirectory() ? "[dir] " : "[file] "}${e.name}`).join("\n"); }
+    case "search_files": { try { return execSync(`grep -rn '${input.pattern.replace(/'/g, "'\\''")}' . --include='*' -l 2>/dev/null | head -50`, { cwd: dir, encoding: "utf-8", timeout: 15000 }) || "No matches."; } catch { return "No matches."; } }
+    case "run_command": { for (const b of BLOCKED) if (b.test(input.command)) return "Blocked for security."; try { return execSync(input.command, { cwd: dir, encoding: "utf-8", timeout: 60000, maxBuffer: 1024*1024 }).slice(0, 15000) || "(no output)"; } catch (e) { return `Failed:\n${(e.stdout||"").slice(0,5000)}\n${(e.stderr||"").slice(0,5000)}`; } }
+    case "create_directory": { await fs.mkdir(safePath(dir, input.directory), { recursive: true }); return `Created: ${input.directory}`; }
+    case "delete_file": { await fs.unlink(safePath(dir, input.file_path)); return `Deleted: ${input.file_path}`; }
+    default: return "Unknown tool";
+  }
+}
+
+const SYS = `You are ATREYU, an AI coding assistant in the ATREYU AIOS IDE. You have full project access through tools. Be direct, write actual code, verify your work.`;
+
+async function runAgent(apiKey, msg, dir, history, onEvent) {
+  const client = new Anthropic({ apiKey });
+  history.push({ role: "user", content: msg });
+  let iter = 0;
+  while (iter++ < 25) {
+    const res = await client.messages.create({ model: "claude-sonnet-4-6", max_tokens: 8192, system: SYS, tools: TOOLS, messages: history });
+    history.push({ role: "assistant", content: res.content });
+    for (const b of res.content) if (b.type === "text") onEvent({ type: "text", text: b.text });
+    if (res.stop_reason === "end_turn") break;
+    const results = [];
+    for (const b of res.content) {
+      if (b.type === "tool_use") {
+        onEvent({ type: "tool_use", tool: b.name, input: b.input });
+        try {
+          const r = await executeTool(b.name, b.input, dir);
+          results.push({ type: "tool_result", tool_use_id: b.id, content: r });
+          onEvent({ type: "tool_result", tool: b.name, result: r.slice(0, 500) });
+        } catch (e) {
+          results.push({ type: "tool_result", tool_use_id: b.id, content: `Error: ${e.message}`, is_error: true });
+          onEvent({ type: "tool_error", tool: b.name, error: e.message });
+        }
+      }
+    }
+    if (results.length > 0) history.push({ role: "user", content: results });
+    else break;
+  }
+  return history;
+}
+
+module.exports = { runAgent };
+
+===========================================================
+FILE: server/trainer.js
+===========================================================
+
+const Anthropic = require("@anthropic-ai/sdk");
+const { execSync } = require("child_process");
+const fs = require("fs/promises");
+const path = require("path");
+const { v4: uuidv4 } = require("uuid");
+
+const CLONE_DIR = path.join(process.cwd(), "data", "repos");
+const CODE_EXT = new Set([".js",".ts",".jsx",".tsx",".py",".rb",".go",".rs",".java",".c",".cpp",".h",".cs",".php",".swift",".kt",".scala",".vue",".svelte",".html",".css",".scss",".sql",".sh",".yaml",".yml",".toml",".json",".md",".mdx",".txt"]);
+const SKIP = new Set(["node_modules",".git","__pycache__",".next","dist","build","vendor",".venv","venv","target","bin","obj",".cache","coverage"]);
+
+async function cloneRepo(url) {
+  await fs.mkdir(CLONE_DIR, { recursive: true });
+  const name = path.basename(url, ".git").replace(/[^a-zA-Z0-9_-]/g, "-");
+  const dest = path.join(CLONE_DIR, `${name}-${Date.now()}`);
+  execSync(`git clone --depth 20 "${url}" "${dest}"`, { timeout: 120000, stdio: "pipe" });
+  return dest;
+}
+
+async function collectFiles(dir, max = 60, maxSize = 8000) {
+  const files = [];
+  async function walk(d, prefix = "") {
+    if (files.length >= max) return;
+    let entries; try { entries = await fs.readdir(d, { withFileTypes: true }); } catch { return; }
+    entries.sort((a, b) => { const p = n => { const l = n.toLowerCase(); if (l.startsWith("readme")) return 0; if (["package.json","pyproject.toml","cargo.toml"].includes(l)) return 1; if (l.includes("main")||l.includes("index")||l.includes("app")) return 3; return 10; }; return p(a.name)-p(b.name); });
+    for (const e of entries) {
+      if (files.length >= max) break;
+      const full = path.join(d, e.name), rel = path.join(prefix, e.name);
+      if (e.isDirectory()) { if (!SKIP.has(e.name) && !e.name.startsWith(".")) await walk(full, rel); }
+      else { const ext = path.extname(e.name).toLowerCase(); if (CODE_EXT.has(ext) || ["makefile","dockerfile"].includes(e.name.toLowerCase())) { try { const st = await fs.stat(full); if (st.size > 100000) continue; let c = await fs.readFile(full, "utf-8"); if (c.length > maxSize) c = c.slice(0, maxSize) + "\n...(truncated)"; files.push({ path: rel, content: c }); } catch {} } }
+    }
+  }
+  await walk(dir);
+  return files;
+}
+
+async function buildTree(dir, depth = 0, max = 4) {
+  if (depth > max) return "";
+  let r = "", entries; try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return r; }
+  for (const e of entries) {
+    if (SKIP.has(e.name) || e.name.startsWith(".")) continue;
+    r += "  ".repeat(depth) + (e.isDirectory() ? e.name + "/\n" : e.name + "\n");
+    if (e.isDirectory()) r += await buildTree(path.join(dir, e.name), depth + 1, max);
+  }
+  return r;
+}
+
+async function analyzeRepo(apiKey, repoDir, repoUrl, onProgress) {
+  const client = new Anthropic({ apiKey });
+  onProgress({ stage: "reading", message: "Reading repository files..." });
+  const [files, tree] = await Promise.all([collectFiles(repoDir), buildTree(repoDir)]);
+  onProgress({ stage: "analyzing", message: `Analyzing ${files.length} files with Claude...` });
+  const ctx = files.map(f => `--- FILE: ${f.path} ---\n${f.content}\n`).join("\n");
+
+  const res = await client.messages.create({
+    model: "claude-sonnet-4-6", max_tokens: 8000,
+    messages: [{ role: "user", content: `You are ATREYU, an AI that learns skills from codebases. Analyze this repo and extract distinct, reusable SKILLS.\n\nA "skill" is a capability, pattern, technique, or domain knowledge from this codebase.\n\n## Repository: ${repoUrl}\n\n## Structure:\n${tree.slice(0,3000)}\n\n## Files:\n${ctx}\n\nExtract 5-15 skills. Each skill needs:\n1. name (3-8 words)\n2. category: Frontend/Backend/Database/DevOps/API/Auth/Testing/AI-ML/Architecture/Tooling/Data-Processing/Security/Content-Strategy/Social-Media/Copywriting\n3. summary (under 120 chars)\n4. description (3-5 sentences)\n5. key_concepts (3-6 items)\n6. code_example (short snippet)\n7. use_cases (2-4 items)\n8. complexity: beginner/intermediate/advanced\n\nRespond with ONLY a JSON array. No markdown fences.` }],
+  });
+
+  onProgress({ stage: "processing", message: "Processing extracted skills..." });
+  let skills;
+  try { const t = res.content[0].text.trim().replace(/^```json?\s*/, "").replace(/\s*```$/, ""); skills = JSON.parse(t); } catch (e) { throw new Error("Failed to parse skills: " + e.message); }
+  if (!Array.isArray(skills)) throw new Error("Expected array of skills");
+
+  const now = new Date().toISOString();
+  return skills.map(s => ({ id: uuidv4(), name: s.name || "Unnamed", category: s.category || "Architecture", summary: s.summary || "", description: s.description || "", key_concepts: s.key_concepts || [], code_example: s.code_example || "", use_cases: s.use_cases || [], complexity: s.complexity || "intermediate", source_repo: repoUrl, trained_at: now }));
+}
+
+async function cleanupRepo(dir) { try { await fs.rm(dir, { recursive: true, force: true }); } catch {} }
+
+module.exports = { cloneRepo, analyzeRepo, cleanupRepo };
+
+===========================================================
+FILE: server/skills-store.js
+===========================================================
+
+const fs = require("fs/promises");
+const path = require("path");
+const FILE = path.join(process.cwd(), "data", "skills.json");
+
+async function ensure() { try { await fs.access(FILE); } catch { await fs.mkdir(path.dirname(FILE), { recursive: true }); await fs.writeFile(FILE, "[]"); } }
+async function getAllSkills() { await ensure(); try { return JSON.parse(await fs.readFile(FILE, "utf-8")); } catch { return []; } }
+async function saveAll(s) { await ensure(); await fs.writeFile(FILE, JSON.stringify(s, null, 2)); }
+async function addSkills(newSkills) { const ex = await getAllSkills(); const names = new Set(ex.map(s => s.name.toLowerCase())); const add = newSkills.filter(s => !names.has(s.name.toLowerCase())); const merged = [...ex, ...add]; await saveAll(merged); return merged; }
+async function getSkillById(id) { return (await getAllSkills()).find(s => s.id === id) || null; }
+async function deleteSkill(id) { const f = (await getAllSkills()).filter(s => s.id !== id); await saveAll(f); return f; }
+async function clearAllSkills() { await saveAll([]); }
+
+module.exports = { getAllSkills, addSkills, getSkillById, deleteSkill, clearAllSkills };
+
+===========================================================
+FILE: server/content-store.js
+===========================================================
+
+const fs = require("fs/promises");
+const path = require("path");
+const FILE = path.join(process.cwd(), "data", "content-history.json");
+
+async function ensure() {
+  try { await fs.access(FILE); } catch {
+    await fs.mkdir(path.dirname(FILE), { recursive: true });
+    await fs.writeFile(FILE, "[]");
+  }
+}
+
+async function getAllContent() {
+  await ensure();
+  try { return JSON.parse(await fs.readFile(FILE, "utf-8")); } catch { return []; }
+}
+
+async function saveAll(items) {
+  await ensure();
+  await fs.writeFile(FILE, JSON.stringify(items, null, 2));
+}
+
+async function addContent(item) {
+  const all = await getAllContent();
+  all.unshift(item); // newest first
+  // Keep last 100 items
+  if (all.length > 100) all.length = 100;
+  await saveAll(all);
+  return all;
+}
+
+async function getContentById(id) {
+  return (await getAllContent()).find(c => c.id === id) || null;
+}
+
+async function deleteContent(id) {
+  const filtered = (await getAllContent()).filter(c => c.id !== id);
+  await saveAll(filtered);
+  return filtered;
+}
+
+module.exports = { getAllContent, addContent, getContentById, deleteContent };
+
+===========================================================
+FILE: server/content-engine.js
+===========================================================
+
+const Anthropic = require("@anthropic-ai/sdk");
+const { v4: uuidv4 } = require("uuid");
+
+// Platform specs for content generation
+const PLATFORM_SPECS = {
+  "instagram-post": {
+    name: "Instagram Post",
+    icon: "camera",
+    maxChars: 2200,
+    guidelines: "Caption up to 2200 chars. Include 20-30 relevant hashtags in a separate block. Use line breaks for readability. Include a call to action. Suggest image/carousel direction."
+  },
+  "instagram-story": {
+    name: "Instagram Story",
+    icon: "layers",
+    maxChars: 250,
+    guidelines: "Very short punchy text for story slides (3-5 slides). Each slide has max ~250 chars. Include poll/question sticker ideas. Suggest visual style per slide. Include swipe-up CTA if applicable."
+  },
+  "instagram-reel": {
+    name: "Instagram Reel",
+    icon: "film",
+    maxChars: 2200,
+    guidelines: "Script for 15-60 second video. Include hook (first 3 seconds), body, and CTA. Write caption with hashtags. Suggest trending audio style. Include on-screen text overlay suggestions."
+  },
+  "youtube-short": {
+    name: "YouTube Short",
+    icon: "play",
+    maxChars: 100,
+    guidelines: "Script for up to 60 second vertical video. Strong hook in first 2 seconds. Include on-screen text suggestions. Write a title (max 100 chars) and description. Suggest thumbnail concept."
+  },
+  "youtube-video": {
+    name: "YouTube Video",
+    icon: "video",
+    maxChars: 5000,
+    guidelines: "Full video script with timestamps. Include: title, description (with keywords), tags, thumbnail concept, hook, sections, and end screen CTA. Optimize for search."
+  },
+  "twitter-x": {
+    name: "Twitter/X Post",
+    icon: "message-circle",
+    maxChars: 280,
+    guidelines: "Max 280 characters per tweet. Create a single tweet and a thread version (3-5 tweets). Make it engaging and shareable. Include relevant hashtags sparingly (1-3)."
+  },
+  "linkedin": {
+    name: "LinkedIn Post",
+    icon: "briefcase",
+    maxChars: 3000,
+    guidelines: "Professional tone. Strong opening line (hook). Use short paragraphs and line breaks. Include a thought-provoking question or CTA at the end. 3-5 relevant hashtags."
+  },
+  "tiktok": {
+    name: "TikTok Video",
+    icon: "music",
+    maxChars: 2200,
+    guidelines: "Script for 15-60 second video. Extremely strong hook in first 1-2 seconds. Trendy, casual tone. Include on-screen text, suggested sounds/trends, caption with hashtags."
+  },
+  "blog-post": {
+    name: "Blog Post",
+    icon: "file-text",
+    maxChars: 10000,
+    guidelines: "SEO-optimized blog post. Include: title, meta description, H2/H3 headings, introduction, body sections, conclusion with CTA. Suggest internal/external links. 800-1500 words."
+  },
+  "email-copy": {
+    name: "Email Copy",
+    icon: "mail",
+    maxChars: 5000,
+    guidelines: "Email with: subject line (and 2 alternatives), preview text, body copy, CTA button text. Keep it scannable with short paragraphs. Include personalization tokens where appropriate."
+  },
+  "ad-copy": {
+    name: "Ad Copy",
+    icon: "zap",
+    maxChars: 500,
+    guidelines: "Create multiple ad variations: headline (30 chars), description (90 chars), and long description. Include 3 variations each. Optimize for click-through. Include suggested audience targeting."
+  },
+  "website-copy": {
+    name: "Website Copy",
+    icon: "globe",
+    maxChars: 5000,
+    guidelines: "Landing page or section copy. Include: headline, subheadline, body paragraphs, bullet points for features/benefits, testimonial prompts, and CTA. Focus on conversion."
+  },
+};
+
+/**
+ * Generate content using trained skills and Claude.
+ */
+async function generateContent({ apiKey, prompt, platforms, tone, brandVoice, additionalContext, skills, onProgress }) {
+  const client = new Anthropic({ apiKey });
+
+  // Build skills context — summarize available skills for Claude
+  const skillsSummary = skills.length > 0
+    ? skills.map(s => `- **${s.name}** (${s.category}): ${s.summary}`).join("\n")
+    : "No skills trained yet. Generate content based on general best practices.";
+
+  // Detailed skill knowledge for Claude to draw from
+  const skillDetails = skills.length > 0
+    ? skills.map(s => `### ${s.name} (${s.category})
+${s.description}
+Key concepts: ${(s.key_concepts || []).join(", ")}
+Use cases: ${(s.use_cases || []).join("; ")}
+${s.code_example ? `Example:\n${s.code_example}` : ""}`).join("\n\n")
+    : "";
+
+  // Build platform requirements
+  const platformDetails = platforms
+    .map(p => PLATFORM_SPECS[p])
+    .filter(Boolean)
+    .map(p => `### ${p.name}\n${p.guidelines}`)
+    .join("\n\n");
+
+  const systemPrompt = `You are ATREYU, an elite AI content strategist and creator. You have been trained on specific skills from real codebases and knowledge bases. Use these skills to inform and enhance the content you create.
+
+## YOUR TRAINED SKILLS:
+${skillsSummary}
+
+## DETAILED SKILL KNOWLEDGE:
+${skillDetails}
+
+## INSTRUCTIONS:
+1. First, analyze which of your trained skills are most relevant to this content request
+2. List the specific skills you are applying and WHY
+3. Then generate the requested content for EACH platform specified
+4. The content should be informed by your skill knowledge — not generic
+5. Each platform's content must follow its specific format guidelines exactly
+
+## OUTPUT FORMAT:
+You MUST respond with ONLY a valid JSON object (no markdown fences, no explanation outside JSON) with this structure:
+{
+  "skills_used": [
+    { "skill_name": "...", "reason": "Why this skill is relevant to this content" }
+  ],
+  "content": [
+    {
+      "platform": "platform-id",
+      "platform_name": "Platform Display Name",
+      "pieces": [
+        {
+          "type": "primary|variation|thread|slide|script",
+          "label": "Main Post|Variation 1|Slide 1|Script|etc",
+          "text": "The actual content text",
+          "notes": "Additional notes, suggestions, or directions"
+        }
+      ],
+      "hashtags": ["tag1", "tag2"],
+      "metadata": {
+        "suggested_visual": "Description of suggested visual/image",
+        "best_posting_time": "Suggested posting time/day",
+        "target_audience": "Who this content targets",
+        "estimated_engagement": "Expected engagement level and why"
+      }
+    }
+  ],
+  "strategy_notes": "Overall content strategy explanation connecting the skills to the output"
+}`;
+
+  const userPrompt = `## CONTENT REQUEST:
+${prompt}
+
+## PLATFORMS TO CREATE FOR:
+${platformDetails}
+
+## TONE:
+${tone}
+
+${brandVoice ? `## BRAND VOICE:\n${brandVoice}` : ""}
+
+${additionalContext ? `## ADDITIONAL CONTEXT:\n${additionalContext}` : ""}
+
+Generate the content now. Remember to:
+1. State which trained skills you're using and why
+2. Create platform-specific content following each platform's guidelines exactly
+3. Make the content informed by your skill knowledge, not generic
+4. Return ONLY valid JSON`;
+
+  onProgress({ stage: "generating", message: `Generating content for ${platforms.length} platform(s) using ${skills.length} trained skills...` });
+
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 12000,
+    system: systemPrompt,
+    messages: [{ role: "user", content: userPrompt }],
+  });
+
+  const text = response.content[0].text.trim();
+
+  onProgress({ stage: "processing", message: "Processing generated content..." });
+
+  let parsed;
+  try {
+    const jsonStr = text.replace(/^```json?\s*/, "").replace(/\s*```$/, "");
+    parsed = JSON.parse(jsonStr);
+  } catch (err) {
+    throw new Error("Failed to parse content from Claude. Try again.");
+  }
+
+  // Wrap in a content item with metadata
+  const contentItem = {
+    id: uuidv4(),
+    prompt,
+    platforms,
+    tone,
+    brand_voice: brandVoice || "",
+    skills_used: parsed.skills_used || [],
+    content: parsed.content || [],
+    strategy_notes: parsed.strategy_notes || "",
+    created_at: new Date().toISOString(),
+  };
+
+  return contentItem;
+}
+
+module.exports = { generateContent, PLATFORM_SPECS };
+
+===========================================================
+FILE: public/index.html
+===========================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATREYU AIOS</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div id="login-screen" class="screen">
+    <div class="login-container">
+      <div class="login-logo"><h1>ATREYU</h1><p class="subtitle">AI Operating System</p></div>
+      <div class="login-card">
+        <h2>Connect Your Anthropic Account</h2>
+        <p class="login-info">Enter your Anthropic API key to power ATREYU with Claude. Your key is stored only in your session.</p>
+        <div class="input-group"><label for="api-key-input">Anthropic API Key</label><input type="password" id="api-key-input" placeholder="sk-ant-api03-..." autocomplete="off" /></div>
+        <button id="connect-btn" class="btn-primary" onclick="connectApiKey()">Connect & Launch ATREYU</button>
+        <div id="login-error" class="error-msg" style="display:none"></div>
+        <p class="login-help">Don't have a key? <a href="https://console.anthropic.com/settings/keys" target="_blank">Get one from Anthropic Console</a></p>
+      </div>
+    </div>
+  </div>
+
+  <div id="ide-screen" class="screen" style="display:none">
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="logo-small">ATREYU</span><span class="separator">|</span>
+        <select id="project-select" onchange="switchProject()"><option value="">-- Select Project --</option></select>
+        <button class="btn-sm" onclick="showNewProjectModal()">+ New</button>
+        <button class="btn-sm" onclick="showCloneModal()">Git Clone</button>
+        <button class="btn-sm" onclick="showUploadModal()">Upload Files</button>
+      </div>
+      <div class="topbar-right">
+        <a href="/agent-studio.html" class="btn-sm" style="text-decoration:none">Agent Studio</a>
+        <a href="/content.html" class="btn-sm" style="text-decoration:none;background:rgba(59,130,246,0.15);color:#60a5fa;border-color:rgba(59,130,246,0.3)">Content Studio</a>
+        <span id="key-hint" class="key-hint"></span>
+        <button class="btn-sm btn-disconnect" onclick="disconnect()">Disconnect</button>
+      </div>
+    </header>
+    <div class="ide-layout">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header"><span>Explorer</span><button class="btn-icon" onclick="refreshFileTree()">&#x21bb;</button></div>
+        <div id="file-tree" class="file-tree"><p class="empty-state">Select or create a project</p></div>
+      </aside>
+      <div class="resize-handle" id="sidebar-resize"></div>
+      <main class="main-area">
+        <div class="editor-panel" id="editor-panel">
+          <div class="editor-tabs" id="editor-tabs"><div class="tab-placeholder">No file open</div></div>
+          <div id="monaco-container" class="monaco-container"></div>
+        </div>
+        <div class="resize-handle-h" id="chat-resize"></div>
+        <div class="chat-panel" id="chat-panel">
+          <div class="chat-header"><span>ATREYU Assistant</span><button class="btn-sm" onclick="clearChat()">Clear</button></div>
+          <div id="chat-messages" class="chat-messages"></div>
+          <div class="chat-input-area">
+            <textarea id="chat-input" placeholder="Ask ATREYU..." rows="3" onkeydown="handleChatKeydown(event)"></textarea>
+            <button id="send-btn" class="btn-primary btn-send" onclick="sendMessage()">Send</button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div id="modal-overlay" class="modal-overlay" style="display:none" onclick="closeModal()">
+    <div class="modal" onclick="event.stopPropagation()"><div id="modal-content"></div></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
+
+===========================================================
+FILE: public/agent-studio.html
+===========================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATREYU - Agent Studio</title>
+  <link rel="stylesheet" href="/css/agent-studio.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-left"><a href="/" class="nav-logo">ATREYU</a><span class="nav-divider"></span><span class="nav-page">Agent Studio</span></div>
+    <div class="nav-right">
+      <a href="/" class="nav-link">IDE</a>
+      <a href="/agent-studio.html" class="nav-link active">Agent Studio</a>
+      <a href="/content.html" class="nav-link">Content Studio</a>
+      <span id="auth-status" class="auth-badge"></span>
+    </div>
+  </nav>
+  <section class="hero">
+    <div class="hero-content">
+      <h1>Train ATREYU with New Skills</h1>
+      <p>Paste a GitHub repository link. ATREYU will analyze the codebase and learn reusable skills, patterns, and techniques.</p>
+      <div class="train-form">
+        <div class="input-row">
+          <div class="input-icon"><svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></div>
+          <input type="text" id="repo-url" placeholder="https://github.com/username/repository" autocomplete="off" />
+          <button id="train-btn" onclick="startTraining()"><span class="btn-text">Train ATREYU</span><span class="btn-loading" style="display:none"><span class="spinner"></span> Training...</span></button>
+        </div>
+        <div id="train-error" class="train-error" style="display:none"></div>
+      </div>
+      <div id="training-progress" class="training-progress" style="display:none">
+        <div class="progress-bar-track"><div class="progress-bar-fill" id="progress-fill"></div></div>
+        <div class="progress-steps" id="progress-steps"></div>
+      </div>
+    </div>
+  </section>
+  <section class="skills-section">
+    <div class="skills-header">
+      <div class="skills-title-row"><h2>Trained Skills</h2><span id="skills-count" class="skills-count">0 skills</span></div>
+      <div class="skills-filters">
+        <button class="filter-btn active" onclick="filterSkills('all', this)">All</button>
+        <button class="filter-btn" onclick="filterSkills('Frontend', this)">Frontend</button>
+        <button class="filter-btn" onclick="filterSkills('Backend', this)">Backend</button>
+        <button class="filter-btn" onclick="filterSkills('Database', this)">Database</button>
+        <button class="filter-btn" onclick="filterSkills('API', this)">API</button>
+        <button class="filter-btn" onclick="filterSkills('Auth', this)">Auth</button>
+        <button class="filter-btn" onclick="filterSkills('DevOps', this)">DevOps</button>
+        <button class="filter-btn" onclick="filterSkills('Testing', this)">Testing</button>
+        <button class="filter-btn" onclick="filterSkills('Architecture', this)">Architecture</button>
+        <button class="filter-btn" onclick="filterSkills('Security', this)">Security</button>
+      </div>
+    </div>
+    <div id="skills-grid" class="skills-grid"></div>
+    <div id="empty-state" class="empty-state">
+      <div class="empty-icon"><svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg></div>
+      <h3>No skills trained yet</h3>
+      <p>Paste a GitHub link above to teach ATREYU new skills.</p>
+    </div>
+  </section>
+  <div id="skill-modal" class="modal-overlay" style="display:none" onclick="closeSkillModal(event)">
+    <div class="skill-modal" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeSkillModal()">&times;</button>
+      <div id="skill-modal-content"></div>
+    </div>
+  </div>
+  <script src="/js/agent-studio.js"></script>
+</body>
+</html>
+
+===========================================================
+FILE: public/content.html
+===========================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATREYU - Content Studio</title>
+  <link rel="stylesheet" href="/css/content.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="navbar">
+    <div class="nav-left">
+      <a href="/" class="nav-logo">ATREYU</a>
+      <span class="nav-divider"></span>
+      <span class="nav-page">Content Studio</span>
+    </div>
+    <div class="nav-right">
+      <a href="/" class="nav-link">IDE</a>
+      <a href="/agent-studio.html" class="nav-link">Agent Studio</a>
+      <a href="/content.html" class="nav-link active">Content Studio</a>
+      <span id="auth-status" class="auth-badge"></span>
+    </div>
+  </nav>
+
+  <!-- CONTENT CREATION FORM -->
+  <section class="create-section">
+    <div class="create-header">
+      <h1>Create Content</h1>
+      <p>Describe what you want to create. ATREYU will select the right skills from Agent Studio and generate platform-ready content.</p>
+    </div>
+
+    <div class="create-form">
+      <!-- Prompt -->
+      <div class="form-group">
+        <label>What do you want to create?</label>
+        <textarea id="content-prompt" rows="4" placeholder="e.g., Create a product launch campaign for our new AI writing tool that helps developers write documentation 10x faster. Target audience: software developers and tech leads. Key benefits: saves time, maintains consistency, integrates with GitHub."></textarea>
+      </div>
+
+      <!-- Platforms -->
+      <div class="form-group">
+        <label>Select Platforms</label>
+        <div class="platform-grid" id="platform-grid">
+          <div class="platform-chip" data-platform="instagram-post" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#128247;</span> Instagram Post
+          </div>
+          <div class="platform-chip" data-platform="instagram-story" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#128248;</span> Instagram Story
+          </div>
+          <div class="platform-chip" data-platform="instagram-reel" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#127910;</span> Instagram Reel
+          </div>
+          <div class="platform-chip" data-platform="youtube-short" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#9654;</span> YouTube Short
+          </div>
+          <div class="platform-chip" data-platform="youtube-video" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#127909;</span> YouTube Video
+          </div>
+          <div class="platform-chip" data-platform="twitter-x" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#128172;</span> Twitter/X
+          </div>
+          <div class="platform-chip" data-platform="linkedin" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#128188;</span> LinkedIn
+          </div>
+          <div class="platform-chip" data-platform="tiktok" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#127925;</span> TikTok
+          </div>
+          <div class="platform-chip" data-platform="blog-post" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#128221;</span> Blog Post
+          </div>
+          <div class="platform-chip" data-platform="email-copy" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#9993;</span> Email Copy
+          </div>
+          <div class="platform-chip" data-platform="ad-copy" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#9889;</span> Ad Copy
+          </div>
+          <div class="platform-chip" data-platform="website-copy" onclick="togglePlatform(this)">
+            <span class="chip-icon">&#127760;</span> Website Copy
+          </div>
+        </div>
+      </div>
+
+      <!-- Tone & Brand -->
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label>Tone</label>
+          <select id="content-tone">
+            <option value="professional">Professional</option>
+            <option value="casual">Casual & Friendly</option>
+            <option value="witty">Witty & Clever</option>
+            <option value="inspirational">Inspirational</option>
+            <option value="urgent">Urgent & Action-Driven</option>
+            <option value="educational">Educational</option>
+            <option value="storytelling">Storytelling</option>
+            <option value="bold">Bold & Provocative</option>
+            <option value="minimal">Minimal & Clean</option>
+            <option value="luxurious">Luxurious & Premium</option>
+          </select>
+        </div>
+        <div class="form-group flex-1">
+          <label>Brand Voice (optional)</label>
+          <input type="text" id="brand-voice" placeholder="e.g., Fun, tech-savvy, like talking to a smart friend" />
+        </div>
+      </div>
+
+      <!-- Additional Context -->
+      <div class="form-group">
+        <label>Additional Context (optional)</label>
+        <textarea id="additional-context" rows="2" placeholder="Target demographics, campaign goals, specific requirements, competitor references..."></textarea>
+      </div>
+
+      <!-- Skills Preview -->
+      <div class="skills-preview" id="skills-preview">
+        <div class="skills-preview-header">
+          <span class="sp-icon">&#9889;</span>
+          <span>ATREYU has <strong id="skill-count-display">0</strong> trained skills ready to use</span>
+          <a href="/agent-studio.html" class="sp-link">Train more skills</a>
+        </div>
+      </div>
+
+      <!-- Generate Button -->
+      <button id="generate-btn" class="btn-generate" onclick="generateContent()">
+        <span class="btn-text">Generate Content</span>
+        <span class="btn-loading" style="display:none"><span class="spinner"></span> Generating...</span>
+      </button>
+
+      <div id="generate-error" class="error-msg" style="display:none"></div>
+    </div>
+
+    <!-- Progress -->
+    <div id="gen-progress" class="gen-progress" style="display:none">
+      <div class="progress-bar-track"><div class="progress-bar-fill" id="gen-progress-fill"></div></div>
+      <div id="gen-steps" class="gen-steps"></div>
+    </div>
+  </section>
+
+  <!-- GENERATED CONTENT OUTPUT -->
+  <section id="output-section" class="output-section" style="display:none">
+    <div class="output-header">
+      <h2>Generated Content</h2>
+      <div class="output-meta" id="output-meta"></div>
+    </div>
+
+    <!-- Skills Used -->
+    <div class="skills-used-panel" id="skills-used-panel"></div>
+
+    <!-- Strategy Notes -->
+    <div class="strategy-panel" id="strategy-panel" style="display:none"></div>
+
+    <!-- Content Cards per Platform -->
+    <div id="output-cards" class="output-cards"></div>
+  </section>
+
+  <!-- CONTENT HISTORY -->
+  <section class="history-section" id="history-section">
+    <div class="history-header">
+      <h2>Content History</h2>
+      <span id="history-count" class="history-count"></span>
+    </div>
+    <div id="history-list" class="history-list"></div>
+  </section>
+
+  <script src="/js/content.js"></script>
+</body>
+</html>
+
+===========================================================
+FILE: public/css/style.css
+===========================================================
+
+:root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#1c2333;--bg-input:#0d1117;--border:#30363d;--text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#484f58;--accent:#58a6ff;--accent-hover:#79c0ff;--accent-bg:rgba(56,139,253,0.15);--green:#3fb950;--red:#f85149;--yellow:#d29922;--radius:6px;--font-mono:"SF Mono","Cascadia Code","Fira Code","Consolas",monospace;--font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;--sidebar-width:260px;--topbar-height:44px;--chat-height:40%}
+*{margin:0;padding:0;box-sizing:border-box}html,body{height:100%;overflow:hidden}body{font-family:var(--font-sans);background:var(--bg-primary);color:var(--text-primary);font-size:13px}a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}button{cursor:pointer;font-family:inherit;font-size:inherit}input,textarea,select{font-family:inherit;font-size:inherit}.screen{width:100%;height:100%}
+#login-screen{display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#0d1117 0%,#161b22 50%,#1a1e2e 100%)}.login-container{text-align:center;max-width:440px;width:100%;padding:20px}.login-logo h1{font-size:42px;font-weight:700;letter-spacing:6px;color:var(--accent);margin-bottom:4px}.login-logo .subtitle{font-size:13px;color:var(--text-secondary);letter-spacing:3px;text-transform:uppercase;margin-bottom:40px}.login-card{background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:32px;text-align:left}.login-card h2{font-size:18px;margin-bottom:8px}.login-info{color:var(--text-secondary);font-size:13px;margin-bottom:24px;line-height:1.5}.input-group{margin-bottom:20px}.input-group label{display:block;font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}.input-group input{width:100%;padding:10px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);font-family:var(--font-mono);font-size:13px;outline:none;transition:border-color .2s}.input-group input:focus{border-color:var(--accent)}.btn-primary{width:100%;padding:10px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-weight:600;font-size:14px;transition:background .2s}.btn-primary:hover{background:var(--accent-hover)}.btn-primary:disabled{opacity:.5;cursor:not-allowed}.error-msg{margin-top:12px;padding:10px;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:var(--radius);color:var(--red);font-size:13px}.login-help{margin-top:16px;text-align:center;font-size:12px;color:var(--text-secondary)}
+.topbar{height:var(--topbar-height);background:var(--bg-secondary);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 12px;gap:8px}.topbar-left,.topbar-right{display:flex;align-items:center;gap:8px}.logo-small{font-weight:700;letter-spacing:3px;color:var(--accent);font-size:14px}.separator{color:var(--text-muted)}.key-hint{color:var(--text-muted);font-family:var(--font-mono);font-size:11px}select{background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);padding:4px 8px;outline:none;max-width:200px}.btn-sm{padding:4px 10px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;white-space:nowrap;transition:background .15s}.btn-sm:hover{background:var(--border)}.btn-disconnect{color:var(--red);border-color:rgba(248,81,73,.3)}.btn-disconnect:hover{background:rgba(248,81,73,.15)}.btn-icon{background:none;border:none;color:var(--text-secondary);font-size:16px;padding:2px 6px;border-radius:4px}.btn-icon:hover{background:var(--border);color:var(--text-primary)}
+.ide-layout{display:flex;height:calc(100vh - var(--topbar-height))}.sidebar{width:var(--sidebar-width);min-width:180px;max-width:500px;background:var(--bg-secondary);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}.sidebar-header{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);border-bottom:1px solid var(--border)}.file-tree{flex:1;overflow-y:auto;padding:4px 0}.file-tree .empty-state{padding:20px 12px;color:var(--text-muted);font-size:12px;text-align:center}.tree-item{display:flex;align-items:center;padding:3px 8px 3px calc(var(--depth,0)*16px + 8px);cursor:pointer;font-size:13px;color:var(--text-secondary);gap:6px;user-select:none}.tree-item:hover{background:rgba(177,186,196,.08);color:var(--text-primary)}.tree-item.active{background:var(--accent-bg);color:var(--accent)}.tree-icon{font-size:14px;flex-shrink:0;width:16px;text-align:center}.tree-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.tree-toggle{width:16px;text-align:center;font-size:10px;flex-shrink:0}.tree-children{display:none}.tree-children.open{display:block}
+.resize-handle{width:3px;cursor:col-resize;background:transparent;transition:background .15s}.resize-handle:hover,.resize-handle.active{background:var(--accent)}.resize-handle-h{height:3px;cursor:row-resize;background:transparent;transition:background .15s}.resize-handle-h:hover,.resize-handle-h.active{background:var(--accent)}
+.main-area{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}.editor-panel{flex:1;display:flex;flex-direction:column;min-height:100px;overflow:hidden}.editor-tabs{display:flex;align-items:center;background:var(--bg-secondary);border-bottom:1px solid var(--border);height:36px;overflow-x:auto}.editor-tabs::-webkit-scrollbar{height:0}.tab-placeholder{padding:0 16px;color:var(--text-muted);font-size:12px}.tab{display:flex;align-items:center;gap:6px;padding:0 12px;height:100%;font-size:12px;color:var(--text-secondary);border-right:1px solid var(--border);cursor:pointer;white-space:nowrap;user-select:none}.tab:hover{background:rgba(177,186,196,.08)}.tab.active{color:var(--text-primary);background:var(--bg-primary);border-bottom:2px solid var(--accent)}.tab .close-tab{font-size:14px;line-height:1;color:var(--text-muted);border-radius:3px;width:18px;height:18px;display:flex;align-items:center;justify-content:center}.tab .close-tab:hover{background:var(--border);color:var(--text-primary)}.monaco-container{flex:1;min-height:0}
+.chat-panel{height:var(--chat-height);min-height:120px;max-height:80%;display:flex;flex-direction:column;background:var(--bg-secondary);border-top:1px solid var(--border)}.chat-header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;font-size:12px;font-weight:600;color:var(--text-secondary);border-bottom:1px solid var(--border)}.chat-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:12px}.chat-msg{max-width:100%;line-height:1.55;font-size:13px}.chat-msg.user-msg{align-self:flex-end;background:var(--accent-bg);border:1px solid rgba(56,139,253,.2);border-radius:10px 10px 2px 10px;padding:8px 14px;max-width:80%}.chat-msg.assistant-msg{align-self:flex-start;padding:4px 0;width:100%}.chat-msg.assistant-msg pre{background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;overflow-x:auto;font-family:var(--font-mono);font-size:12px;margin:8px 0}.chat-msg.assistant-msg code{font-family:var(--font-mono);font-size:12px;background:rgba(110,118,129,.2);padding:1px 5px;border-radius:3px}.chat-msg.assistant-msg pre code{background:none;padding:0}.chat-msg.assistant-msg p{margin:6px 0}.chat-msg.assistant-msg ul,.chat-msg.assistant-msg ol{padding-left:20px;margin:6px 0}
+.tool-indicator{display:flex;align-items:center;gap:6px;padding:4px 10px;font-size:11px;font-family:var(--font-mono);color:var(--text-muted);background:rgba(110,118,129,.08);border-radius:var(--radius);margin:4px 0}.tool-indicator .tool-icon{color:var(--yellow)}.tool-indicator.tool-done .tool-icon{color:var(--green)}.tool-indicator.tool-error .tool-icon{color:var(--red)}.typing-indicator{display:flex;gap:4px;padding:8px 0}.typing-indicator span{width:6px;height:6px;background:var(--text-muted);border-radius:50%;animation:blink 1.4s infinite both}.typing-indicator span:nth-child(2){animation-delay:.2s}.typing-indicator span:nth-child(3){animation-delay:.4s}@keyframes blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
+.chat-input-area{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--border);background:var(--bg-secondary)}.chat-input-area textarea{flex:1;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:8px 10px;resize:none;outline:none;line-height:1.4;transition:border-color .2s}.chat-input-area textarea:focus{border-color:var(--accent)}.btn-send{width:70px;padding:0;border-radius:var(--radius);font-size:13px}.btn-send:disabled{opacity:.4;cursor:not-allowed}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000}.modal{background:var(--bg-secondary);border:1px solid var(--border);border-radius:12px;padding:24px;width:420px;max-width:90vw}.modal h3{margin-bottom:16px;font-size:16px}.modal .input-group{margin-bottom:16px}.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}.btn-cancel{padding:8px 16px;background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border);border-radius:var(--radius)}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
+
+===========================================================
+FILE: public/css/agent-studio.css
+===========================================================
+
+:root{--bg-primary:#0a0e17;--bg-secondary:#111827;--bg-card:#151c2c;--bg-card-hover:#1a2236;--bg-input:#0d1321;--border:#1e293b;--border-light:#2a3a52;--text-primary:#e2e8f0;--text-secondary:#94a3b8;--text-muted:#475569;--accent:#3b82f6;--accent-glow:rgba(59,130,246,0.25);--accent-hover:#60a5fa;--green:#22c55e;--green-bg:rgba(34,197,94,0.12);--red:#ef4444;--red-bg:rgba(239,68,68,0.12);--yellow:#eab308;--yellow-bg:rgba(234,179,8,0.1);--purple:#a855f7;--purple-bg:rgba(168,85,247,0.12);--cyan:#06b6d4;--cyan-bg:rgba(6,182,212,0.1);--radius:8px;--radius-lg:14px;--font-mono:"SF Mono","Cascadia Code","Fira Code",Consolas,monospace;--font-sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}body{font-family:var(--font-sans);background:var(--bg-primary);color:var(--text-primary);font-size:14px;min-height:100vh}a{color:var(--accent);text-decoration:none}a:hover{color:var(--accent-hover)}
+.navbar{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;background:rgba(10,14,23,.85);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}.nav-left,.nav-right{display:flex;align-items:center;gap:12px}.nav-logo{font-size:16px;font-weight:700;letter-spacing:4px;color:var(--accent)}.nav-divider{width:1px;height:20px;background:var(--border)}.nav-page{font-size:13px;color:var(--text-secondary);font-weight:500}.nav-link{font-size:13px;color:var(--text-muted);padding:6px 12px;border-radius:6px;transition:all .2s}.nav-link:hover{color:var(--text-primary);background:rgba(255,255,255,.05);text-decoration:none}.nav-link.active{color:var(--accent);background:var(--accent-glow)}.auth-badge{font-size:11px;font-family:var(--font-mono);color:var(--text-muted);padding:4px 8px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:20px}
+.hero{padding:60px 24px 40px;max-width:800px;margin:0 auto;text-align:center}.hero h1{font-size:32px;font-weight:700;margin-bottom:12px;background:linear-gradient(135deg,#e2e8f0,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}.hero p{color:var(--text-secondary);font-size:15px;line-height:1.6;max-width:560px;margin:0 auto 32px}
+.train-form{max-width:640px;margin:0 auto}.input-row{display:flex;align-items:stretch;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;transition:border-color .2s}.input-row:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}.input-icon{display:flex;align-items:center;padding:0 14px;color:var(--text-muted)}.input-row input{flex:1;background:transparent;border:none;color:var(--text-primary);font-size:14px;padding:14px 0;outline:none}.input-row input::placeholder{color:var(--text-muted)}.input-row button{padding:0 24px;background:var(--accent);color:#fff;border:none;font-weight:600;font-size:14px;cursor:pointer;transition:background .2s;white-space:nowrap}.input-row button:hover{background:var(--accent-hover)}.input-row button:disabled{opacity:.5;cursor:not-allowed}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}
+.train-error{margin-top:12px;padding:10px 16px;background:var(--red-bg);border:1px solid rgba(239,68,68,.25);border-radius:var(--radius);color:var(--red);font-size:13px;text-align:left}
+.training-progress{max-width:640px;margin:24px auto 0;text-align:left}.progress-bar-track{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:16px}.progress-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--cyan));border-radius:2px;width:0%;transition:width .5s ease}.progress-steps{display:flex;flex-direction:column;gap:8px}.progress-step{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-secondary);padding:6px 12px;background:rgba(255,255,255,.02);border-radius:var(--radius)}.progress-step .step-icon{width:20px;height:20px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px}.progress-step.active{color:var(--accent)}.progress-step.done{color:var(--green)}.progress-step.error{color:var(--red)}
+.skills-section{max-width:1200px;margin:0 auto;padding:0 24px 60px}.skills-header{margin-bottom:24px}.skills-title-row{display:flex;align-items:baseline;gap:12px;margin-bottom:16px}.skills-title-row h2{font-size:22px;font-weight:600}.skills-count{font-size:13px;color:var(--text-muted)}
+.skills-filters{display:flex;flex-wrap:wrap;gap:6px}.filter-btn{padding:6px 14px;font-size:12px;font-weight:500;color:var(--text-secondary);background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:20px;cursor:pointer;transition:all .2s}.filter-btn:hover{color:var(--text-primary);border-color:var(--border-light);background:rgba(255,255,255,.06)}.filter-btn.active{color:var(--accent);border-color:var(--accent);background:var(--accent-glow)}
+.skills-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.skill-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;cursor:pointer;transition:all .25s;position:relative;overflow:hidden}.skill-card::before{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--card-accent,var(--accent)),transparent);opacity:0;transition:opacity .25s}.skill-card:hover{background:var(--bg-card-hover);border-color:var(--border-light);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3)}.skill-card:hover::before{opacity:1}
+.card-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px;gap:12px}.card-title{font-size:15px;font-weight:600;color:var(--text-primary);line-height:1.3}.card-badge{flex-shrink:0;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;padding:3px 8px;border-radius:4px;white-space:nowrap}.badge-Frontend{color:var(--cyan);background:var(--cyan-bg)}.badge-Backend{color:var(--green);background:var(--green-bg)}.badge-Database{color:var(--yellow);background:var(--yellow-bg)}.badge-API{color:var(--accent);background:var(--accent-glow)}.badge-Auth{color:var(--red);background:var(--red-bg)}.badge-DevOps{color:var(--purple);background:var(--purple-bg)}.badge-Testing{color:var(--green);background:var(--green-bg)}.badge-AIML{color:var(--purple);background:var(--purple-bg)}.badge-Architecture{color:var(--cyan);background:var(--cyan-bg)}.badge-Tooling{color:var(--yellow);background:var(--yellow-bg)}.badge-Security{color:var(--red);background:var(--red-bg)}[class*="badge-Data"]{color:var(--yellow);background:var(--yellow-bg)}
+.card-summary{font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:14px}.card-tags{display:flex;flex-wrap:wrap;gap:6px}.card-tag{font-size:11px;color:var(--text-muted);padding:2px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:4px;font-family:var(--font-mono)}
+.card-footer{display:flex;align-items:center;justify-content:space-between;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.05)}.card-complexity{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:.5px}.complexity-beginner{color:var(--green)}.complexity-intermediate{color:var(--yellow)}.complexity-advanced{color:var(--red)}.card-source{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty-state{text-align:center;padding:60px 20px;color:var(--text-muted)}.empty-icon{margin-bottom:16px;opacity:.4}.empty-state h3{font-size:18px;color:var(--text-secondary);margin-bottom:8px}.empty-state p{font-size:14px}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}.skill-modal{background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-lg);max-width:720px;width:100%;max-height:85vh;overflow-y:auto;position:relative;padding:32px;animation:modalIn .2s ease}@keyframes modalIn{from{opacity:0;transform:scale(.96) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}.modal-close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--text-secondary);width:32px;height:32px;border-radius:8px;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}.modal-close:hover{background:rgba(255,255,255,.1);color:var(--text-primary)}
+.modal-skill-header{display:flex;align-items:flex-start;gap:16px;margin-bottom:24px;padding-right:40px}.modal-skill-title{font-size:22px;font-weight:700;line-height:1.3}.modal-meta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:24px;font-size:12px;color:var(--text-muted)}.modal-meta-item{display:flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(255,255,255,.03);border-radius:6px}.modal-section{margin-bottom:24px}.modal-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:10px}.modal-description{font-size:14px;line-height:1.7;color:var(--text-secondary)}.modal-code-block{background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);padding:16px;font-family:var(--font-mono);font-size:12px;line-height:1.6;overflow-x:auto;white-space:pre;color:var(--text-primary)}.modal-use-cases{list-style:none;display:flex;flex-direction:column;gap:8px}.modal-use-cases li{display:flex;align-items:flex-start;gap:10px;font-size:13px;color:var(--text-secondary);padding:8px 12px;background:rgba(255,255,255,.02);border-radius:var(--radius);line-height:1.5}.use-case-arrow{color:var(--accent);flex-shrink:0}.modal-concepts{display:flex;flex-wrap:wrap;gap:8px}.modal-concept-tag{font-size:12px;font-weight:500;color:var(--accent);padding:4px 12px;background:var(--accent-glow);border:1px solid rgba(59,130,246,.2);border-radius:6px;font-family:var(--font-mono)}.modal-source-link{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--accent);padding:6px 12px;background:var(--accent-glow);border-radius:var(--radius);transition:background .15s}.modal-source-link:hover{background:rgba(59,130,246,.2);text-decoration:none}.modal-delete-btn{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--red);padding:6px 14px;background:var(--red-bg);border:1px solid rgba(239,68,68,.2);border-radius:var(--radius);cursor:pointer;transition:all .15s;margin-top:8px}.modal-delete-btn:hover{background:rgba(239,68,68,.2)}
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
+@media(max-width:640px){.hero{padding:40px 16px 24px}.hero h1{font-size:24px}.skills-grid{grid-template-columns:1fr}.skill-modal{padding:20px}.input-row{flex-direction:column}.input-row button{padding:14px}}
+
+===========================================================
+FILE: public/css/content.css
+===========================================================
+
+:root{--bg-primary:#0a0e17;--bg-secondary:#111827;--bg-card:#151c2c;--bg-card-hover:#1a2236;--bg-input:#0d1321;--border:#1e293b;--border-light:#2a3a52;--text-primary:#e2e8f0;--text-secondary:#94a3b8;--text-muted:#475569;--accent:#3b82f6;--accent-glow:rgba(59,130,246,0.25);--accent-hover:#60a5fa;--green:#22c55e;--green-bg:rgba(34,197,94,0.12);--red:#ef4444;--red-bg:rgba(239,68,68,0.12);--yellow:#eab308;--yellow-bg:rgba(234,179,8,0.1);--purple:#a855f7;--purple-bg:rgba(168,85,247,0.12);--cyan:#06b6d4;--cyan-bg:rgba(6,182,212,0.1);--orange:#f97316;--orange-bg:rgba(249,115,22,0.12);--pink:#ec4899;--pink-bg:rgba(236,72,153,0.12);--radius:8px;--radius-lg:14px;--font-mono:"SF Mono","Cascadia Code","Fira Code",Consolas,monospace;--font-sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}html{scroll-behavior:smooth}body{font-family:var(--font-sans);background:var(--bg-primary);color:var(--text-primary);font-size:14px;min-height:100vh}a{color:var(--accent);text-decoration:none}a:hover{color:var(--accent-hover)}
+
+/* Navbar — same as agent studio */
+.navbar{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;background:rgba(10,14,23,.85);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}.nav-left,.nav-right{display:flex;align-items:center;gap:12px}.nav-logo{font-size:16px;font-weight:700;letter-spacing:4px;color:var(--accent)}.nav-divider{width:1px;height:20px;background:var(--border)}.nav-page{font-size:13px;color:var(--text-secondary);font-weight:500}.nav-link{font-size:13px;color:var(--text-muted);padding:6px 12px;border-radius:6px;transition:all .2s}.nav-link:hover{color:var(--text-primary);background:rgba(255,255,255,.05);text-decoration:none}.nav-link.active{color:var(--accent);background:var(--accent-glow)}.auth-badge{font-size:11px;font-family:var(--font-mono);color:var(--text-muted);padding:4px 8px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:20px}
+
+/* Create Section */
+.create-section{max-width:800px;margin:0 auto;padding:48px 24px 32px}
+.create-header{text-align:center;margin-bottom:36px}
+.create-header h1{font-size:30px;font-weight:700;margin-bottom:10px;background:linear-gradient(135deg,#e2e8f0,#a855f7,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.create-header p{color:var(--text-secondary);font-size:14px;line-height:1.6;max-width:540px;margin:0 auto}
+
+.create-form{display:flex;flex-direction:column;gap:20px}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-group label{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}
+.form-group textarea,.form-group input,.form-group select{background:var(--bg-input);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary);padding:12px 14px;outline:none;transition:border-color .2s;font-size:14px;line-height:1.5}
+.form-group textarea:focus,.form-group input:focus,.form-group select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.form-group textarea::placeholder,.form-group input::placeholder{color:var(--text-muted)}
+.form-group select{cursor:pointer}
+.form-row{display:flex;gap:16px}.flex-1{flex:1}
+
+/* Platform chips */
+.platform-grid{display:flex;flex-wrap:wrap;gap:8px}
+.platform-chip{display:flex;align-items:center;gap:6px;padding:8px 14px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:var(--radius);font-size:13px;color:var(--text-secondary);cursor:pointer;transition:all .2s;user-select:none}
+.platform-chip:hover{border-color:var(--border-light);background:rgba(255,255,255,.06);color:var(--text-primary)}
+.platform-chip.selected{border-color:var(--accent);background:var(--accent-glow);color:var(--accent)}
+.chip-icon{font-size:16px}
+
+/* Skills preview */
+.skills-preview{padding:12px 16px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.15);border-radius:var(--radius)}
+.skills-preview-header{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary)}
+.sp-icon{color:var(--purple)}
+.sp-link{margin-left:auto;font-size:12px;color:var(--accent)}
+
+/* Generate button */
+.btn-generate{width:100%;padding:14px 24px;background:linear-gradient(135deg,var(--accent),var(--purple));color:#fff;border:none;border-radius:var(--radius);font-weight:600;font-size:15px;cursor:pointer;transition:all .2s;margin-top:8px}
+.btn-generate:hover{opacity:.9;transform:translateY(-1px);box-shadow:0 4px 16px rgba(59,130,246,.3)}
+.btn-generate:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:none}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}
+.error-msg{padding:10px 16px;background:var(--red-bg);border:1px solid rgba(239,68,68,.25);border-radius:var(--radius);color:var(--red);font-size:13px}
+
+/* Progress */
+.gen-progress{max-width:800px;margin:20px auto 0;padding:0 24px}
+.progress-bar-track{height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:12px}
+.progress-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));border-radius:2px;width:0%;transition:width .5s ease}
+.gen-steps{display:flex;flex-direction:column;gap:6px}
+.gen-step{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);padding:6px 12px;background:rgba(255,255,255,.02);border-radius:var(--radius)}
+.gen-step .step-icon{width:18px;text-align:center;font-size:12px;flex-shrink:0}
+.gen-step.active{color:var(--accent)}.gen-step.done{color:var(--green)}.gen-step.error{color:var(--red)}
+
+/* Output Section */
+.output-section{max-width:1100px;margin:0 auto;padding:40px 24px 20px}
+.output-header{margin-bottom:24px}
+.output-header h2{font-size:24px;font-weight:700;margin-bottom:8px}
+.output-meta{font-size:12px;color:var(--text-muted);display:flex;gap:16px;flex-wrap:wrap}
+
+/* Skills Used Panel */
+.skills-used-panel{margin-bottom:24px;padding:16px 20px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.15);border-radius:var(--radius-lg)}
+.skills-used-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--purple);margin-bottom:10px}
+.skill-used-item{display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-size:13px;color:var(--text-secondary);line-height:1.4}
+.skill-used-name{font-weight:600;color:var(--text-primary);white-space:nowrap}
+.skill-used-arrow{color:var(--purple);flex-shrink:0}
+
+/* Strategy panel */
+.strategy-panel{margin-bottom:24px;padding:16px 20px;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.15);border-radius:var(--radius-lg);font-size:13px;color:var(--text-secondary);line-height:1.6}
+.strategy-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin-bottom:8px}
+
+/* Output Cards */
+.output-cards{display:flex;flex-direction:column;gap:20px}
+.platform-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+.platform-card-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.02)}
+.platform-card-title{display:flex;align-items:center;gap:10px;font-size:16px;font-weight:600}
+.platform-card-icon{font-size:20px}
+.platform-card-body{padding:20px}
+.content-piece{margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid rgba(255,255,255,.05)}
+.content-piece:last-child{margin-bottom:0;padding-bottom:0;border-bottom:none}
+.piece-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);margin-bottom:8px}
+.piece-text{background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;font-size:13px;line-height:1.7;color:var(--text-primary);white-space:pre-wrap;position:relative}
+.piece-notes{margin-top:8px;font-size:12px;color:var(--text-muted);font-style:italic;line-height:1.5}
+.copy-btn{position:absolute;top:8px;right:8px;padding:4px 10px;font-size:11px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-secondary);cursor:pointer;transition:all .15s;opacity:0}
+.piece-text:hover .copy-btn{opacity:1}
+.copy-btn:hover{background:var(--accent-glow);color:var(--accent);border-color:var(--accent)}
+.copy-btn.copied{background:var(--green-bg);color:var(--green);border-color:rgba(34,197,94,.3)}
+
+.hashtags-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.hashtag{font-size:12px;color:var(--accent);padding:2px 8px;background:var(--accent-glow);border-radius:4px;font-family:var(--font-mono)}
+.meta-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,.05)}
+.meta-item{font-size:12px}
+.meta-label{color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;font-size:10px}
+.meta-value{color:var(--text-secondary);line-height:1.4}
+
+/* History */
+.history-section{max-width:1100px;margin:0 auto;padding:40px 24px 60px}
+.history-header{display:flex;align-items:baseline;gap:12px;margin-bottom:20px}
+.history-header h2{font-size:20px;font-weight:600}
+.history-count{font-size:13px;color:var(--text-muted)}
+.history-list{display:flex;flex-direction:column;gap:10px}
+.history-item{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all .2s}
+.history-item:hover{background:var(--bg-card-hover);border-color:var(--border-light)}
+.history-prompt{font-size:13px;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:16px}
+.history-platforms{display:flex;gap:4px;font-size:16px;margin-right:12px}
+.history-date{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap}
+.history-delete{padding:4px 8px;font-size:11px;color:var(--red);background:transparent;border:1px solid transparent;border-radius:4px;cursor:pointer;margin-left:8px;transition:all .15s}
+.history-delete:hover{background:var(--red-bg);border-color:rgba(239,68,68,.2)}
+
+::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
+@media(max-width:640px){.create-section{padding:32px 16px 24px}.create-header h1{font-size:24px}.form-row{flex-direction:column}.platform-grid{gap:6px}.output-section{padding:24px 16px}}
+
+===========================================================
+FILE: public/js/app.js
+===========================================================
+
+let currentProject=null,openTabs=[],activeTabPath=null,editor=null,chatSessionId="chat-"+Date.now(),isStreaming=false;
+document.addEventListener("DOMContentLoaded",()=>{initMonaco();checkAuthStatus();initResizeHandles()});
+function initMonaco(){require.config({paths:{vs:"https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs"}});require(["vs/editor/editor.main"],()=>{monaco.editor.defineTheme("atreyu-dark",{base:"vs-dark",inherit:true,rules:[],colors:{"editor.background":"#0d1117","editorGutter.background":"#0d1117","editor.lineHighlightBackground":"#161b22"}});editor=monaco.editor.create(document.getElementById("monaco-container"),{value:"// Welcome to ATREYU AIOS\n// Select or create a project to start.",language:"javascript",theme:"atreyu-dark",fontSize:13,fontFamily:"'SF Mono','Cascadia Code','Fira Code',Consolas,monospace",minimap:{enabled:false},scrollBeyondLastLine:false,padding:{top:10},automaticLayout:true,wordWrap:"on"});editor.onDidChangeModelContent(()=>{if(activeTabPath){const t=openTabs.find(t=>t.path===activeTabPath);if(t)t.content=editor.getValue()}});editor.addCommand(monaco.KeyMod.CtrlCmd|monaco.KeyCode.KeyS,()=>{saveCurrentFile()})})}
+async function checkAuthStatus(){try{const r=await fetch("/api/auth/status"),d=await r.json();if(d.authenticated){showIDE();document.getElementById("key-hint").textContent=d.keyHint;loadProjects()}else showLogin()}catch{showLogin()}}
+async function connectApiKey(){const k=document.getElementById("api-key-input").value.trim(),b=document.getElementById("connect-btn"),e=document.getElementById("login-error");e.style.display="none";if(!k){e.textContent="Please enter your API key.";e.style.display="block";return}b.disabled=true;b.textContent="Validating...";try{const r=await fetch("/api/auth/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({apiKey:k})}),d=await r.json();if(d.success){showIDE();checkAuthStatus()}else{e.textContent=d.error;e.style.display="block"}}catch{e.textContent="Connection failed.";e.style.display="block"}finally{b.disabled=false;b.textContent="Connect & Launch ATREYU"}}
+async function disconnect(){if(!confirm("Disconnect?"))return;await fetch("/api/auth/disconnect",{method:"POST"});currentProject=null;openTabs=[];activeTabPath=null;showLogin()}
+function showLogin(){document.getElementById("login-screen").style.display="flex";document.getElementById("ide-screen").style.display="none"}
+function showIDE(){document.getElementById("login-screen").style.display="none";document.getElementById("ide-screen").style.display="flex";document.getElementById("ide-screen").style.flexDirection="column"}
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&document.getElementById("login-screen").style.display!=="none"&&document.activeElement.id==="api-key-input")connectApiKey()});
+async function loadProjects(){const r=await fetch("/api/projects"),p=await r.json(),s=document.getElementById("project-select");s.innerHTML='<option value="">-- Select Project --</option>';for(const x of p){const o=document.createElement("option");o.value=x.id;o.textContent=x.name;s.appendChild(o)}if(currentProject)s.value=currentProject}
+function switchProject(){const s=document.getElementById("project-select");currentProject=s.value||null;openTabs=[];activeTabPath=null;renderTabs();currentProject?refreshFileTree():document.getElementById("file-tree").innerHTML='<p class="empty-state">Select or create a project</p>'}
+function showNewProjectModal(){document.getElementById("modal-content").innerHTML='<h3>Create New Project</h3><div class="input-group"><label>Project Name</label><input type="text" id="new-project-name" placeholder="my-project" /></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal()">Cancel</button><button class="btn-primary" style="width:auto;padding:8px 20px" onclick="createProject()">Create</button></div>';openModal();setTimeout(()=>document.getElementById("new-project-name").focus(),100)}
+async function createProject(){const n=document.getElementById("new-project-name").value.trim();if(!n)return;const r=await fetch("/api/projects",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:n})}),d=await r.json();currentProject=d.id;closeModal();await loadProjects();document.getElementById("project-select").value=currentProject;refreshFileTree()}
+function showCloneModal(){document.getElementById("modal-content").innerHTML='<h3>Clone Git Repository</h3><div class="input-group"><label>Repository URL</label><input type="text" id="clone-url" placeholder="https://github.com/user/repo.git" /></div><div id="clone-status" style="display:none;margin-bottom:12px;color:var(--text-secondary);font-size:12px"></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal()">Cancel</button><button class="btn-primary" style="width:auto;padding:8px 20px" id="clone-btn" onclick="cloneRepo()">Clone</button></div>';openModal();setTimeout(()=>document.getElementById("clone-url").focus(),100)}
+async function cloneRepo(){const u=document.getElementById("clone-url").value.trim();if(!u)return;const b=document.getElementById("clone-btn"),s=document.getElementById("clone-status");b.disabled=true;b.textContent="Cloning...";s.style.display="block";s.textContent="Cloning...";try{const r=await fetch("/api/projects/clone",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({repoUrl:u})}),d=await r.json();if(d.error){s.style.color="var(--red)";s.textContent=d.error;b.disabled=false;b.textContent="Clone";return}currentProject=d.id;closeModal();await loadProjects();document.getElementById("project-select").value=currentProject;refreshFileTree()}catch{s.style.color="var(--red)";s.textContent="Clone failed.";b.disabled=false;b.textContent="Clone"}}
+function showUploadModal(){if(!currentProject){alert("Create or select a project first.");return}document.getElementById("modal-content").innerHTML=`<h3>Upload Files</h3><div class="input-group"><label>Select Files</label><input type="file" id="upload-files" multiple /></div><div class="input-group"><label>Or Select Folder</label><input type="file" id="upload-folder" webkitdirectory directory multiple /></div><div id="upload-status" style="display:none;font-size:12px;margin-bottom:12px"></div><div class="modal-actions"><button class="btn-cancel" onclick="closeModal()">Cancel</button><button class="btn-primary" style="width:auto;padding:8px 20px" id="upload-btn" onclick="uploadFiles()">Upload</button></div>`;openModal()}
+async function uploadFiles(){const fi=document.getElementById("upload-files"),fo=document.getElementById("upload-folder"),files=fi.files.length>0?fi.files:fo.files;if(!files||!files.length)return;const b=document.getElementById("upload-btn"),s=document.getElementById("upload-status");b.disabled=true;b.textContent="Uploading...";s.style.display="block";s.textContent=`Uploading ${files.length} file(s)...`;const form=new FormData();form.append("projectId",currentProject);for(const f of files){form.append("files",f);if(f.webkitRelativePath)form.append(`path_${f.name}`,f.webkitRelativePath)}try{const r=await fetch(`/api/projects/${currentProject}/upload`,{method:"POST",body:form}),d=await r.json();if(d.error){s.style.color="var(--red)";s.textContent=d.error;b.disabled=false;b.textContent="Upload";return}closeModal();refreshFileTree()}catch{s.style.color="var(--red)";s.textContent="Upload failed.";b.disabled=false;b.textContent="Upload"}}
+async function refreshFileTree(){if(!currentProject)return;const c=document.getElementById("file-tree");try{const r=await fetch(`/api/files/${currentProject}`),t=await r.json();if(!t.length){c.innerHTML='<p class="empty-state">Empty project</p>';return}c.innerHTML="";renderTreeNodes(c,t,0)}catch{c.innerHTML='<p class="empty-state">Failed to load</p>'}}
+function renderTreeNodes(p,nodes,depth){for(const n of nodes){if(n.type==="dir"){const w=document.createElement("div"),i=document.createElement("div");i.className="tree-item";i.style.setProperty("--depth",depth);i.innerHTML=`<span class="tree-toggle">&#9654;</span><span class="tree-icon">&#128193;</span><span class="tree-name">${esc(n.name)}</span>`;const ch=document.createElement("div");ch.className="tree-children";renderTreeNodes(ch,n.children||[],depth+1);i.addEventListener("click",()=>{const o=ch.classList.toggle("open");i.querySelector(".tree-toggle").innerHTML=o?"&#9660;":"&#9654;"});w.appendChild(i);w.appendChild(ch);p.appendChild(w)}else{const i=document.createElement("div");i.className="tree-item";i.style.setProperty("--depth",depth);i.dataset.path=n.path;i.innerHTML=`<span class="tree-toggle" style="visibility:hidden">&#9654;</span><span class="tree-icon">${getIcon(n.name)}</span><span class="tree-name">${esc(n.name)}</span>`;i.addEventListener("click",()=>openFile(n.path));p.appendChild(i)}}}
+function getIcon(n){const e=n.split(".").pop().toLowerCase(),m={js:"&#128312;",ts:"&#128309;",py:"&#128154;",html:"&#128992;",css:"&#128311;",json:"&#128313;",md:"&#128220;",jsx:"&#128312;",tsx:"&#128309;"};return m[e]||"&#128196;"}
+async function openFile(fp){if(openTabs.find(t=>t.path===fp)){activateTab(fp);return}try{const r=await fetch(`/api/files/${currentProject}/${fp}`);if(!r.ok)return;const c=await r.text(),l=getLang(fp),m=monaco.editor.createModel(c,l);openTabs.push({path:fp,content:c,model:m});activateTab(fp);renderTabs()}catch(e){console.error(e)}}
+function activateTab(fp){activeTabPath=fp;const t=openTabs.find(t=>t.path===fp);if(t&&editor)editor.setModel(t.model);renderTabs();document.querySelectorAll(".tree-item").forEach(el=>el.classList.toggle("active",el.dataset.path===fp))}
+function closeTab(fp,ev){if(ev)ev.stopPropagation();const i=openTabs.findIndex(t=>t.path===fp);if(i===-1)return;openTabs[i].model.dispose();openTabs.splice(i,1);if(activeTabPath===fp){if(openTabs.length>0)activateTab(openTabs[Math.min(i,openTabs.length-1)].path);else{activeTabPath=null;if(editor)editor.setModel(monaco.editor.createModel("// No file open","plaintext"))}}renderTabs()}
+function renderTabs(){const c=document.getElementById("editor-tabs");if(!openTabs.length){c.innerHTML='<div class="tab-placeholder">No file open</div>';return}c.innerHTML=openTabs.map(t=>{const n=t.path.split("/").pop(),a=t.path===activeTabPath;return`<div class="tab ${a?"active":""}" onclick="activateTab('${escA(t.path)}')"><span>${esc(n)}</span><span class="close-tab" onclick="closeTab('${escA(t.path)}',event)">&times;</span></div>`}).join("")}
+async function saveCurrentFile(){if(!activeTabPath||!currentProject)return;await fetch(`/api/files/${currentProject}/${activeTabPath}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({content:editor.getValue()})})}
+function getLang(p){const e=p.split(".").pop().toLowerCase(),m={js:"javascript",jsx:"javascript",ts:"typescript",tsx:"typescript",py:"python",html:"html",css:"css",json:"json",md:"markdown",yaml:"yaml",yml:"yaml",sql:"sql",sh:"shell",go:"go",rs:"rust",java:"java",rb:"ruby",php:"php"};return m[e]||"plaintext"}
+function handleChatKeydown(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage()}}
+async function sendMessage(){const inp=document.getElementById("chat-input"),msg=inp.value.trim();if(!msg||!currentProject||isStreaming)return;inp.value="";isStreaming=true;document.getElementById("send-btn").disabled=true;appendMsg("user",msg);const tid=appendTyping();try{const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:currentProject,message:msg,sessionId:chatSessionId})}),rd=r.body.getReader(),dec=new TextDecoder();let at="",ae=null;removeTyping(tid);while(true){const{done,value}=await rd.read();if(done)break;for(const l of dec.decode(value,{stream:true}).split("\n")){if(!l.startsWith("data: "))continue;let ev;try{ev=JSON.parse(l.slice(6))}catch{continue}if(ev.type==="text"){at+=ev.text;if(!ae)ae=appendMsg("assistant","");ae.innerHTML=renderMd(at)}else if(ev.type==="tool_use")appendTool(ev.tool,JSON.stringify(ev.input).slice(0,80),"running");else if(ev.type==="tool_result")appendTool(ev.tool,ev.result.slice(0,120),"done");else if(ev.type==="tool_error")appendTool(ev.tool,ev.error,"error");else if(ev.type==="error")appendMsg("assistant","Error: "+ev.text);else if(ev.type==="done")refreshFileTree()}}}catch(e){removeTyping(tid);appendMsg("assistant","Error: "+e.message)}finally{isStreaming=false;document.getElementById("send-btn").disabled=false;inp.focus()}}
+function appendMsg(r,t){const c=document.getElementById("chat-messages"),d=document.createElement("div");d.className=`chat-msg ${r}-msg`;r==="user"?d.textContent=t:d.innerHTML=renderMd(t);c.appendChild(d);c.scrollTop=c.scrollHeight;return d}
+function appendTool(t,d,s){const c=document.getElementById("chat-messages"),el=document.createElement("div"),i=s==="running"?"&#9881;":s==="done"?"&#10003;":"&#10007;",cl=s==="done"?"tool-done":s==="error"?"tool-error":"";el.className=`tool-indicator ${cl}`;el.innerHTML=`<span class="tool-icon">${i}</span> <strong>${esc(t)}</strong> <span style="opacity:.6">${esc(d)}</span>`;c.appendChild(el);c.scrollTop=c.scrollHeight}
+function appendTyping(){const c=document.getElementById("chat-messages"),d=document.createElement("div"),id="t-"+Date.now();d.id=id;d.className="typing-indicator";d.innerHTML="<span></span><span></span><span></span>";c.appendChild(d);c.scrollTop=c.scrollHeight;return id}
+function removeTyping(id){const e=document.getElementById(id);if(e)e.remove()}
+function clearChat(){document.getElementById("chat-messages").innerHTML="";chatSessionId="chat-"+Date.now()}
+function renderMd(t){if(!t)return"";try{return marked.parse(t,{breaks:true})}catch{return esc(t)}}
+function openModal(){document.getElementById("modal-overlay").style.display="flex"}function closeModal(){document.getElementById("modal-overlay").style.display="none"}
+function initResizeHandles(){const sh=document.getElementById("sidebar-resize"),sb=document.getElementById("sidebar"),ch=document.getElementById("chat-resize"),cp=document.getElementById("chat-panel");let dr=null;sh.addEventListener("mousedown",e=>{dr="s";sh.classList.add("active");e.preventDefault()});ch.addEventListener("mousedown",e=>{dr="c";ch.classList.add("active");e.preventDefault()});document.addEventListener("mousemove",e=>{if(!dr)return;if(dr==="s")sb.style.width=Math.max(180,Math.min(500,e.clientX))+"px";else{const r=document.querySelector(".main-area").getBoundingClientRect();cp.style.height=Math.max(120,r.bottom-e.clientY)+"px"}});document.addEventListener("mouseup",()=>{if(dr){sh.classList.remove("active");ch.classList.remove("active");dr=null;if(editor)editor.layout()}})}
+function esc(s){const d=document.createElement("div");d.textContent=s;return d.innerHTML}function escA(s){return s.replace(/'/g,"\\'").replace(/"/g,"&quot;")}
+
+===========================================================
+FILE: public/js/agent-studio.js
+===========================================================
+
+let allSkills=[],activeFilter="all";
+document.addEventListener("DOMContentLoaded",()=>{checkAuth();loadSkills();document.getElementById("repo-url").addEventListener("keydown",e=>{if(e.key==="Enter")startTraining()})});
+async function checkAuth(){try{const r=await fetch("/api/auth/status"),d=await r.json(),b=document.getElementById("auth-status");b.textContent=d.authenticated?d.keyHint:"Not connected";if(!d.authenticated)b.style.color="#ef4444"}catch{}}
+async function loadSkills(){try{const r=await fetch("/api/skills");allSkills=await r.json()}catch{allSkills=[]}renderSkills()}
+function renderSkills(){const g=document.getElementById("skills-grid"),e=document.getElementById("empty-state"),c=document.getElementById("skills-count"),f=activeFilter==="all"?allSkills:allSkills.filter(s=>s.category===activeFilter);c.textContent=`${f.length} skill${f.length!==1?"s":""}`;if(!f.length){g.innerHTML="";e.style.display="block";e.querySelector("h3").textContent=allSkills.length>0&&activeFilter!=="all"?"No skills in this category":"No skills trained yet";e.querySelector("p").textContent=allSkills.length>0&&activeFilter!=="all"?"Try a different filter.":"Paste a GitHub link above to teach ATREYU new skills.";return}e.style.display="none";g.innerHTML=f.map(s=>{const bc="badge-"+s.category.replace(/[^a-zA-Z]/g,""),cc="complexity-"+(s.complexity||"intermediate"),tags=(s.key_concepts||[]).slice(0,4),rn=extractRepo(s.source_repo);return`<div class="skill-card" onclick="openSkillModal('${s.id}')"><div class="card-header"><div class="card-title">${esc(s.name)}</div><span class="card-badge ${bc}">${esc(s.category)}</span></div><div class="card-summary">${esc(s.summary)}</div><div class="card-tags">${tags.map(t=>`<span class="card-tag">${esc(t)}</span>`).join("")}</div><div class="card-footer"><span class="card-complexity ${cc}">${esc(s.complexity||"intermediate")}</span><span class="card-source" title="${esc(s.source_repo)}">${esc(rn)}</span></div></div>`}).join("")}
+function filterSkills(cat,btn){activeFilter=cat;document.querySelectorAll(".filter-btn").forEach(b=>b.classList.remove("active"));btn.classList.add("active");renderSkills()}
+async function startTraining(){const inp=document.getElementById("repo-url"),url=inp.value.trim(),btn=document.getElementById("train-btn"),err=document.getElementById("train-error"),prog=document.getElementById("training-progress"),steps=document.getElementById("progress-steps"),fill=document.getElementById("progress-fill");err.style.display="none";if(!url){showErr("Enter a GitHub URL.");return}if(!/^https?:\/\/(www\.)?github\.com\/.+\/.+/i.test(url)){showErr("Enter a valid GitHub URL.");return}const a=await fetch("/api/auth/status"),ad=await a.json();if(!ad.authenticated){showErr("Connect your API key first.");return}btn.disabled=true;btn.querySelector(".btn-text").style.display="none";btn.querySelector(".btn-loading").style.display="inline";prog.style.display="block";steps.innerHTML="";fill.style.width="10%";try{const r=await fetch("/api/skills/train",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({repoUrl:url})}),rd=r.body.getReader(),dec=new TextDecoder();while(true){const{done,value}=await rd.read();if(done)break;for(const l of dec.decode(value,{stream:true}).split("\n")){if(!l.startsWith("data: "))continue;let ev;try{ev=JSON.parse(l.slice(6))}catch{continue}addStep(ev.stage,ev.message);if(ev.stage==="cloning")fill.style.width="20%";else if(ev.stage==="reading")fill.style.width="35%";else if(ev.stage==="analyzing")fill.style.width="55%";else if(ev.stage==="processing")fill.style.width="75%";else if(ev.stage==="saving")fill.style.width="90%";else if(ev.stage==="done"){fill.style.width="100%";await loadSkills();inp.value="";setTimeout(()=>{prog.style.display="none";fill.style.width="0%"},3000)}else if(ev.stage==="error"){fill.style.width="0%";showErr(ev.message)}}}}catch(e){showErr("Training failed: "+e.message);fill.style.width="0%"}finally{btn.disabled=false;btn.querySelector(".btn-text").style.display="inline";btn.querySelector(".btn-loading").style.display="none"}}
+function addStep(stage,msg){const s=document.getElementById("progress-steps");s.querySelectorAll(".progress-step.active").forEach(el=>{el.classList.remove("active");el.classList.add("done");el.querySelector(".step-icon").textContent="\u2713"});const d=document.createElement("div"),isE=stage==="error",isD=stage==="done";d.className=`progress-step ${isE?"error":isD?"done":"active"}`;d.innerHTML=`<span class="step-icon">${isE?"\u2717":isD?"\u2713":"\u25CF"}</span><span>${esc(msg)}</span>`;s.appendChild(d)}
+function showErr(m){const e=document.getElementById("train-error");e.textContent=m;e.style.display="block"}
+function openSkillModal(id){const s=allSkills.find(x=>x.id===id);if(!s)return;const m=document.getElementById("skill-modal"),c=document.getElementById("skill-modal-content"),bc="badge-"+s.category.replace(/[^a-zA-Z]/g,""),cc="complexity-"+(s.complexity||"intermediate"),dt=new Date(s.trained_at).toLocaleDateString("en-US",{year:"numeric",month:"short",day:"numeric"});c.innerHTML=`<div class="modal-skill-header"><div><div class="modal-skill-title">${esc(s.name)}</div></div></div><div class="modal-meta"><span class="modal-meta-item"><span class="card-badge ${bc}">${esc(s.category)}</span></span><span class="modal-meta-item"><span class="card-complexity ${cc}">${esc(s.complexity||"intermediate")}</span></span><span class="modal-meta-item">Trained: ${dt}</span></div><div class="modal-section"><div class="modal-section-title">Description</div><div class="modal-description">${esc(s.description)}</div></div>${s.key_concepts?.length?`<div class="modal-section"><div class="modal-section-title">Key Concepts</div><div class="modal-concepts">${s.key_concepts.map(c=>`<span class="modal-concept-tag">${esc(c)}</span>`).join("")}</div></div>`:""} ${s.code_example?`<div class="modal-section"><div class="modal-section-title">Code Example</div><pre class="modal-code-block">${esc(s.code_example)}</pre></div>`:""} ${s.use_cases?.length?`<div class="modal-section"><div class="modal-section-title">Use Cases</div><ul class="modal-use-cases">${s.use_cases.map(u=>`<li><span class="use-case-arrow">\u2192</span> ${esc(u)}</li>`).join("")}</ul></div>`:""}<div class="modal-section"><div class="modal-section-title">Source</div><a href="${esc(s.source_repo)}" target="_blank" class="modal-source-link">${esc(s.source_repo)}</a></div><button class="modal-delete-btn" onclick="deleteSkill('${s.id}')">Remove skill</button>`;m.style.display="flex";document.body.style.overflow="hidden"}
+function closeSkillModal(ev){if(ev&&ev.target!==ev.currentTarget)return;document.getElementById("skill-modal").style.display="none";document.body.style.overflow=""}
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSkillModal()});
+async function deleteSkill(id){if(!confirm("Remove this skill?"))return;await fetch(`/api/skills/${id}`,{method:"DELETE"});closeSkillModal();await loadSkills()}
+function esc(s){if(!s)return"";const d=document.createElement("div");d.textContent=s;return d.innerHTML}
+function extractRepo(u){if(!u)return"";try{return u.replace(/\.git$/,"").split("/").slice(-2).join("/")}catch{return u}}
+
+===========================================================
+FILE: public/js/content.js
+===========================================================
+
+let selectedPlatforms = [];
+let currentOutput = null;
+
+document.addEventListener("DOMContentLoaded", () => {
+  checkAuth();
+  loadSkillCount();
+  loadHistory();
+});
+
+async function checkAuth() {
+  try {
+    const r = await fetch("/api/auth/status");
+    const d = await r.json();
+    const b = document.getElementById("auth-status");
+    b.textContent = d.authenticated ? d.keyHint : "Not connected";
+    if (!d.authenticated) b.style.color = "#ef4444";
+  } catch {}
+}
+
+async function loadSkillCount() {
+  try {
+    const r = await fetch("/api/skills");
+    const skills = await r.json();
+    document.getElementById("skill-count-display").textContent = skills.length;
+  } catch {}
+}
+
+// Platform selection
+function togglePlatform(chip) {
+  const platform = chip.dataset.platform;
+  const idx = selectedPlatforms.indexOf(platform);
+  if (idx === -1) {
+    selectedPlatforms.push(platform);
+    chip.classList.add("selected");
+  } else {
+    selectedPlatforms.splice(idx, 1);
+    chip.classList.remove("selected");
+  }
+}
+
+// Generate content
+async function generateContent() {
+  const prompt = document.getElementById("content-prompt").value.trim();
+  const tone = document.getElementById("content-tone").value;
+  const brandVoice = document.getElementById("brand-voice").value.trim();
+  const additionalContext = document.getElementById("additional-context").value.trim();
+  const btn = document.getElementById("generate-btn");
+  const errEl = document.getElementById("generate-error");
+  const prog = document.getElementById("gen-progress");
+  const steps = document.getElementById("gen-steps");
+  const fill = document.getElementById("gen-progress-fill");
+
+  errEl.style.display = "none";
+
+  if (!prompt) { showGenError("Describe what content you want to create."); return; }
+  if (selectedPlatforms.length === 0) { showGenError("Select at least one platform."); return; }
+
+  const authR = await fetch("/api/auth/status");
+  const authD = await authR.json();
+  if (!authD.authenticated) { showGenError("Connect your Anthropic API key first (go to IDE page)."); return; }
+
+  btn.disabled = true;
+  btn.querySelector(".btn-text").style.display = "none";
+  btn.querySelector(".btn-loading").style.display = "inline";
+  prog.style.display = "block";
+  steps.innerHTML = "";
+  fill.style.width = "5%";
+
+  try {
+    const r = await fetch("/api/content/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, platforms: selectedPlatforms, tone, brandVoice, additionalContext }),
+    });
+
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      for (const line of decoder.decode(value, { stream: true }).split("\n")) {
+        if (!line.startsWith("data: ")) continue;
+        let event;
+        try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+        addGenStep(event.stage, event.message);
+
+        switch (event.stage) {
+          case "loading_skills": fill.style.width = "15%"; break;
+          case "selecting_skills": fill.style.width = "30%"; break;
+          case "generating": fill.style.width = "50%"; break;
+          case "processing": fill.style.width = "80%"; break;
+          case "saving": fill.style.width = "90%"; break;
+          case "done":
+            fill.style.width = "100%";
+            currentOutput = event.content;
+            renderOutput(event.content);
+            loadHistory();
+            setTimeout(() => { prog.style.display = "none"; fill.style.width = "0%"; }, 2000);
+            break;
+          case "error":
+            fill.style.width = "0%";
+            showGenError(event.message);
+            break;
+        }
+      }
+    }
+  } catch (err) {
+    showGenError("Generation failed: " + err.message);
+    fill.style.width = "0%";
+  } finally {
+    btn.disabled = false;
+    btn.querySelector(".btn-text").style.display = "inline";
+    btn.querySelector(".btn-loading").style.display = "none";
+  }
+}
+
+function addGenStep(stage, message) {
+  const steps = document.getElementById("gen-steps");
+  steps.querySelectorAll(".gen-step.active").forEach(el => {
+    el.classList.remove("active");
+    el.classList.add("done");
+    el.querySelector(".step-icon").textContent = "\u2713";
+  });
+  const d = document.createElement("div");
+  const isE = stage === "error", isD = stage === "done";
+  d.className = `gen-step ${isE ? "error" : isD ? "done" : "active"}`;
+  d.innerHTML = `<span class="step-icon">${isE ? "\u2717" : isD ? "\u2713" : "\u25CF"}</span><span>${esc(message)}</span>`;
+  steps.appendChild(d);
+}
+
+function showGenError(msg) {
+  const e = document.getElementById("generate-error");
+  e.textContent = msg;
+  e.style.display = "block";
+}
+
+// Render output
+function renderOutput(data) {
+  const section = document.getElementById("output-section");
+  section.style.display = "block";
+
+  // Meta
+  document.getElementById("output-meta").innerHTML = `
+    <span>Tone: ${esc(data.tone)}</span>
+    <span>${data.platforms.length} platform(s)</span>
+    <span>${new Date(data.created_at).toLocaleString()}</span>
+  `;
+
+  // Skills used
+  const sp = document.getElementById("skills-used-panel");
+  if (data.skills_used && data.skills_used.length > 0) {
+    sp.innerHTML = `
+      <div class="skills-used-title">Skills Applied by ATREYU</div>
+      ${data.skills_used.map(s => `
+        <div class="skill-used-item">
+          <span class="skill-used-arrow">\u2192</span>
+          <span class="skill-used-name">${esc(s.skill_name)}</span>
+          <span>\u2014 ${esc(s.reason)}</span>
+        </div>
+      `).join("")}
+    `;
+    sp.style.display = "block";
+  } else {
+    sp.style.display = "none";
+  }
+
+  // Strategy notes
+  const strat = document.getElementById("strategy-panel");
+  if (data.strategy_notes) {
+    strat.innerHTML = `<div class="strategy-title">Content Strategy</div>${esc(data.strategy_notes)}`;
+    strat.style.display = "block";
+  } else {
+    strat.style.display = "none";
+  }
+
+  // Content cards
+  const cards = document.getElementById("output-cards");
+  cards.innerHTML = (data.content || []).map(platform => {
+    const platformIcons = {
+      "instagram-post": "&#128247;", "instagram-story": "&#128248;", "instagram-reel": "&#127910;",
+      "youtube-short": "&#9654;", "youtube-video": "&#127909;", "twitter-x": "&#128172;",
+      "linkedin": "&#128188;", "tiktok": "&#127925;", "blog-post": "&#128221;",
+      "email-copy": "&#9993;", "ad-copy": "&#9889;", "website-copy": "&#127760;"
+    };
+
+    return `
+      <div class="platform-card">
+        <div class="platform-card-header">
+          <div class="platform-card-title">
+            <span class="platform-card-icon">${platformIcons[platform.platform] || "&#128196;"}</span>
+            ${esc(platform.platform_name)}
+          </div>
+        </div>
+        <div class="platform-card-body">
+          ${(platform.pieces || []).map((piece, i) => `
+            <div class="content-piece">
+              <div class="piece-label">${esc(piece.label || piece.type)}</div>
+              <div class="piece-text" id="piece-${platform.platform}-${i}">
+                ${esc(piece.text)}
+                <button class="copy-btn" onclick="copyPiece(this, 'piece-${platform.platform}-${i}')">Copy</button>
+              </div>
+              ${piece.notes ? `<div class="piece-notes">${esc(piece.notes)}</div>` : ""}
+            </div>
+          `).join("")}
+
+          ${platform.hashtags && platform.hashtags.length > 0 ? `
+            <div class="hashtags-row">
+              ${platform.hashtags.map(h => `<span class="hashtag">#${esc(h.replace(/^#/, ""))}</span>`).join("")}
+            </div>
+          ` : ""}
+
+          ${platform.metadata ? `
+            <div class="meta-grid">
+              ${platform.metadata.suggested_visual ? `<div class="meta-item"><div class="meta-label">Visual Direction</div><div class="meta-value">${esc(platform.metadata.suggested_visual)}</div></div>` : ""}
+              ${platform.metadata.best_posting_time ? `<div class="meta-item"><div class="meta-label">Best Posting Time</div><div class="meta-value">${esc(platform.metadata.best_posting_time)}</div></div>` : ""}
+              ${platform.metadata.target_audience ? `<div class="meta-item"><div class="meta-label">Target Audience</div><div class="meta-value">${esc(platform.metadata.target_audience)}</div></div>` : ""}
+              ${platform.metadata.estimated_engagement ? `<div class="meta-item"><div class="meta-label">Engagement Estimate</div><div class="meta-value">${esc(platform.metadata.estimated_engagement)}</div></div>` : ""}
+            </div>
+          ` : ""}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // Scroll to output
+  section.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Copy content
+function copyPiece(btn, id) {
+  const el = document.getElementById(id);
+  // Get text without the copy button text
+  const text = el.innerText.replace("Copy", "").replace("Copied!", "").trim();
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = "Copied!";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = "Copy";
+      btn.classList.remove("copied");
+    }, 2000);
+  });
+}
+
+// History
+async function loadHistory() {
+  try {
+    const r = await fetch("/api/content/history");
+    const history = await r.json();
+    const list = document.getElementById("history-list");
+    const count = document.getElementById("history-count");
+    count.textContent = history.length ? `${history.length} items` : "";
+
+    if (history.length === 0) {
+      list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:20px 0;text-align:center">No content generated yet</div>';
+      return;
+    }
+
+    const platformIcons = {
+      "instagram-post": "&#128247;", "instagram-story": "&#128248;", "instagram-reel": "&#127910;",
+      "youtube-short": "&#9654;", "youtube-video": "&#127909;", "twitter-x": "&#128172;",
+      "linkedin": "&#128188;", "tiktok": "&#127925;", "blog-post": "&#128221;",
+      "email-copy": "&#9993;", "ad-copy": "&#9889;", "website-copy": "&#127760;"
+    };
+
+    list.innerHTML = history.map(item => `
+      <div class="history-item" onclick="loadHistoryItem('${item.id}')">
+        <span class="history-prompt">${esc(item.prompt)}</span>
+        <span class="history-platforms">${(item.platforms || []).map(p => platformIcons[p] || "").join(" ")}</span>
+        <span class="history-date">${new Date(item.created_at).toLocaleDateString()}</span>
+        <button class="history-delete" onclick="event.stopPropagation();deleteHistoryItem('${item.id}')">Delete</button>
+      </div>
+    `).join("");
+  } catch {}
+}
+
+async function loadHistoryItem(id) {
+  try {
+    const r = await fetch(`/api/content/${id}`);
+    const item = await r.json();
+    renderOutput(item);
+  } catch {}
+}
+
+async function deleteHistoryItem(id) {
+  if (!confirm("Delete this content?")) return;
+  await fetch(`/api/content/${id}`, { method: "DELETE" });
+  loadHistory();
+}
+
+function esc(s) {
+  if (!s) return "";
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+===========================================================
+END OF CODEBASE
+===========================================================
+
+QUICK START:
+1. Create a new Node.js Repl on Replit
+2. Create each file at the path shown above
+3. Click Run — auto-installs and starts
+4. Connect your Anthropic API key at "/"
+5. Train skills at "/agent-studio.html" by pasting GitHub repos
+6. Generate content at "/content.html" — ATREYU picks the right skills
+
+FILE MAP (16 files):
+- .replit                       — Replit config
+- replit.nix                    — System deps
+- package.json                  — Node deps
+- .gitignore
+- server/index.js               — Express server (all routes)
+- server/claude-agent.js        — Claude coding agent (IDE chat)
+- server/trainer.js             — GitHub repo skill extraction
+- server/skills-store.js        — Skill persistence (JSON)
+- server/content-store.js       — Content history persistence (JSON)
+- server/content-engine.js      — Content generation engine (uses skills + Claude)
+- public/index.html             — IDE page
+- public/agent-studio.html      — Agent Studio (train skills)
+- public/content.html           — Content Studio (generate content)
+- public/css/style.css          — IDE styles
+- public/css/agent-studio.css   — Agent Studio styles
+- public/css/content.css        — Content Studio styles
+- public/js/app.js              — IDE frontend
+- public/js/agent-studio.js     — Agent Studio frontend
+- public/js/content.js          — Content Studio frontend
+
+CONTENT FLOW:
+1. User describes content need (e.g., "Launch campaign for our new AI tool")
+2. Selects platforms: Instagram Post, YouTube Short, LinkedIn, etc.
+3. Picks tone: Professional, Witty, Bold, etc.
+4. Clicks "Generate Content"
+5. ATREYU loads all trained skills from Agent Studio
+6. Claude analyzes which skills are relevant and WHY
+7. Generates platform-specific content using skill knowledge
+8. Output shows: skills applied, strategy notes, per-platform content cards
+9. Each content piece has a Copy button
+10. Content is saved to history for re-use
