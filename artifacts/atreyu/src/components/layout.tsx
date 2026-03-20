@@ -31,10 +31,11 @@ const ICON_SZ  = 42;
 /* ── Bottom command bar geometry (mirror of top, pocket goes UP) */
 const BOT_BAR_H        = 16;   /* thin full-width strip at very bottom */
 const BOT_MIN_INPUT_H  = 46;   /* single-line textarea height */
-const BOT_V_PAD        = 13;   /* tight vertical gap — notch hugs pill closely */
-const BOT_MIN_POCKET_H = BOT_MIN_INPUT_H + BOT_V_PAD * 2;   /* 72 */
-const BOT_DOCK_W       = 596;  /* notch width — pill (570) + 13px each side */
-const BOT_PILL_W       = 560;  /* actual pill / input container width */
+const BOT_GAP          = 18;   /* uniform gap on all 4 sides: top, bottom, left, right */
+const BOT_V_PAD        = BOT_GAP + 2;  /* pocket SVG padding — 20px so botTotalH = 102 → (102-66)/2 = 18 */
+const BOT_MIN_POCKET_H = BOT_MIN_INPUT_H + BOT_V_PAD * 2;   /* 86 */
+const BOT_PILL_W       = 560;  /* pill width */
+const BOT_DOCK_W       = BOT_PILL_W + BOT_GAP * 2;  /* 596 — exactly 18px each side */
 const BOT_PILL_R       = 20;   /* pill border-radius — notch inner corners match this */
 
 /* ── Full-width sculpted path (solid wings) ────────────────── */
