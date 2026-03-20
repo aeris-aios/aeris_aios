@@ -1,0 +1,312 @@
+Design a premium web-based AIOS UI for ATREYU using a high-end neumorphic (soft UI) design system.
+
+ATREYU stands for:
+Autonomous Tactical Resource & Execution for Your Universe
+
+IMPORTANT DESIGN DIRECTION
+
+Do NOT recreate the attached screenshot literally.
+
+Instead:
+- Use the OUTER composition of the screenshot as inspiration
+- Focus specifically on the framed “window” experience
+- Convert the visual style into a refined neumorphic system (NOT glassmorphism)
+- The central framed area becomes the ATREYU workspace
+- The outer shell remains visually static
+- The inner workspace scrolls independently
+
+The experience should feel like:
+The user is looking through a soft, sculpted, premium surface into their AI operating system.
+
+--------------------------------------------------
+CORE UX CONCEPT (CRITICAL)
+--------------------------------------------------
+
+- Outer UI = soft, sculpted frame (static)
+- Inner UI = live AIOS workspace (scrollable)
+
+The frame must feel like:
+- carved into the surface
+- softly elevated
+- physically present
+- premium and tactile
+
+The inner workspace must feel:
+- clean
+- modern
+- readable
+- functional
+
+--------------------------------------------------
+NEUMORPHIC DESIGN SYSTEM (VERY IMPORTANT)
+--------------------------------------------------
+
+Use a refined, high-end neumorphic style:
+
+Base surface:
+- light neutral background (off-white / light gray / warm gray)
+
+Use soft dual shadows:
+- light shadow (top-left highlight)
+- darker shadow (bottom-right depth)
+
+All major surfaces should feel:
+- extruded from the background
+- softly raised or softly inset
+- smooth and tactile
+
+Avoid:
+- harsh borders
+- hard edges
+- heavy outlines
+- overly deep shadows
+- cheap “puffy” neumorphism
+
+Aim for:
+- subtle
+- elegant
+- expensive
+- restrained
+
+--------------------------------------------------
+OUTER PAGE
+--------------------------------------------------
+
+- soft neutral background (very light gray)
+- no harsh contrast
+- calm, minimal, airy
+- lots of negative space around the frame
+
+--------------------------------------------------
+MAIN FRAME (AIOS SHELL)
+--------------------------------------------------
+
+This is the most important element.
+
+Create a large centered container that acts as the “frame” or “window” into the AIOS.
+
+Requirements:
+- very large rounded corners (24px–40px)
+- soft raised neumorphic effect
+- subtle inner edge definition using light + shadow
+- looks like it is molded into the surface
+- feels like a premium device frame or sculpted panel
+- visually dominant focal point of the page
+
+This frame must:
+- remain visually static
+- be centered on the page
+- act as a viewport into the system
+
+--------------------------------------------------
+INNER WORKSPACE (SCROLLABLE AREA)
+--------------------------------------------------
+
+Inside the frame:
+
+- create a full AIOS dashboard workspace
+- this area must be scrollable (overflow-y-auto)
+- the frame itself must NOT scroll
+- only the content inside moves
+
+Technical requirements:
+- fixed-height container inside the frame
+- inner content scrolls vertically
+- scrollbars should be minimal or hidden if possible
+- clear separation between shell (frame) and content (workspace)
+
+User perception must be:
+“I am scrolling inside the system, not the page”
+
+--------------------------------------------------
+INNER UI STYLE (NEUMORPHIC + MODERN HYBRID)
+--------------------------------------------------
+
+Inside the workspace:
+
+- use a lighter, cleaner variation of neumorphism
+- combine subtle soft UI with modern flat UI for clarity and usability
+
+Create:
+- left sidebar (soft inset panel)
+- top command/search area (soft raised strip)
+- content panels/cards (soft raised blocks)
+- vertically stacked sections with generous spacing
+
+Cards:
+- soft raised effect
+- subtle dual shadow
+- no borders
+- large rounded corners
+
+Inputs:
+- slightly inset neumorphic style
+- soft inner shadow
+- smooth edges
+
+Buttons:
+- raised by default
+- pressed state = inset
+- tactile feel
+
+--------------------------------------------------
+SCROLL EXPERIENCE
+--------------------------------------------------
+
+Critical behavior:
+
+- outer page remains calm and mostly static
+- frame remains visually anchored
+- inner workspace scrolls independently
+- scrolling should feel smooth and contained
+
+The user should feel:
+“I’m inside ATREYU, not browsing a webpage”
+
+--------------------------------------------------
+ATREYU MODULES (INSIDE FRAME)
+--------------------------------------------------
+
+Create realistic placeholder sections:
+
+- Assistant (chat + prompt area)
+- Research Lab
+- Content Studio
+- Campaigns
+- Automations
+- Knowledge
+- Tasks
+
+Structure:
+- vertical content flow
+- modular sections
+- premium spacing and hierarchy
+
+--------------------------------------------------
+BOTTOM INPUT (INSIDE FRAME)
+--------------------------------------------------
+
+Create a neumorphic input field:
+
+- pill-shaped
+- soft inset style
+- placeholder: “Ask ATREYU anything”
+- subtle inner shadow
+- centered or logically placed within the workspace
+
+--------------------------------------------------
+TYPOGRAPHY
+--------------------------------------------------
+
+- clean modern sans-serif
+- highly readable
+- balanced weight hierarchy
+- minimal and refined
+- no oversized marketing typography
+
+--------------------------------------------------
+COLOR PALETTE
+--------------------------------------------------
+
+Base:
+- soft whites
+- light grays
+- warm neutral tones
+
+Accents:
+- very minimal
+- muted tones only (blue, violet, or subtle gold)
+- used sparingly
+
+--------------------------------------------------
+SPACING
+--------------------------------------------------
+
+- generous padding
+- large breathing room
+- avoid dense layouts
+- prioritize clarity and calmness
+
+--------------------------------------------------
+SHADOW SYSTEM (VERY IMPORTANT)
+--------------------------------------------------
+
+Use dual-shadow neumorphism consistently:
+
+Example:
+- highlight: top-left (very light / white)
+- shadow: bottom-right (soft gray)
+
+Apply to:
+- frame
+- cards
+- inputs
+- buttons
+
+Keep shadows:
+- soft
+- diffused
+- subtle
+- premium
+
+--------------------------------------------------
+TECH IMPLEMENTATION
+--------------------------------------------------
+
+Use:
+- Next.js
+- React
+- Tailwind CSS
+
+Create:
+- reusable neumorphic utility classes
+- consistent shadow tokens
+- clean layout structure
+
+Ensure:
+- outer frame is stable and centered
+- inner container uses overflow-y-auto
+- desktop-first layout
+
+--------------------------------------------------
+IMPORTANT RULES
+--------------------------------------------------
+
+- Do NOT use glassmorphism
+- Do NOT add hard borders
+- Do NOT build a generic dashboard
+- Do NOT clutter the interface
+- Do NOT overuse neumorphic depth
+
+--------------------------------------------------
+GOAL
+--------------------------------------------------
+
+The final UI should feel like:
+
+- a luxury AI operating system
+- sculpted from a soft surface
+- elegant, minimal, and premium
+- highly polished and intentional
+- intuitive and calming
+
+--------------------------------------------------
+DELIVERABLE
+--------------------------------------------------
+
+Build a full ATREYU UI shell where:
+
+- the outer frame is neumorphic and static
+- the inner workspace is scrollable
+- the experience feels like looking into a framed system
+- the design is cohesive and premium
+
+--------------------------------------------------
+AFTER BUILD EXPLAIN:
+--------------------------------------------------
+
+1. how the neumorphic system was implemented
+2. how the dual-shadow system works
+3. how the frame vs scroll container is structured
+4. how to adjust depth and softness
+5. how to refine the “window into a system” effect further
