@@ -83,9 +83,16 @@ function StatCard({
       {/* Label */}
       <div className="hud-label">{a.label}</div>
 
-      {/* Subtle left accent bar */}
-      <div className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full opacity-40"
-        style={{ background: a.text }} />
+      {/* Thick left accent tab — rounds the card's top-left and bottom-left corners */}
+      <div className="absolute left-0 top-0 bottom-0 w-[5px]"
+        style={{
+          background: a.grad,
+          borderTopLeftRadius: 16,
+          borderBottomLeftRadius: 16,
+          borderTopRightRadius: 3,
+          borderBottomRightRadius: 3,
+          opacity: 0.7,
+        }} />
     </div>
   );
 }
