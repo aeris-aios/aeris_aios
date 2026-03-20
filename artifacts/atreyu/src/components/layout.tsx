@@ -180,10 +180,12 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   /* SVG paths — dockHalf in SVG's 0-1000 coordinate space */
   const dockHalf     = frameW > 0 ? (DOCK_W     / 2 / frameW) * 1000 : 204;
   const botDockHalf  = frameW > 0 ? (BOT_DOCK_W / 2 / frameW) * 1000 : 267;
-  /* Compensate for non-uniform SVG scaling (scaleX = frameW/1000, scaleY = 1.0):
-     irX/orX are shrunk so the quadratic Bézier corner renders as a true circle in px. */
-  const botIrX = frameW > 0 ? (BOT_PILL_R * 1000) / frameW : BOT_PILL_R;
-  const botIrY = BOT_PILL_R;
+  /* Concentric corners: notch corner radius = pill radius + uniform gap.
+     Both arcs share the same center point — the notch is just the outer arc.
+     irX compensates for non-uniform SVG scaleX (frameW/1000) so the arc is circular in px. */
+  const botCornerPx = BOT_PILL_R + BOT_GAP;              /* 20 + 18 = 38px */
+  const botIrX = frameW > 0 ? (botCornerPx * 1000) / frameW : botCornerPx;
+  const botIrY = botCornerPx;
   const botOrX = frameW > 0 ? (26 * 1000) / frameW : 26;
   const botOrY = 26;
   const svgPocket    = buildPath(dockHalf);
