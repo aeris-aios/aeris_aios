@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "@/contexts/theme";
 import { useSSE } from "@/hooks/use-sse";
 import ReactMarkdown from "react-markdown";
-import JSZip from "jszip";
+import SyntaxHighlighter from "react-syntax-highlighter";
+import { atomOneLight, atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import {
   Github, Plus, Trash2, Play, Loader2, CheckCircle2, XCircle,
   Clock, ChevronRight, Cpu, BookOpen, Zap, X, Upload,
@@ -66,6 +67,20 @@ function humanSize(bytes?: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/* Map file extension → highlight.js language name */
+function langFromExt(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  const map: Record<string, string> = {
+    ts:"typescript", tsx:"typescript", js:"javascript", jsx:"javascript",
+    py:"python", go:"go", rs:"rust", java:"java", c:"c", cpp:"cpp",
+    cs:"csharp", rb:"ruby", php:"php", sh:"bash", bash:"bash",
+    json:"json", yaml:"yaml", yml:"yaml", toml:"toml",
+    md:"markdown", html:"html", css:"css", xml:"xml", sql:"sql",
+    graphql:"graphql", swift:"swift", kt:"kotlin", r:"r", lua:"lua",
+  };
+  return map[ext] ?? "plaintext";
+}
+
 /* ── Upload a single file (presigned URL → GCS → save metadata) ─── */
 async function uploadWorkspaceFile(file: File, relativePath: string): Promise<WFile | null> {
   try {
@@ -102,21 +117,37 @@ async function uploadWorkspaceFile(file: File, relativePath: string): Promise<WF
   }
 }
 
-/* ── Extract zip and upload each file inside ─────────────────────── */
-async function uploadZip(zipFile: File, onProgress?: (msg: string) => void): Promise<WFile[]> {
-  const zip  = await JSZip.loadAsync(zipFile);
-  const results: WFile[] = [];
+/* ── Upload zip then have the SERVER extract it ──────────────────── */
+async function uploadZipServerSide(zipFile: File, onProgress: (msg: string) => void): Promise<WFile[]> {
+  onProgress("Uploading zip…");
 
-  const entries = Object.entries(zip.files).filter(([, f]) => !f.dir);
-  for (const [path, zipEntry] of entries) {
-    const name = path.split("/").pop() ?? path;
-    onProgress?.(`Uploading ${name}…`);
-    const content  = await zipEntry.async("blob");
-    const fileObj  = new File([content], name, { type: "text/plain" });
-    const uploaded = await uploadWorkspaceFile(fileObj, path);
-    if (uploaded) results.push(uploaded);
-  }
-  return results;
+  /* 1. Get presigned URL for the raw zip */
+  const urlRes = await fetch(`${API}/workspace/files/upload-request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: zipFile.name, size: zipFile.size, contentType: "application/zip" }),
+  });
+  if (!urlRes.ok) return [];
+  const { uploadURL, objectPath } = await urlRes.json();
+
+  /* 2. PUT the zip to GCS */
+  const putRes = await fetch(uploadURL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/zip" },
+    body: zipFile,
+  });
+  if (!putRes.ok) return [];
+
+  onProgress("Extracting zip on server…");
+
+  /* 3. Ask the server to extract the zip and store each file */
+  const extractRes = await fetch(`${API}/workspace/files/extract-zip`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ objectPath, zipName: zipFile.name }),
+  });
+  if (!extractRes.ok) return [];
+  return extractRes.json();
 }
 
 export default function AgentStudio() {
@@ -206,8 +237,9 @@ export default function AgentStudio() {
 
     const newFiles: WFile[] = [];
     for (const f of files) {
-      if (f.name.endsWith(".zip")) {
-        const extracted = await uploadZip(f, setUploadMsg);
+      if (f.name.toLowerCase().endsWith(".zip")) {
+        /* Server-side zip extraction via adm-zip */
+        const extracted = await uploadZipServerSide(f, setUploadMsg);
         newFiles.push(...extracted);
       } else {
         setUploadMsg(`Uploading ${f.name}…`);
@@ -561,19 +593,29 @@ export default function AgentStudio() {
                     <X style={{ width: 10, height: 10 }} />
                   </button>
                 </div>
-                <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px", scrollbarWidth: "none" }}>
+                <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none" }}>
                   {loadingContent ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, color: n.sub, fontSize: 9 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, color: n.sub, fontSize: 9, padding: "8px 12px" }}>
                       <Loader2 style={{ width: 10, height: 10, animation: "spin 1s linear infinite" }} />
                       Loading…
                     </div>
                   ) : (
-                    <pre style={{
-                      margin: 0, fontSize: 8.5, lineHeight: 1.6, color: n.fg,
-                      fontFamily: "var(--app-font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-all",
-                    }}>
+                    <SyntaxHighlighter
+                      language={langFromExt(viewingFile.name)}
+                      style={n.isLight ? atomOneLight : atomOneDark}
+                      customStyle={{
+                        margin: 0,
+                        padding: "8px 12px",
+                        background: "transparent",
+                        fontSize: 8.5,
+                        lineHeight: 1.6,
+                        fontFamily: "var(--app-font-mono)",
+                      }}
+                      wrapLongLines
+                      showLineNumbers={fileContent.split("\n").length > 5}
+                    >
                       {fileContent || "(empty file)"}
-                    </pre>
+                    </SyntaxHighlighter>
                   )}
                 </div>
               </div>
