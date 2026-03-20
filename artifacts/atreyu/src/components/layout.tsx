@@ -2,14 +2,15 @@ import { Link, useLocation } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard, Bot, Microscope, PenTool,
-  Megaphone, Library, Zap, Settings, Search, Sun, Moon, Palette,
+  Megaphone, Library, Zap, Settings, Search, Sun, Moon, Palette, Code2,
 } from "lucide-react";
 import { useTheme } from "@/contexts/theme";
 
 const navItems = [
-  { title: "Dashboard",   url: "/dashboard",   icon: LayoutDashboard, color: "#2563eb", glow: "rgba(79,142,247,0.6)",  bg: "linear-gradient(145deg,#5a9bff,#1d55d6)" },
-  { title: "Agent Studio",url: "/claude",      icon: Bot,             color: "#e67e41", glow: "rgba(230,126,65,0.6)",  bg: "linear-gradient(145deg,#f5a97f,#e67e41)" },
-  { title: "Research",    url: "/research",    icon: Microscope,      color: "#0ea5e9", glow: "rgba(90,200,250,0.6)",  bg: "linear-gradient(145deg,#62d0ff,#0683c4)" },
+  { title: "Dashboard",    url: "/dashboard",   icon: LayoutDashboard, color: "#2563eb", glow: "rgba(79,142,247,0.6)",  bg: "linear-gradient(145deg,#5a9bff,#1d55d6)" },
+  { title: "Agent Studio", url: "/claude",      icon: Bot,             color: "#e67e41", glow: "rgba(230,126,65,0.6)",  bg: "linear-gradient(145deg,#f5a97f,#e67e41)" },
+  { title: "Code Studio",  url: "/codestudio",  icon: Code2,           color: "#7c3aed", glow: "rgba(124,58,237,0.35)", bg: "linear-gradient(135deg,#7c3aed,#5b21b6)" },
+  { title: "Research",     url: "/research",    icon: Microscope,      color: "#0ea5e9", glow: "rgba(90,200,250,0.6)",  bg: "linear-gradient(145deg,#62d0ff,#0683c4)" },
   { title: "Content",     url: "/content",     icon: PenTool,         color: "#d97706", glow: "rgba(255,159,10,0.6)",  bg: "linear-gradient(145deg,#ffb733,#b86200)" },
   { title: "Campaigns",   url: "/campaigns",   icon: Megaphone,       color: "#dc2626", glow: "rgba(255,80,80,0.6)",   bg: "linear-gradient(145deg,#ff6b6b,#b91c1c)" },
   { title: "Knowledge",   url: "/knowledge",   icon: Library,         color: "#7c3aed", glow: "rgba(167,100,255,0.6)", bg: "linear-gradient(145deg,#c474ff,#6220c4)" },

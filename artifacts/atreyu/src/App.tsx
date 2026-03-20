@@ -10,6 +10,7 @@ import LandingPage from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import Assistant from "@/pages/assistant";
 import ClaudeCode from "@/pages/claude";
+import CodeStudio from "@/pages/codestudio";
 import ResearchLab from "@/pages/research";
 import ContentStudio from "@/pages/content";
 import Campaigns from "@/pages/campaigns";
@@ -30,6 +31,7 @@ function Router() {
             <Route path="/dashboard"   component={Dashboard}    />
             <Route path="/assistant"   component={Assistant}    />
             <Route path="/claude"      component={ClaudeCode}   />
+            <Route path="/codestudio"  component={CodeStudio}   />
             <Route path="/research"    component={ResearchLab}  />
             <Route path="/content"     component={ContentStudio}/>
             <Route path="/campaigns"   component={Campaigns}    />
