@@ -12,6 +12,15 @@ import { useSSE } from "@/hooks/use-sse";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 
+/* ─────────────── Image proxy ────────────────────────────────────────
+   Instagram / social CDN URLs are CORS-blocked in the browser.
+   Route them through the server-side proxy so they load correctly.
+──────────────────────────────────────────────────────────────────── */
+function proxyImg(url: string | undefined | null): string | undefined {
+  if (!url) return undefined;
+  return `/api/content/image-proxy?url=${encodeURIComponent(url)}`;
+}
+
 /* ─────────────── Types ─────────────── */
 type SourceMode   = "brand_kit" | "social_import";
 type Platform     = "instagram" | "facebook" | "linkedin" | "twitter" | "tiktok" | "youtube";
@@ -646,7 +655,7 @@ function ProfileCard({ profile, styleProfile, loading, error }: {
       {/* Profile header */}
       <div className="neu-raised-sm rounded-2xl p-4 flex items-start gap-4">
         {profile.profilePicUrl ? (
-          <img src={profile.profilePicUrl} alt={profile.username}
+          <img src={proxyImg(profile.profilePicUrl)} alt={profile.username}
             className="w-14 h-14 rounded-full object-cover flex-shrink-0 ring-2 ring-primary/20" />
         ) : (
           <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -683,7 +692,7 @@ function ProfileCard({ profile, styleProfile, loading, error }: {
           {profile.posts.slice(0,9).map((p, i) => (
             <div key={i} className="flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden neu-inset-sm">
               {p.imageUrl ? (
-                <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                <img src={proxyImg(p.imageUrl)} alt="" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full bg-muted/40" />
               )}

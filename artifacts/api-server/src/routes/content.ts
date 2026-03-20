@@ -164,6 +164,45 @@ router.delete("/content/assets/:id", async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════
+   IMAGE PROXY
+   Fetches social CDN images server-side to avoid CORS blocks.
+   GET /api/content/image-proxy?url=<encoded_url>
+═══════════════════════════════════════════════════════════ */
+router.get("/content/image-proxy", async (req, res) => {
+  const raw = req.query.url;
+  if (!raw || typeof raw !== "string") { res.status(400).end("Missing url"); return; }
+
+  let targetUrl: string;
+  try { targetUrl = decodeURIComponent(raw); } catch { res.status(400).end("Bad url encoding"); return; }
+
+  /* Only allow http/https */
+  if (!/^https?:\/\//i.test(targetUrl)) { res.status(400).end("Invalid url scheme"); return; }
+
+  try {
+    const upstream = await fetch(targetUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.instagram.com/",
+      },
+    });
+
+    if (!upstream.ok) { res.status(upstream.status).end("Upstream error"); return; }
+
+    const contentType = upstream.headers.get("content-type") ?? "image/jpeg";
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
+    const arrayBuffer = await upstream.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err: any) {
+    res.status(502).end("Proxy fetch failed");
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
    SCRAPE SOCIAL PROFILE
    Uses Apify to pull a competitor's latest posts
 ═══════════════════════════════════════════════════════════ */
