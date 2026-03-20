@@ -165,50 +165,76 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [frameW, setFrameW]       = useState(1200);
 
-  /* ── Drag-to-reorder dock icons ─────────────────────────── */
+  /* ── Drag-to-reorder dock icons (pointer events — works in iframes) ── */
   const [orderedItems, setOrderedItems] = useState(() => loadNavOrder());
-  const dragSrcIdx  = useRef<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const dockRef       = useRef<HTMLDivElement>(null);
+  const dragSrcIdx    = useRef<number | null>(null);
+  const dragTgtIdx    = useRef<number | null>(null);
+  const iconMids      = useRef<number[]>([]);  /* centre-x of each icon slot at drag start */
+  const [dragState, setDragState] = useState<{ src: number; tgt: number } | null>(null);
 
   const saveOrder = useCallback((items: typeof navItems) => {
     localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(items.map(it => it.url)));
   }, []);
 
-  const onDragStart = useCallback((idx: number) => {
+  const snapTgt = (clientX: number) => {
+    const mids = iconMids.current;
+    let t = mids.length - 1;
+    for (let i = 0; i < mids.length; i++) {
+      if (clientX < mids[i]) { t = i; break; }
+    }
+    return t;
+  };
+
+  const onIconPointerDown = useCallback((e: React.PointerEvent, idx: number) => {
+    e.preventDefault();
+    const dock = dockRef.current;
+    if (!dock) return;
+    /* snapshot the horizontal mid-points of every icon slot */
+    const children = Array.from(dock.children) as HTMLElement[];
+    iconMids.current = children.map(el => {
+      const r = el.getBoundingClientRect();
+      return r.left + r.width / 2;
+    });
     dragSrcIdx.current = idx;
-    setIsDragging(true);
+    dragTgtIdx.current = idx;
+    setDragState({ src: idx, tgt: idx });
+    /* pointer capture on the dock so we get move/up even outside the dock */
+    dock.setPointerCapture(e.pointerId);
   }, []);
 
-  const onDragOver = useCallback((e: React.DragEvent, idx: number) => {
-    e.preventDefault();
-    setDragOverIdx(idx);
+  const onDockPointerMove = useCallback((e: React.PointerEvent) => {
+    if (dragSrcIdx.current === null) return;
+    const t = snapTgt(e.clientX);
+    if (t !== dragTgtIdx.current) {
+      dragTgtIdx.current = t;
+      setDragState(d => d ? { ...d, tgt: t } : null);
+    }
   }, []);
 
-  const onDrop = useCallback((e: React.DragEvent, dropIdx: number) => {
-    e.preventDefault();
+  const onDockPointerUp = useCallback(() => {
     const src = dragSrcIdx.current;
-    if (src === null || src === dropIdx) {
-      setDragOverIdx(null);
-      setIsDragging(false);
+    const tgt = dragTgtIdx.current;
+    dragSrcIdx.current = null;
+    dragTgtIdx.current = null;
+    if (src === null || tgt === null || src === tgt) {
+      setDragState(null);
       return;
     }
     setOrderedItems(prev => {
       const next = [...prev];
       const [moved] = next.splice(src, 1);
-      next.splice(dropIdx, 0, moved);
+      next.splice(tgt, 0, moved);
       saveOrder(next);
       return next;
     });
-    dragSrcIdx.current = null;
-    setDragOverIdx(null);
-    setIsDragging(false);
+    setDragState(null);
   }, [saveOrder]);
 
-  const onDragEnd = useCallback(() => {
+  const onDockPointerCancel = useCallback(() => {
     dragSrcIdx.current = null;
-    setDragOverIdx(null);
-    setIsDragging(false);
+    dragTgtIdx.current = null;
+    setDragState(null);
   }, []);
 
   /* ── Bottom bar collapse toggle ──────────────────────────── */
@@ -421,46 +447,47 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Dock icons inside the pocket */}
-          <div style={{
-            position: "absolute",
-            top: BAR_H, left: "50%", transform: "translateX(-50%)",
-            width: DOCK_W, height: POCKET_H,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: ICON_GAP,
-            pointerEvents: "auto", zIndex: 2,
-          }}>
+          <div
+            ref={dockRef}
+            onPointerMove={onDockPointerMove}
+            onPointerUp={onDockPointerUp}
+            onPointerCancel={onDockPointerCancel}
+            style={{
+              position: "absolute",
+              top: BAR_H, left: "50%", transform: "translateX(-50%)",
+              width: DOCK_W, height: POCKET_H,
+              display: "flex", alignItems: "center", justifyContent: "center", gap: ICON_GAP,
+              pointerEvents: "auto", zIndex: 2,
+              touchAction: "none",   /* required for pointer capture to work on touch */
+            }}
+          >
             {orderedItems.map((item, idx) => {
               const isActive  = location === item.url;
+              const isDragging = dragState !== null;
+              const isSrc     = dragState?.src === idx;
+              const isTarget  = dragState !== null && dragState.tgt === idx && !isSrc;
               const isHov     = hov === idx && !isDragging;
-              const isSrc     = dragSrcIdx.current === idx;
-              const isTarget  = dragOverIdx === idx && !isSrc;
 
               return (
                 <div
                   key={item.url}
-                  draggable
-                  onDragStart={() => onDragStart(idx)}
-                  onDragOver={e => onDragOver(e, idx)}
-                  onDrop={e => onDrop(e, idx)}
-                  onDragEnd={onDragEnd}
+                  onPointerDown={e => onIconPointerDown(e, idx)}
                   style={{
                     display: "flex", flexDirection: "column", alignItems: "center",
                     cursor: isDragging ? "grabbing" : "grab",
                     position: "relative",
-                    transition: "opacity 0.15s, transform 0.15s",
-                    opacity: isSrc ? 0.35 : 1,
-                    transform: isTarget ? "scale(1.12)" : "scale(1)",
-                    outline: isTarget ? `2px solid ${item.color}88` : "none",
-                    borderRadius: "28%",
+                    userSelect: "none",
+                    transition: "opacity 0.12s, transform 0.12s",
+                    opacity: isSrc ? 0.3 : 1,
+                    transform: isTarget ? "scale(1.14)" : "scale(1)",
+                    filter: isTarget ? `drop-shadow(0 0 6px ${item.color}88)` : "none",
                   }}
                   onMouseEnter={() => !isDragging && setHov(idx)}
                   onMouseLeave={() => setHov(null)}
                 >
                   <Link href={item.url}>
                     <div
-                      style={{
-                        display: "flex", flexDirection: "column", alignItems: "center",
-                        cursor: "inherit", position: "relative",
-                      }}
+                      style={{ display: "flex", flexDirection: "column", alignItems: "center" }}
                       onClick={e => { if (isDragging) e.preventDefault(); }}
                     >
                       <div style={{
