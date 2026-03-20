@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import {
   LayoutDashboard, Bot, Microscope, PenTool,
   Megaphone, Library, Zap, Settings, Search, Sun, Moon, Palette, Code2,
+  ChevronUp, ChevronDown,
 } from "lucide-react";
 import { useTheme } from "@/contexts/theme";
 
@@ -210,9 +211,22 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     setIsDragging(false);
   }, []);
 
+  /* ── Bottom bar collapse toggle ──────────────────────────── */
+  const [botCollapsed, setBotCollapsed] = useState(() =>
+    localStorage.getItem("atreyu-bot-collapsed") === "true"
+  );
+  const toggleBot = useCallback(() => {
+    setBotCollapsed(prev => {
+      const next = !prev;
+      localStorage.setItem("atreyu-bot-collapsed", String(next));
+      return next;
+    });
+  }, []);
+
   /* ── Dynamic bottom bar geometry based on textarea content ── */
   const botPocketH = Math.max(BOT_MIN_POCKET_H, inputH + BOT_V_PAD * 2);
   const botTotalH  = BOT_BAR_H + botPocketH;
+  const activeBotH = botCollapsed ? BOT_BAR_H : botTotalH;
 
   function autoGrow(el: HTMLTextAreaElement) {
     el.style.height = "auto";
@@ -312,13 +326,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           overflowY: "auto",
           overflowX: "hidden",
           paddingTop: TOTAL_H,
-          paddingBottom: botTotalH,
+          paddingBottom: activeBotH,
           scrollbarWidth: "none",
           position: "relative",
           zIndex: 1,
+          transition: "padding-bottom 0.3s cubic-bezier(0.4,0,0.2,1)",
         }}>
           <style>{`::-webkit-scrollbar{display:none}`}</style>
-          <div style={{ padding: `24px 32px ${botTotalH + 16}px` }}>
+          <div style={{ padding: `24px 32px ${activeBotH + 16}px`, transition: "padding-bottom 0.3s cubic-bezier(0.4,0,0.2,1)" }}>
             {children}
           </div>
         </div>
@@ -515,16 +530,43 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         ══════════════════════════════════════════════════════ */}
         <div style={{
           position: "absolute", bottom: 0, left: 0, right: 0,
-          height: botTotalH,
-          transition: "height 0.18s cubic-bezier(0.4,0,0.2,1)",
+          height: activeBotH,
+          transition: "height 0.3s cubic-bezier(0.4,0,0.2,1)",
           zIndex: 20, pointerEvents: "none",
         }}>
+
+          {/* ── Toggle pill — always floats at the very top-center ── */}
+          <button
+            onClick={toggleBot}
+            style={{
+              position: "absolute", top: -14, left: "50%", transform: "translateX(-50%)",
+              width: 52, height: 18,
+              background: frameBg,
+              boxShadow: raisedSm,
+              border: "none", borderRadius: 10,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", pointerEvents: "auto", zIndex: 30,
+              transition: "box-shadow 0.15s ease, opacity 0.2s",
+              opacity: 0.7,
+            }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
+            title={botCollapsed ? "Expand command bar" : "Collapse command bar"}
+          >
+            {botCollapsed
+              ? <ChevronUp   style={{ width: 11, height: 11, opacity: 0.55, color: "var(--foreground,#1e2030)" }} />
+              : <ChevronDown style={{ width: 11, height: 11, opacity: 0.55, color: "var(--foreground,#1e2030)" }} />
+            }
+          </button>
+
           {/* Inverted pocket SVG — neumorphic raised with highlight */}
           <svg
             style={{
               position: "absolute", top: 0, left: 0,
               width: "100%", height: "100%",
               overflow: "visible",
+              opacity: botCollapsed ? 0 : 1,
+              transition: "opacity 0.25s cubic-bezier(0.4,0,0.2,1)",
               filter: isLight
                 ? `drop-shadow(4px 4px 12px ${fsdark}cc) drop-shadow(-3px -3px 8px ${fslite})`
                 : `drop-shadow(4px 4px 12px ${fsdark}) drop-shadow(-3px -3px 8px ${fslite}44)`,
@@ -549,7 +591,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             left: "50%", transform: "translateX(-50%)",
             width: BOT_PILL_W,
             display: "flex", alignItems: "center", justifyContent: "center",
-            pointerEvents: "auto", zIndex: 2,
+            pointerEvents: botCollapsed ? "none" : "auto",
+            zIndex: 2,
+            opacity: botCollapsed ? 0 : 1,
+            transition: "opacity 0.2s cubic-bezier(0.4,0,0.2,1)",
           }}>
             <div style={{
               display: "flex", alignItems: "center", gap: 8,
