@@ -188,6 +188,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     return t;
   };
 
+  /* How many px to slide icon at position `idx` during drag.
+     Dragging right (tgt > src): icons between src+1..tgt shift left one slot.
+     Dragging left  (tgt < src): icons between tgt..src-1 shift right one slot. */
+  const getDragOffset = (idx: number, src: number, tgt: number): number => {
+    if (idx === src) return 0;
+    const step = ICON_SZ + ICON_GAP;
+    if (tgt > src && idx > src && idx <= tgt) return -step;
+    if (tgt < src && idx >= tgt && idx < src) return  step;
+    return 0;
+  };
+
   const onIconPointerDown = useCallback((e: React.PointerEvent, idx: number) => {
     e.preventDefault();
     const dock = dockRef.current;
@@ -465,8 +476,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               const isActive  = location === item.url;
               const isDragging = dragState !== null;
               const isSrc     = dragState?.src === idx;
-              const isTarget  = dragState !== null && dragState.tgt === idx && !isSrc;
               const isHov     = hov === idx && !isDragging;
+              const dragOffsetX = dragState
+                ? getDragOffset(idx, dragState.src, dragState.tgt)
+                : 0;
 
               return (
                 <div
@@ -477,10 +490,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                     cursor: isDragging ? "grabbing" : "grab",
                     position: "relative",
                     userSelect: "none",
-                    transition: "opacity 0.12s, transform 0.12s",
-                    opacity: isSrc ? 0.3 : 1,
-                    transform: isTarget ? "scale(1.14)" : "scale(1)",
-                    filter: isTarget ? `drop-shadow(0 0 6px ${item.color}88)` : "none",
+                    transition: "opacity 0.12s ease, transform 0.2s cubic-bezier(0.34,1.2,0.64,1)",
+                    opacity: isSrc ? 0 : 1,
+                    transform: `translateX(${dragOffsetX}px)`,
                   }}
                   onMouseEnter={() => !isDragging && setHov(idx)}
                   onMouseLeave={() => setHov(null)}
