@@ -3,20 +3,26 @@ import { useState, useEffect } from "react";
 import {
   LayoutDashboard, MessageSquare, Microscope, PenTool,
   Megaphone, Library, Zap, Settings, Command,
-  Search, Sun, Moon, Circle,
+  Search, Sun, Moon,
 } from "lucide-react";
 import { useTheme } from "@/contexts/theme";
 
 const navItems = [
-  { title: "Dashboard",   url: "/dashboard",   icon: LayoutDashboard },
-  { title: "Assistant",   url: "/assistant",   icon: MessageSquare   },
-  { title: "Research",    url: "/research",    icon: Microscope      },
-  { title: "Content",     url: "/content",     icon: PenTool         },
-  { title: "Campaigns",   url: "/campaigns",   icon: Megaphone       },
-  { title: "Knowledge",   url: "/knowledge",   icon: Library         },
-  { title: "Automations", url: "/automations", icon: Zap             },
-  { title: "Settings",    url: "/settings",    icon: Settings        },
+  { title: "Dashboard",   url: "/dashboard",   icon: LayoutDashboard, color: "#4f8ef7", glow: "rgba(79,142,247,0.45)",  bg: "linear-gradient(135deg,#4f8ef7,#2563eb)" },
+  { title: "Assistant",   url: "/assistant",   icon: MessageSquare,   color: "#34c759", glow: "rgba(52,199,89,0.45)",   bg: "linear-gradient(135deg,#34c759,#16a34a)" },
+  { title: "Research",    url: "/research",    icon: Microscope,      color: "#5ac8fa", glow: "rgba(90,200,250,0.45)",  bg: "linear-gradient(135deg,#5ac8fa,#0ea5e9)" },
+  { title: "Content",     url: "/content",     icon: PenTool,         color: "#ff9f0a", glow: "rgba(255,159,10,0.45)",  bg: "linear-gradient(135deg,#ff9f0a,#f59e0b)" },
+  { title: "Campaigns",   url: "/campaigns",   icon: Megaphone,       color: "#ff6b6b", glow: "rgba(255,107,107,0.45)", bg: "linear-gradient(135deg,#ff6b6b,#ef4444)" },
+  { title: "Knowledge",   url: "/knowledge",   icon: Library,         color: "#bf5af2", glow: "rgba(191,90,242,0.45)",  bg: "linear-gradient(135deg,#bf5af2,#9333ea)" },
+  { title: "Automations", url: "/automations", icon: Zap,             color: "#30d158", glow: "rgba(48,209,88,0.45)",   bg: "linear-gradient(135deg,#30d158,#22c55e)" },
+  { title: "Settings",    url: "/settings",    icon: Settings,        color: "#98989d", glow: "rgba(152,152,157,0.35)", bg: "linear-gradient(135deg,#8e8e93,#6b7280)" },
 ];
+
+/* Dock icon size */
+const ICON = 40;
+const DOCK_H = 60;
+/* How far the dock protrudes below the brand bar */
+const DOCK_OVERHANG = 32;
 
 function Clock() {
   const [time, setTime] = useState(new Date());
@@ -35,17 +41,26 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location, navigate] = useLocation();
   const { theme, toggleTheme } = useTheme();
   const [commandQuery, setCommandQuery] = useState("");
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   const isLight = theme === "light";
 
-  /* Panel surface — shared between active tab + window */
-  const panelBg    = isLight ? "rgba(232,236,244,0.96)" : "rgba(14,16,24,0.95)";
+  const panelBg = isLight ? "rgba(232,236,244,0.88)" : "rgba(14,16,24,0.90)";
   const panelShadow = isLight
-    ? "10px 10px 28px rgba(180,186,210,0.75), -6px -6px 18px rgba(255,255,255,0.85)"
-    : "8px 8px 20px rgba(7,9,14,0.9),  -4px -4px 12px rgba(22,25,38,0.7)";
+    ? "10px 10px 30px rgba(170,178,210,0.65), -6px -6px 20px rgba(255,255,255,0.80)"
+    : "8px 8px 22px rgba(6,8,14,0.90), -4px -4px 14px rgba(22,26,40,0.60)";
 
-  const barBg = isLight ? "rgba(222,226,238,0.9)" : "rgba(10,12,20,0.88)";
-  const tabInactiveBg = isLight ? "rgba(210,215,230,0.6)" : "rgba(20,23,35,0.6)";
+  const barBg = isLight ? "rgba(220,225,237,0.92)" : "rgba(10,12,20,0.90)";
+
+  const dockBg = isLight
+    ? "rgba(255,255,255,0.55)"
+    : "rgba(255,255,255,0.07)";
+  const dockBorder = isLight
+    ? "1px solid rgba(255,255,255,0.85)"
+    : "1px solid rgba(255,255,255,0.12)";
+  const dockShadow = isLight
+    ? "0 8px 32px rgba(140,152,200,0.28), 0 2px 0 rgba(255,255,255,0.9) inset, 0 -1px 0 rgba(180,188,220,0.25) inset"
+    : "0 8px 32px rgba(0,0,0,0.50), 0 1px 0 rgba(255,255,255,0.08) inset";
 
   function handleCommandKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && commandQuery.trim()) {
@@ -54,25 +69,30 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }
 
+  /* Brand bar height */
+  const BRAND_H = 36;
+
   return (
     <div
       className="relative flex flex-col min-h-screen w-full overflow-hidden select-none"
       style={{ background: "var(--neu-bg)" }}
     >
-      {/* ── Background decoration ──────────────────────────── */}
+      {/* ── Background decoration ───────────────────────────── */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute inset-0"
           style={{
             background: isLight
-              ? "radial-gradient(ellipse 80% 50% at 50% -5%, rgba(37,99,235,0.07) 0%, transparent 70%)"
-              : "radial-gradient(ellipse 80% 50% at 50% -10%, rgba(59,130,246,0.12) 0%, transparent 70%)",
-          }} />
+              ? "radial-gradient(ellipse 80% 50% at 50% -5%,rgba(37,99,235,0.07),transparent)"
+              : "radial-gradient(ellipse 80% 50% at 50% -10%,rgba(59,130,246,0.12),transparent)",
+          }}
+        />
         <div className="absolute inset-0"
           style={{
             background: isLight
-              ? "radial-gradient(ellipse 50% 40% at 85% 90%, rgba(6,182,212,0.05) 0%, transparent 70%)"
-              : "radial-gradient(ellipse 50% 40% at 85% 90%, rgba(6,182,212,0.08) 0%, transparent 70%)",
-          }} />
+              ? "radial-gradient(ellipse 50% 40% at 85% 90%,rgba(6,182,212,0.05),transparent)"
+              : "radial-gradient(ellipse 50% 40% at 85% 90%,rgba(6,182,212,0.08),transparent)",
+          }}
+        />
         <svg className="absolute inset-0 w-full h-full" style={{ opacity: isLight ? 0.025 : 0.04 }} xmlns="http://www.w3.org/2000/svg">
           <defs>
             <pattern id="dots" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
@@ -83,156 +103,158 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </svg>
       </div>
 
-      {/* ────────────────────────────────────────────────────────
-          HEADER — two-row design:
-            Row 1: thin brand bar (logo + status + toggle)
-            Row 2: tab strip where active tab extends DOWN into window
-          overflow:visible is key so active tab can protrude below
-      ──────────────────────────────────────────────────────── */}
-      <div className="relative z-50" style={{ overflow: "visible" }}>
-
-        {/* ── Row 1: brand strip ────────────────────────────── */}
-        <div
-          className="flex items-center justify-between h-9 px-5"
-          style={{
-            background: barBg,
-            backdropFilter: "blur(24px)",
-            WebkitBackdropFilter: "blur(24px)",
-            borderBottom: isLight
-              ? "1px solid rgba(191,196,212,0.45)"
-              : "1px solid rgba(255,255,255,0.05)",
-          }}
-        >
-          {/* Logo */}
-          <div className="flex items-center gap-2.5">
-            <div className="h-5 w-5 rounded-md flex items-center justify-center"
-              style={{ boxShadow: "var(--neu-raised-sm)", background: "var(--neu-bg)" }}>
-              <Command className="h-3 w-3 text-primary" />
-            </div>
-            <div className="flex flex-col leading-none gap-px">
-              <span className="text-[10px] font-black tracking-[0.22em] text-foreground/90 uppercase">ATREYU</span>
-              <span className="hud-label text-foreground/30">MARKETING OS</span>
-            </div>
+      {/* ── Brand bar (fixed, z=50) ──────────────────────────── */}
+      <div
+        className="relative z-50 flex items-center justify-between px-5 shrink-0"
+        style={{
+          height: BRAND_H,
+          background: barBg,
+          backdropFilter: "blur(24px)",
+          WebkitBackdropFilter: "blur(24px)",
+          borderBottom: isLight
+            ? "1px solid rgba(191,196,212,0.45)"
+            : "1px solid rgba(255,255,255,0.05)",
+        }}
+      >
+        {/* Logo */}
+        <div className="flex items-center gap-2.5">
+          <div className="h-5 w-5 rounded-md flex items-center justify-center"
+            style={{ boxShadow: "var(--neu-raised-sm)", background: "var(--neu-bg)" }}>
+            <Command className="h-3 w-3 text-primary" />
           </div>
-
-          {/* Right controls */}
-          <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-1.5">
-              <div className="status-active" />
-              <span className="hud-label text-foreground/35">LIVE</span>
-            </div>
-            <Clock />
-            <button
-              onClick={toggleTheme}
-              className="h-6 w-6 rounded-md flex items-center justify-center cursor-pointer transition-all"
-              title="Toggle theme"
-              style={{ boxShadow: "var(--neu-raised-sm)", background: "var(--neu-bg)" }}
-            >
-              {isLight
-                ? <Moon className="h-3 w-3 text-foreground/50" />
-                : <Sun  className="h-3 w-3 text-foreground/50" />}
-            </button>
+          <div className="flex flex-col leading-none gap-px">
+            <span className="text-[10px] font-black tracking-[0.22em] text-foreground/90 uppercase">ATREYU</span>
+            <span className="hud-label text-foreground/30">MARKETING OS</span>
           </div>
         </div>
 
-        {/* ── Row 2: tab strip with extended active tab ──────── */}
+        {/* Right controls */}
+        <div className="flex items-center gap-3">
+          <div className="hidden md:flex items-center gap-1.5">
+            <div className="status-active" />
+            <span className="hud-label text-foreground/35">LIVE</span>
+          </div>
+          <Clock />
+          <button
+            onClick={toggleTheme}
+            className="h-6 w-6 rounded-md flex items-center justify-center cursor-pointer transition-all"
+            title="Toggle theme"
+            style={{ boxShadow: "var(--neu-raised-sm)", background: "var(--neu-bg)" }}
+          >
+            {isLight
+              ? <Moon className="h-3 w-3 text-foreground/50" />
+              : <Sun  className="h-3 w-3 text-foreground/50" />}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Centered icon dock — hangs below brand bar ──────── */}
+      {/*  z-50 so it floats above the window panel            */}
+      <div
+        className="absolute left-0 right-0 flex justify-center pointer-events-none"
+        style={{ top: BRAND_H - 4, zIndex: 50 }}
+      >
         <div
-          className="relative flex items-end px-4 gap-1"
+          className="pointer-events-auto flex items-center gap-1.5 px-3"
           style={{
-            height: 38,
-            background: barBg,
-            backdropFilter: "blur(20px)",
-            WebkitBackdropFilter: "blur(20px)",
-            overflow: "visible",
+            height: DOCK_H,
+            borderRadius: 9999,
+            background: dockBg,
+            backdropFilter: "blur(28px) saturate(180%)",
+            WebkitBackdropFilter: "blur(28px) saturate(180%)",
+            border: dockBorder,
+            boxShadow: dockShadow,
           }}
         >
-
-          {/* Tab items */}
-          {navItems.map((item) => {
+          {navItems.map((item, idx) => {
             const isActive = location === item.url;
+            const isHovered = hoveredIdx === idx;
+            /* macOS-style magnification: hovered=1.28x, adjacent=1.12x, active=1.08x */
+            const scale = isActive
+              ? 1.06
+              : isHovered
+                ? 1.28
+                : hoveredIdx !== null && Math.abs(hoveredIdx - idx) === 1
+                  ? 1.12
+                  : 1;
+
             return (
               <Link key={item.url} href={item.url}>
-                {isActive ? (
-                  /* ── ACTIVE TAB: extends downward, connected to window ── */
-                  <button
-                    className="relative flex items-center gap-1.5 px-4 cursor-pointer transition-all duration-200"
+                <div
+                  className="relative flex flex-col items-center cursor-pointer"
+                  style={{
+                    width: ICON,
+                    transition: "transform 0.18s cubic-bezier(0.34,1.56,0.64,1)",
+                    transform: `scale(${scale})`,
+                    transformOrigin: "bottom center",
+                  }}
+                  onMouseEnter={() => setHoveredIdx(idx)}
+                  onMouseLeave={() => setHoveredIdx(null)}
+                >
+                  {/* Icon circle */}
+                  <div
                     style={{
-                      /* Taller than the strip so it protrudes below */
-                      height: 50,
-                      /* Aligned to sit on the bottom of the strip */
-                      alignSelf: "flex-end",
-                      /* Rounded only on top */
-                      borderRadius: "12px 12px 0 0",
-                      /* Same surface as the window panel — creates the merge effect */
-                      background: panelBg,
-                      /* Active tab shadow — sides only, no bottom so it blends in */
-                      boxShadow: isLight
-                        ? "-4px -4px 12px rgba(255,255,255,0.9), 4px 0 10px rgba(180,186,210,0.4), -2px 0 10px rgba(180,186,210,0.3)"
-                        : "-3px -3px 10px rgba(22,25,38,0.6), 3px 0 8px rgba(7,9,14,0.5)",
-                      /* Sits above the tab strip and above the window edge */
+                      width: ICON,
+                      height: ICON,
+                      borderRadius: "30%",          /* macOS squircle */
+                      background: item.bg,
+                      boxShadow: isActive
+                        ? `0 4px 18px ${item.glow}, 0 1px 0 rgba(255,255,255,0.25) inset`
+                        : `0 3px 10px ${item.glow.replace("0.45","0.22")}, 0 1px 0 rgba(255,255,255,0.25) inset`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       position: "relative",
-                      zIndex: 20,
-                      /* Small top border accent */
-                      borderTop: `2px solid hsl(var(--primary) / 0.6)`,
-                      color: "hsl(var(--primary))",
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      whiteSpace: "nowrap",
+                      overflow: "hidden",
                     }}
                   >
-                    <item.icon style={{ width: 14, height: 14, flexShrink: 0 }} />
-                    <span className="hidden lg:block">{item.title}</span>
+                    {/* Glossy highlight */}
+                    <div style={{
+                      position: "absolute", top: 0, left: 0, right: 0,
+                      height: "45%",
+                      background: "linear-gradient(180deg,rgba(255,255,255,0.35) 0%,rgba(255,255,255,0) 100%)",
+                      borderRadius: "inherit",
+                      pointerEvents: "none",
+                    }} />
+                    <item.icon style={{ width: 20, height: 20, color: "#fff", filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))" }} />
+                  </div>
 
-                    {/* Left corner mask — fills the gap between tab curve and the bar */}
-                    <span
-                      className="absolute pointer-events-none"
+                  {/* Active dot indicator */}
+                  {isActive && (
+                    <div style={{
+                      position: "absolute",
+                      bottom: -6,
+                      width: 4, height: 4,
+                      borderRadius: "50%",
+                      background: item.color,
+                      boxShadow: `0 0 6px ${item.glow}`,
+                    }} />
+                  )}
+
+                  {/* Tooltip on hover */}
+                  {isHovered && (
+                    <div
                       style={{
-                        bottom: 0, left: -10,
-                        width: 10, height: 10,
-                        background: panelBg,
-                        WebkitMaskImage: "radial-gradient(circle at 100% 0%, transparent 70%, black 70%)",
-                        maskImage: "radial-gradient(circle at 100% 0%, transparent 70%, black 70%)",
+                        position: "absolute",
+                        bottom: "calc(100% + 10px)",
+                        left: "50%",
+                        transform: "translateX(-50%)",
+                        background: isLight ? "rgba(30,35,55,0.88)" : "rgba(220,224,240,0.92)",
+                        color: isLight ? "#fff" : "#111",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        padding: "3px 8px",
+                        borderRadius: 6,
+                        whiteSpace: "nowrap",
+                        backdropFilter: "blur(8px)",
+                        pointerEvents: "none",
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
                       }}
-                    />
-                    {/* Right corner mask */}
-                    <span
-                      className="absolute pointer-events-none"
-                      style={{
-                        bottom: 0, right: -10,
-                        width: 10, height: 10,
-                        background: panelBg,
-                        WebkitMaskImage: "radial-gradient(circle at 0% 0%, transparent 70%, black 70%)",
-                        maskImage: "radial-gradient(circle at 0% 0%, transparent 70%, black 70%)",
-                      }}
-                    />
-                  </button>
-                ) : (
-                  /* ── INACTIVE TAB ────────────────────────────────────── */
-                  <button
-                    className="relative flex items-center gap-1.5 px-3 cursor-pointer transition-all duration-200 rounded-t-lg"
-                    style={{
-                      height: 30,
-                      alignSelf: "flex-end",
-                      background: tabInactiveBg,
-                      color: "hsl(var(--muted-foreground))",
-                      fontSize: "12px",
-                      fontWeight: 500,
-                      whiteSpace: "nowrap",
-                      borderTop: isLight
-                        ? "1px solid rgba(191,196,212,0.4)"
-                        : "1px solid rgba(255,255,255,0.06)",
-                      borderLeft: isLight
-                        ? "1px solid rgba(191,196,212,0.3)"
-                        : "1px solid rgba(255,255,255,0.04)",
-                      borderRight: isLight
-                        ? "1px solid rgba(191,196,212,0.3)"
-                        : "1px solid rgba(255,255,255,0.04)",
-                    }}
-                  >
-                    <item.icon style={{ width: 13, height: 13, flexShrink: 0, opacity: 0.6 }} />
-                    <span className="hidden lg:block">{item.title}</span>
-                  </button>
-                )}
+                    >
+                      {item.title}
+                    </div>
+                  )}
+                </div>
               </Link>
             );
           })}
@@ -244,58 +266,29 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         className="relative flex-1 flex flex-col items-center px-4 pb-20"
         style={{
           zIndex: 10,
-          /* Negative top margin so the window slides up under the extended active tab */
-          marginTop: -2,
+          paddingTop: DOCK_H - 4 + 8,   /* clear the overhanging dock */
         }}
       >
         <div
           className="w-full max-w-[1400px] flex flex-col overflow-hidden"
           style={{
-            height: "calc(100vh - 47px - 80px)",
+            height: `calc(100vh - ${BRAND_H}px - ${DOCK_H - 4 + 8}px - 80px)`,
             background: panelBg,
             backdropFilter: "blur(20px)",
             WebkitBackdropFilter: "blur(20px)",
             boxShadow: panelShadow,
-            borderRadius: "0 16px 16px 16px",
+            borderRadius: 20,
           }}
         >
-          {/* Window inner content */}
           <div className="flex-1 overflow-auto">
             <div className="h-full p-6 md:p-8">{children}</div>
           </div>
         </div>
       </main>
 
-      {/* ── Bottom dock + command bar ─────────────────────────── */}
-      <div className="absolute bottom-0 left-0 right-0 z-50 flex items-end justify-between px-6 pb-4">
-        {/* Left dock */}
-        <div className="flex items-center gap-2">
-          {navItems.slice(0, 4).map((item) => {
-            const isActive = location === item.url;
-            return (
-              <Link key={item.url} href={item.url}>
-                <button
-                  title={item.title}
-                  className="h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer"
-                  style={isActive ? {
-                    background: "var(--neu-bg)",
-                    boxShadow: "var(--neu-inset-sm)",
-                    color: "hsl(var(--primary))",
-                  } : {
-                    background: "var(--neu-bg)",
-                    boxShadow: "var(--neu-raised-sm)",
-                    color: "hsl(var(--muted-foreground))",
-                  }}
-                >
-                  <item.icon className="h-4 w-4" />
-                </button>
-              </Link>
-            );
-          })}
-        </div>
-
-        {/* Center command bar */}
-        <div className="flex-1 max-w-md mx-6">
+      {/* ── Bottom command bar ───────────────────────────────── */}
+      <div className="absolute bottom-0 left-0 right-0 z-50 flex justify-center px-6 pb-5">
+        <div className="w-full max-w-md">
           <div
             className="flex items-center gap-2 h-11 px-4 rounded-2xl"
             style={{ background: "var(--neu-bg)", boxShadow: "var(--neu-inset)" }}
@@ -311,32 +304,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             />
             <kbd className="hud-label text-foreground/25 bg-foreground/5 rounded px-1.5 py-0.5 border border-foreground/10">⌘K</kbd>
           </div>
-        </div>
-
-        {/* Right dock */}
-        <div className="flex items-center gap-2">
-          {navItems.slice(4).map((item) => {
-            const isActive = location === item.url;
-            return (
-              <Link key={item.url} href={item.url}>
-                <button
-                  title={item.title}
-                  className="h-10 w-10 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer"
-                  style={isActive ? {
-                    background: "var(--neu-bg)",
-                    boxShadow: "var(--neu-inset-sm)",
-                    color: "hsl(var(--primary))",
-                  } : {
-                    background: "var(--neu-bg)",
-                    boxShadow: "var(--neu-raised-sm)",
-                    color: "hsl(var(--muted-foreground))",
-                  }}
-                >
-                  <item.icon className="h-4 w-4" />
-                </button>
-              </Link>
-            );
-          })}
         </div>
       </div>
     </div>
