@@ -82,31 +82,35 @@ function pocketPath(dockHalf: number) {
    Full-width thin bar at the bottom + center pocket going up.
    Wings between pocket and edges remain transparent.
 ─────────────────────────────────────────────────────────────── */
-function bottomPocketPath(dockHalf: number, botPocketH: number, botTotalH: number) {
+/* irX/irY: compensated corner radii — irX accounts for non-uniform SVG scaleX (frameW/1000)
+   so the quadratic Bézier corner looks circular in screen pixels.
+   orX/orY: same compensation for the concave wing join radius. */
+function bottomPocketPath(
+  dockHalf: number, botPocketH: number, botTotalH: number,
+  irX: number, irY: number, orX: number, orY: number,
+) {
   const cx = 500;
-  const or = 26;          /* tighter concave wing join (vs top's 40) */
-  const ir = BOT_PILL_R;  /* matches pill border-radius so corners align */
   const barY = botPocketH;
   const totalY = botTotalH;
   return [
-    `M 0 ${totalY}`,                          /* bottom-left */
-    `L 1000 ${totalY}`,                        /* bottom-right */
-    `L 1000 ${barY}`,                          /* up right edge */
-    /* right concave join into pocket */
-    `L ${cx + dockHalf + or} ${barY}`,
-    `Q ${cx + dockHalf} ${barY} ${cx + dockHalf} ${barY - or}`,
+    `M 0 ${totalY}`,                                          /* bottom-left */
+    `L 1000 ${totalY}`,                                        /* bottom-right */
+    `L 1000 ${barY}`,                                          /* up right edge */
+    /* right concave join into pocket (orX horizontal, orY vertical) */
+    `L ${cx + dockHalf + orX} ${barY}`,
+    `Q ${cx + dockHalf} ${barY} ${cx + dockHalf} ${barY - orY}`,
     /* up right wall */
-    `L ${cx + dockHalf} ${ir}`,
-    /* top-right corner of pocket */
-    `Q ${cx + dockHalf} 0 ${cx + dockHalf - ir} 0`,
+    `L ${cx + dockHalf} ${irY}`,
+    /* top-right corner — irX horizontal sweep, irY vertical rise */
+    `Q ${cx + dockHalf} 0 ${cx + dockHalf - irX} 0`,
     /* top of pocket */
-    `L ${cx - dockHalf + ir} 0`,
-    /* top-left corner of pocket */
-    `Q ${cx - dockHalf} 0 ${cx - dockHalf} ${ir}`,
+    `L ${cx - dockHalf + irX} 0`,
+    /* top-left corner */
+    `Q ${cx - dockHalf} 0 ${cx - dockHalf} ${irY}`,
     /* down left wall */
-    `L ${cx - dockHalf} ${barY - or}`,
+    `L ${cx - dockHalf} ${barY - orY}`,
     /* left concave join */
-    `Q ${cx - dockHalf} ${barY} ${cx - dockHalf - or} ${barY}`,
+    `Q ${cx - dockHalf} ${barY} ${cx - dockHalf - orX} ${barY}`,
     /* left of bar */
     `L 0 ${barY}`,
     `Z`,
@@ -176,8 +180,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   /* SVG paths — dockHalf in SVG's 0-1000 coordinate space */
   const dockHalf     = frameW > 0 ? (DOCK_W     / 2 / frameW) * 1000 : 204;
   const botDockHalf  = frameW > 0 ? (BOT_DOCK_W / 2 / frameW) * 1000 : 267;
+  /* Compensate for non-uniform SVG scaling (scaleX = frameW/1000, scaleY = 1.0):
+     irX/orX are shrunk so the quadratic Bézier corner renders as a true circle in px. */
+  const botIrX = frameW > 0 ? (BOT_PILL_R * 1000) / frameW : BOT_PILL_R;
+  const botIrY = BOT_PILL_R;
+  const botOrX = frameW > 0 ? (26 * 1000) / frameW : 26;
+  const botOrY = 26;
   const svgPocket    = buildPath(dockHalf);
-  const svgBotPocket = bottomPocketPath(botDockHalf, botPocketH, botTotalH);
+  const svgBotPocket = bottomPocketPath(botDockHalf, botPocketH, botTotalH, botIrX, botIrY, botOrX, botOrY);
 
   function onCmd(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey && cmd.trim()) {
