@@ -26,10 +26,22 @@ export const agentJobsTable = pgTable("agent_jobs", {
   updatedAt:    timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const agentWorkspaceFilesTable = pgTable("agent_workspace_files", {
+  id:         serial("id").primaryKey(),
+  name:       text("name").notNull(),          /* original filename, e.g. "main.py" */
+  path:       text("path").notNull(),          /* relative path inside workspace, e.g. "src/main.py" */
+  objectPath: text("object_path").notNull(),   /* storage path, e.g. /objects/uploads/<uuid> */
+  mimeType:   text("mime_type").notNull(),
+  fileSize:   integer("file_size"),
+  createdAt:  timestamp("created_at").defaultNow().notNull(),
+  deletedAt:  timestamp("deleted_at"),
+});
+
 export const insertAgentRepoSchema = createInsertSchema(agentReposTable).omit({ id: true, createdAt: true, deletedAt: true, context: true, owner: true, repo: true, description: true });
 export const insertAgentJobSchema  = createInsertSchema(agentJobsTable).omit({ id: true, createdAt: true, updatedAt: true, status: true, output: true });
 
-export type AgentRepo = typeof agentReposTable.$inferSelect;
-export type AgentJob  = typeof agentJobsTable.$inferSelect;
-export type InsertAgentRepo = z.infer<typeof insertAgentRepoSchema>;
-export type InsertAgentJob  = z.infer<typeof insertAgentJobSchema>;
+export type AgentRepo          = typeof agentReposTable.$inferSelect;
+export type AgentJob           = typeof agentJobsTable.$inferSelect;
+export type AgentWorkspaceFile = typeof agentWorkspaceFilesTable.$inferSelect;
+export type InsertAgentRepo    = z.infer<typeof insertAgentRepoSchema>;
+export type InsertAgentJob     = z.infer<typeof insertAgentJobSchema>;

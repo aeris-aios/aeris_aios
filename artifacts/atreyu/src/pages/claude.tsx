@@ -1,15 +1,18 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useTheme } from "@/contexts/theme";
 import { useSSE } from "@/hooks/use-sse";
 import ReactMarkdown from "react-markdown";
+import JSZip from "jszip";
 import {
   Github, Plus, Trash2, Play, Loader2, CheckCircle2, XCircle,
-  Clock, ChevronRight, Cpu, BookOpen, Zap, X,
+  Clock, ChevronRight, Cpu, BookOpen, Zap, X, Upload,
+  FileText, FolderOpen, File, Check,
 } from "lucide-react";
 
 /* ── Types ──────────────────────────────────────────────────────── */
-type Repo = { id: number; url: string; owner: string; repo: string; description?: string; createdAt: string };
-type Job  = { id: number; title: string; task: string; model: string; status: string; output?: string; outputTarget?: string; createdAt: string };
+type Repo  = { id: number; url: string; owner: string; repo: string; description?: string; createdAt: string };
+type Job   = { id: number; title: string; task: string; model: string; status: string; output?: string; outputTarget?: string; createdAt: string };
+type WFile = { id: number; name: string; path: string; objectPath: string; mimeType: string; fileSize?: number; createdAt: string };
 
 /* ── Neumorphic hook ─────────────────────────────────────────────── */
 function useNeu() {
@@ -45,8 +48,82 @@ const MODELS = [
 
 const API = "/api/agents";
 
+/* ── Helpers ─────────────────────────────────────────────────────── */
+function fileIcon(name: string) {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  if (["ts","tsx","js","jsx","py","go","rs","java","cpp","c","cs"].includes(ext)) return "📄";
+  if (["json","yaml","yml","toml","env"].includes(ext)) return "⚙️";
+  if (["md","txt","rst"].includes(ext)) return "📝";
+  if (["png","jpg","jpeg","gif","svg","webp"].includes(ext)) return "🖼️";
+  if (["pdf"].includes(ext)) return "📕";
+  return "📄";
+}
+
+function humanSize(bytes?: number) {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/* ── Upload a single file (presigned URL → GCS → save metadata) ─── */
+async function uploadWorkspaceFile(file: File, relativePath: string): Promise<WFile | null> {
+  try {
+    const urlRes = await fetch(`${API}/workspace/files/upload-request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type || "text/plain" }),
+    });
+    if (!urlRes.ok) return null;
+    const { uploadURL, objectPath } = await urlRes.json();
+
+    const putRes = await fetch(uploadURL, {
+      method: "PUT",
+      headers: { "Content-Type": file.type || "application/octet-stream" },
+      body: file,
+    });
+    if (!putRes.ok) return null;
+
+    const metaRes = await fetch(`${API}/workspace/files`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: file.name,
+        path: relativePath,
+        objectPath,
+        mimeType: file.type || "text/plain",
+        fileSize: file.size,
+      }),
+    });
+    if (!metaRes.ok) return null;
+    return metaRes.json();
+  } catch {
+    return null;
+  }
+}
+
+/* ── Extract zip and upload each file inside ─────────────────────── */
+async function uploadZip(zipFile: File, onProgress?: (msg: string) => void): Promise<WFile[]> {
+  const zip  = await JSZip.loadAsync(zipFile);
+  const results: WFile[] = [];
+
+  const entries = Object.entries(zip.files).filter(([, f]) => !f.dir);
+  for (const [path, zipEntry] of entries) {
+    const name = path.split("/").pop() ?? path;
+    onProgress?.(`Uploading ${name}…`);
+    const content  = await zipEntry.async("blob");
+    const fileObj  = new File([content], name, { type: "text/plain" });
+    const uploaded = await uploadWorkspaceFile(fileObj, path);
+    if (uploaded) results.push(uploaded);
+  }
+  return results;
+}
+
 export default function AgentStudio() {
   const n = useNeu();
+
+  /* ── Left panel tab ── */
+  const [leftTab, setLeftTab] = useState<"repos" | "files">("repos");
 
   /* ── Repos ── */
   const [repos, setRepos]         = useState<Repo[]>([]);
@@ -54,10 +131,21 @@ export default function AgentStudio() {
   const [ingesting, setIngesting] = useState(false);
   const [selectedRepos, setSelectedRepos] = useState<number[]>([]);
 
+  /* ── Workspace files ── */
+  const [wfiles, setWfiles]             = useState<WFile[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<number[]>([]);
+  const [uploading, setUploading]       = useState(false);
+  const [uploadMsg, setUploadMsg]       = useState("");
+  const [viewingFile, setViewingFile]   = useState<WFile | null>(null);
+  const [fileContent, setFileContent]   = useState<string>("");
+  const [loadingContent, setLoadingContent] = useState(false);
+  const [dragging, setDragging]         = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   /* ── Job builder ── */
-  const [task, setTask]         = useState("");
-  const [model, setModel]       = useState("sonnet");
-  const [target, setTarget]     = useState("dashboard");
+  const [task, setTask]   = useState("");
+  const [model, setModel] = useState("sonnet");
+  const [target, setTarget] = useState("dashboard");
 
   /* ── Jobs feed ── */
   const [jobs, setJobs]         = useState<Job[]>([]);
@@ -67,11 +155,8 @@ export default function AgentStudio() {
   /* ── SSE for streaming ── */
   const { stream, data: streamData, isStreaming, setData } = useSSE();
 
-  /* Load repos + jobs on mount */
-  useEffect(() => {
-    fetchRepos();
-    fetchJobs();
-  }, []);
+  /* Load data on mount */
+  useEffect(() => { fetchRepos(); fetchJobs(); fetchWfiles(); }, []);
 
   /* Scroll output to bottom on new stream data */
   useEffect(() => {
@@ -86,6 +171,11 @@ export default function AgentStudio() {
   async function fetchJobs() {
     const r = await fetch(`${API}/jobs`);
     if (r.ok) setJobs((await r.json()).reverse());
+  }
+
+  async function fetchWfiles() {
+    const r = await fetch(`${API}/workspace/files`);
+    if (r.ok) setWfiles(await r.json());
   }
 
   async function ingestRepo() {
@@ -107,6 +197,61 @@ export default function AgentStudio() {
     setSelectedRepos(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id]);
   }
 
+  /* ── Workspace file handlers ── */
+  async function handleFiles(fileList: FileList | File[]) {
+    const files = Array.from(fileList);
+    if (!files.length) return;
+    setUploading(true);
+    setUploadMsg("Preparing…");
+
+    const newFiles: WFile[] = [];
+    for (const f of files) {
+      if (f.name.endsWith(".zip")) {
+        const extracted = await uploadZip(f, setUploadMsg);
+        newFiles.push(...extracted);
+      } else {
+        setUploadMsg(`Uploading ${f.name}…`);
+        const uploaded = await uploadWorkspaceFile(f, f.name);
+        if (uploaded) newFiles.push(uploaded);
+      }
+    }
+
+    setWfiles(prev => [...prev, ...newFiles]);
+    setUploading(false);
+    setUploadMsg("");
+  }
+
+  function toggleWfile(id: number) {
+    setSelectedFiles(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
+  }
+
+  async function deleteWfile(id: number) {
+    await fetch(`${API}/workspace/files/${id}`, { method: "DELETE" });
+    setSelectedFiles(prev => prev.filter(f => f !== id));
+    if (viewingFile?.id === id) { setViewingFile(null); setFileContent(""); }
+    setWfiles(prev => prev.filter(f => f.id !== id));
+  }
+
+  async function viewWfile(file: WFile) {
+    if (viewingFile?.id === file.id) { setViewingFile(null); setFileContent(""); return; }
+    setViewingFile(file);
+    setLoadingContent(true);
+    setFileContent("");
+    try {
+      const r = await fetch(`${API}/workspace/files/${file.id}/content`);
+      if (r.ok) setFileContent(await r.text());
+      else setFileContent("(Could not load file content)");
+    } finally { setLoadingContent(false); }
+  }
+
+  /* ── Drag-and-drop ── */
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+  }, []);
+
+  /* ── Run agent ── */
   async function runAgent() {
     if (!task.trim() || isStreaming) return;
     setData("");
@@ -116,6 +261,7 @@ export default function AgentStudio() {
       model,
       outputTarget: target,
       repoIds: selectedRepos,
+      workspaceFileIds: selectedFiles,
       title: task.slice(0, 60),
     });
     await fetchJobs();
@@ -151,6 +297,17 @@ export default function AgentStudio() {
     whiteSpace: "nowrap" as const,
   });
 
+  const tab = (active: boolean) => ({
+    flex: 1, padding: "7px 0", border: "none", cursor: "pointer",
+    background: n.bg,
+    boxShadow: active ? n.insetSm : n.raisedSm,
+    fontSize: 9, fontWeight: 800, letterSpacing: "0.14em",
+    textTransform: "uppercase" as const,
+    color: active ? "#e67e41" : n.sub,
+    transition: "all 0.18s ease",
+    borderRadius: active ? 8 : 8,
+  });
+
   const runBtn = {
     display: "flex", alignItems: "center", gap: 8,
     padding: "10px 22px", borderRadius: 12,
@@ -167,106 +324,272 @@ export default function AgentStudio() {
 
   const statusIcon = (s: string) =>
     s === "complete" ? <CheckCircle2 style={{ width: 13, height: 13 }} /> :
-    s === "failed"   ? <XCircle       style={{ width: 13, height: 13 }} /> :
-                       <Loader2       style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} />;
+    s === "failed"   ? <XCircle      style={{ width: 13, height: 13 }} /> :
+                       <Loader2      style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} />;
+
+  const totalCtx = selectedRepos.length + selectedFiles.length;
 
   return (
     <div style={{
       margin: "-24px -32px 0 -32px",
       height: "calc(100vh - 232px)",
       display: "grid",
-      gridTemplateColumns: "240px 1fr 300px",
+      gridTemplateColumns: "260px 1fr 300px",
       gridTemplateRows: "1fr",
       gap: 16,
       padding: "16px 16px 0",
       boxSizing: "border-box",
     }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .ws-tree-row:hover { opacity: 0.85; }
+        .ws-drop-active { outline: 2px dashed #e67e41; outline-offset: -4px; }
+      `}</style>
 
-      {/* ══ LEFT: REPO LIBRARY ════════════════════════════════════ */}
+      {/* ══ LEFT: TAB — REPOS / PROJECT FILES ════════════════════ */}
       <div style={panel}>
-        {/* Header */}
-        <div style={{ padding: "14px 16px 12px", borderBottom: `1px solid ${n.dark}22` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12 }}>
-            <BookOpen style={{ width: 13, height: 13, color: "#e67e41" }} />
-            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.18em", textTransform: "uppercase", color: n.sub }}>Skill Repos</span>
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input
-              value={repoUrl}
-              onChange={e => setRepoUrl(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && ingestRepo()}
-              placeholder="github.com/owner/repo"
-              style={{
-                flex: 1, background: n.bg, boxShadow: n.insetSm,
-                border: "none", borderRadius: 9, padding: "7px 10px",
-                fontSize: 10, color: n.fg, fontFamily: "var(--app-font-mono)",
-                outline: "none",
-              }}
-            />
-            <button
-              onClick={ingestRepo}
-              disabled={ingesting || !repoUrl.trim()}
-              style={{
-                width: 30, height: 30, borderRadius: 9, flexShrink: 0,
-                background: n.bg, boxShadow: ingesting ? n.insetSm : n.raisedSm,
-                border: "none", cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: "#e67e41",
-              }}
-            >
-              {ingesting ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} /> : <Plus style={{ width: 12, height: 12 }} />}
-            </button>
-          </div>
+        {/* Tab switcher */}
+        <div style={{ padding: "10px 10px 8px", borderBottom: `1px solid ${n.dark}22`, display: "flex", gap: 6 }}>
+          <button onClick={() => setLeftTab("repos")} style={tab(leftTab === "repos")}>
+            <BookOpen style={{ width: 10, height: 10, display: "inline", marginRight: 4 }} />
+            Skill Repos
+          </button>
+          <button onClick={() => setLeftTab("files")} style={tab(leftTab === "files")}>
+            <FolderOpen style={{ width: 10, height: 10, display: "inline", marginRight: 4 }} />
+            Project Files
+          </button>
         </div>
 
-        {/* Repo list */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "8px", scrollbarWidth: "none" }}>
-          {repos.length === 0 ? (
-            <div style={{ padding: "20px 8px", textAlign: "center", color: n.sub, fontSize: 10, fontFamily: "var(--app-font-mono)" }}>
-              Paste a GitHub URL to teach agents new skills
-            </div>
-          ) : repos.map(r => {
-            const active = selectedRepos.includes(r.id);
-            return (
-              <div
-                key={r.id}
-                style={{
-                  display: "flex", alignItems: "flex-start", gap: 8,
-                  padding: "9px 10px", borderRadius: 10, marginBottom: 4,
-                  background: n.bg, boxShadow: active ? n.insetSm : n.raisedSm,
-                  cursor: "pointer", transition: "box-shadow 0.18s ease",
-                }}
-                onClick={() => toggleRepo(r.id)}
-              >
-                <Github style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1, color: active ? "#e67e41" : n.sub }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: active ? "#e67e41" : n.fg, truncate: true, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.owner}/{r.repo}
-                  </div>
-                  {r.description && (
-                    <div style={{ fontSize: 9, color: n.sub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {r.description}
-                    </div>
-                  )}
-                </div>
+        {/* ── REPOS TAB ────────────────────────────────────── */}
+        {leftTab === "repos" && (
+          <>
+            <div style={{ padding: "12px 12px 10px", borderBottom: `1px solid ${n.dark}22` }}>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  value={repoUrl}
+                  onChange={e => setRepoUrl(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && ingestRepo()}
+                  placeholder="github.com/owner/repo"
+                  style={{
+                    flex: 1, background: n.bg, boxShadow: n.insetSm,
+                    border: "none", borderRadius: 9, padding: "7px 10px",
+                    fontSize: 10, color: n.fg, fontFamily: "var(--app-font-mono)",
+                    outline: "none",
+                  }}
+                />
                 <button
-                  onClick={e => { e.stopPropagation(); deleteRepo(r.id); }}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: n.sub, padding: 2, flexShrink: 0 }}
+                  onClick={ingestRepo}
+                  disabled={ingesting || !repoUrl.trim()}
+                  style={{
+                    width: 30, height: 30, borderRadius: 9, flexShrink: 0,
+                    background: n.bg, boxShadow: ingesting ? n.insetSm : n.raisedSm,
+                    border: "none", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#e67e41",
+                  }}
                 >
-                  <Trash2 style={{ width: 10, height: 10 }} />
+                  {ingesting ? <Loader2 style={{ width: 12, height: 12, animation: "spin 1s linear infinite" }} /> : <Plus style={{ width: 12, height: 12 }} />}
                 </button>
               </div>
-            );
-          })}
-        </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "8px", scrollbarWidth: "none" }}>
+              {repos.length === 0 ? (
+                <div style={{ padding: "20px 8px", textAlign: "center", color: n.sub, fontSize: 10, fontFamily: "var(--app-font-mono)" }}>
+                  Paste a GitHub URL to teach agents new skills
+                </div>
+              ) : repos.map(r => {
+                const active = selectedRepos.includes(r.id);
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      display: "flex", alignItems: "flex-start", gap: 8,
+                      padding: "9px 10px", borderRadius: 10, marginBottom: 4,
+                      background: n.bg, boxShadow: active ? n.insetSm : n.raisedSm,
+                      cursor: "pointer", transition: "box-shadow 0.18s ease",
+                    }}
+                    onClick={() => toggleRepo(r.id)}
+                  >
+                    <Github style={{ width: 12, height: 12, flexShrink: 0, marginTop: 1, color: active ? "#e67e41" : n.sub }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: active ? "#e67e41" : n.fg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.owner}/{r.repo}
+                      </div>
+                      {r.description && (
+                        <div style={{ fontSize: 9, color: n.sub, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.description}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      onClick={e => { e.stopPropagation(); deleteRepo(r.id); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: n.sub, padding: 2, flexShrink: 0 }}
+                    >
+                      <Trash2 style={{ width: 10, height: 10 }} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {/* ── PROJECT FILES TAB ─────────────────────────────── */}
+        {leftTab === "files" && (
+          <>
+            {/* Drop zone */}
+            <div
+              onDragOver={e => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={dragging ? "ws-drop-active" : ""}
+              style={{
+                margin: "10px", borderRadius: 12,
+                padding: "14px 10px",
+                background: n.bg, boxShadow: dragging ? n.insetSm : n.raisedSm,
+                cursor: uploading ? "not-allowed" : "pointer",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                transition: "all 0.18s ease",
+                borderBottom: `1px solid ${n.dark}22`,
+              }}
+            >
+              {uploading ? (
+                <>
+                  <Loader2 style={{ width: 18, height: 18, color: "#e67e41", animation: "spin 1s linear infinite" }} />
+                  <span style={{ fontSize: 9, color: "#e67e41", fontFamily: "var(--app-font-mono)", textAlign: "center" }}>{uploadMsg}</span>
+                </>
+              ) : (
+                <>
+                  <Upload style={{ width: 16, height: 16, color: n.sub }} />
+                  <span style={{ fontSize: 9, fontWeight: 700, color: n.sub, textAlign: "center", letterSpacing: "0.06em" }}>
+                    DROP FILES OR CLICK TO UPLOAD
+                  </span>
+                  <span style={{ fontSize: 8, color: n.sub, opacity: 0.7, textAlign: "center" }}>
+                    .zip archives are auto-extracted
+                  </span>
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                style={{ display: "none" }}
+                onChange={e => e.target.files && handleFiles(e.target.files)}
+              />
+            </div>
+
+            {/* File tree */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px 8px", scrollbarWidth: "none" }}>
+              {wfiles.length === 0 ? (
+                <div style={{ padding: "16px 8px", textAlign: "center", color: n.sub, fontSize: 10, fontFamily: "var(--app-font-mono)" }}>
+                  No files yet — upload your project folder or files above
+                </div>
+              ) : wfiles.map(f => {
+                const isSelected = selectedFiles.includes(f.id);
+                const isViewing  = viewingFile?.id === f.id;
+                return (
+                  <div
+                    key={f.id}
+                    className="ws-tree-row"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "7px 8px", borderRadius: 9, marginBottom: 3,
+                      background: n.bg, boxShadow: isViewing ? n.insetSm : (isSelected ? n.raisedSm : "none"),
+                      cursor: "pointer", transition: "box-shadow 0.15s ease",
+                    }}
+                  >
+                    {/* Checkbox */}
+                    <button
+                      onClick={e => { e.stopPropagation(); toggleWfile(f.id); }}
+                      style={{
+                        width: 14, height: 14, borderRadius: 4, flexShrink: 0,
+                        background: n.bg, boxShadow: isSelected ? n.insetSm : n.raisedSm,
+                        border: "none", cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                      }}
+                    >
+                      {isSelected && <Check style={{ width: 8, height: 8, color: "#e67e41" }} />}
+                    </button>
+
+                    {/* File info */}
+                    <div
+                      style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 5 }}
+                      onClick={() => viewWfile(f)}
+                    >
+                      <span style={{ fontSize: 11 }}>{fileIcon(f.name)}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, color: isViewing ? "#e67e41" : n.fg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {f.name}
+                        </div>
+                        <div style={{ fontSize: 8, color: n.sub, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {f.path !== f.name ? f.path : ""}{f.fileSize ? ` ${humanSize(f.fileSize)}` : ""}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Delete */}
+                    <button
+                      onClick={e => { e.stopPropagation(); deleteWfile(f.id); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: n.sub, padding: 2, flexShrink: 0, opacity: 0.6 }}
+                    >
+                      <Trash2 style={{ width: 9, height: 9 }} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* File viewer panel */}
+            {viewingFile && (
+              <div style={{
+                borderTop: `1px solid ${n.dark}22`,
+                maxHeight: "35%", display: "flex", flexDirection: "column", overflow: "hidden",
+              }}>
+                <div style={{
+                  padding: "7px 12px", display: "flex", alignItems: "center", justifyContent: "space-between",
+                  borderBottom: `1px solid ${n.dark}22`, flexShrink: 0,
+                }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: "#e67e41", fontFamily: "var(--app-font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                    {viewingFile.path}
+                  </span>
+                  <button
+                    onClick={() => { setViewingFile(null); setFileContent(""); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: n.sub, padding: 2, flexShrink: 0 }}
+                  >
+                    <X style={{ width: 10, height: 10 }} />
+                  </button>
+                </div>
+                <div style={{ flex: 1, overflowY: "auto", padding: "8px 12px", scrollbarWidth: "none" }}>
+                  {loadingContent ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, color: n.sub, fontSize: 9 }}>
+                      <Loader2 style={{ width: 10, height: 10, animation: "spin 1s linear infinite" }} />
+                      Loading…
+                    </div>
+                  ) : (
+                    <pre style={{
+                      margin: 0, fontSize: 8.5, lineHeight: 1.6, color: n.fg,
+                      fontFamily: "var(--app-font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-all",
+                    }}>
+                      {fileContent || "(empty file)"}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
+        )}
 
         {/* Context indicator */}
-        {selectedRepos.length > 0 && (
-          <div style={{ padding: "10px 14px", borderTop: `1px solid ${n.dark}22`, display: "flex", alignItems: "center", gap: 6 }}>
+        {totalCtx > 0 && (
+          <div style={{ padding: "10px 14px", borderTop: `1px solid ${n.dark}22`, display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
             <Cpu style={{ width: 11, height: 11, color: "#e67e41" }} />
             <span style={{ fontSize: 9, fontFamily: "var(--app-font-mono)", color: "#e67e41", letterSpacing: "0.08em" }}>
-              {selectedRepos.length} REPO{selectedRepos.length > 1 ? "S" : ""} IN CONTEXT
+              {selectedRepos.length > 0 && `${selectedRepos.length} REPO${selectedRepos.length > 1 ? "S" : ""}`}
+              {selectedRepos.length > 0 && selectedFiles.length > 0 && " + "}
+              {selectedFiles.length > 0 && `${selectedFiles.length} FILE${selectedFiles.length > 1 ? "S" : ""}`}
+              {" IN CONTEXT"}
             </span>
           </div>
         )}
@@ -280,6 +603,11 @@ export default function AgentStudio() {
           <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12 }}>
             <Zap style={{ width: 13, height: 13, color: "#e67e41" }} />
             <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.18em", textTransform: "uppercase", color: n.sub }}>Agent Task</span>
+            {selectedFiles.length > 0 && (
+              <span style={{ fontSize: 8, fontFamily: "var(--app-font-mono)", color: "#e67e41", background: `${n.bg}`, boxShadow: n.raisedSm, padding: "2px 7px", borderRadius: 6 }}>
+                {selectedFiles.length} file{selectedFiles.length > 1 ? "s" : ""} in context
+              </span>
+            )}
           </div>
 
           <textarea

@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { agentReposTable, agentJobsTable } from "@workspace/db";
 import { eq, isNull } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
+import workspaceRouter, { loadWorkspaceFileContexts } from "./workspace";
 
 const router: IRouter = Router();
 
@@ -59,6 +60,9 @@ async function ingestGitHubRepo(owner: string, repo: string): Promise<{ descript
   return { description, context };
 }
 
+/* Mount workspace sub-routes */
+router.use(workspaceRouter);
+
 /* ── REPOS ─────────────────────────────────────────────────────── */
 
 router.get("/repos", async (_req, res) => {
@@ -106,7 +110,7 @@ router.get("/jobs/:id", async (req, res) => {
 });
 
 router.post("/jobs", async (req, res) => {
-  const { task, model, outputTarget, repoIds, title } = req.body;
+  const { task, model, outputTarget, repoIds, workspaceFileIds, title } = req.body;
   if (!task) { res.status(400).json({ error: "task is required" }); return; }
 
   /* Load repo contexts */
@@ -117,12 +121,19 @@ router.post("/jobs", async (req, res) => {
     repoContext = selected.map(r => r.context ?? "").join("\n\n---\n\n");
   }
 
+  /* Load workspace file contexts */
+  let workspaceContext = "";
+  if (Array.isArray(workspaceFileIds) && workspaceFileIds.length > 0) {
+    workspaceContext = await loadWorkspaceFileContexts(workspaceFileIds);
+  }
+
   const systemPrompt = [
     `You are an elite AI marketing agent running inside ATREYU, a Marketing OS.`,
     `You execute marketing tasks with precision: creating automations, writing campaigns, generating content, and performing analysis.`,
     `Your output should be detailed, actionable, and structured. Use markdown headers and bullet points.`,
     outputTarget ? `Your output will be saved to: ${outputTarget.toUpperCase()} module.` : "",
-    repoContext ? `\n## Knowledge Base / Repository Context\n${repoContext}` : "",
+    repoContext       ? `\n## Skill Repository Context\n${repoContext}` : "",
+    workspaceContext  ? `\n## Project Workspace Files\nThe user has provided the following project files for context:\n\n${workspaceContext}` : "",
   ].filter(Boolean).join("\n");
 
   /* Insert job record as running */

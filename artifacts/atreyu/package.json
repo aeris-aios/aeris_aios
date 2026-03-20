@@ -75,7 +75,9 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "react-markdown": "^10.1.0",
-    "@workspace/object-storage-web": "workspace:*"
+    "@types/jszip": "^3.4.1",
+    "@workspace/object-storage-web": "workspace:*",
+    "jszip": "^3.10.1",
+    "react-markdown": "^10.1.0"
   }
 }
