@@ -53,7 +53,7 @@ function StatCard({
 
   return (
     <div
-      className="relative rounded-2xl p-5 cursor-default"
+      className="relative rounded-2xl p-5 cursor-default overflow-hidden"
       style={{ background: n.bg, boxShadow: n.inset }}
     >
       {/* Icon + delta row */}
@@ -83,16 +83,9 @@ function StatCard({
       {/* Label */}
       <div className="hud-label">{a.label}</div>
 
-      {/* Thick left accent tab — rounds the card's top-left and bottom-left corners */}
+      {/* Thick left accent tab — clipped to card's rounded corners by overflow:hidden */}
       <div className="absolute left-0 top-0 bottom-0 w-[5px]"
-        style={{
-          background: a.grad,
-          borderTopLeftRadius: 16,
-          borderBottomLeftRadius: 16,
-          borderTopRightRadius: 3,
-          borderBottomRightRadius: 3,
-          opacity: 0.7,
-        }} />
+        style={{ background: a.grad, opacity: 0.75 }} />
     </div>
   );
 }
