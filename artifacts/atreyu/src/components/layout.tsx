@@ -460,7 +460,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             pointerEvents: "auto", zIndex: 2,
           }}>
             <div style={{
-              display: "flex", alignItems: "flex-start", gap: 8,
+              display: "flex", alignItems: "center", gap: 8,
               padding: "10px 16px", borderRadius: 20,
               background: frameBg,
               boxShadow: insetSm,
@@ -469,7 +469,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             }}>
               <Search style={{
                 width: 14, height: 14, opacity: 0.35, flexShrink: 0,
-                color: "var(--foreground,#1e2030)", marginTop: 2,
+                color: "var(--foreground,#1e2030)",
                 position: "relative", zIndex: 1,
               }} />
               <textarea
@@ -492,7 +492,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 fontFamily: "var(--app-font-mono)", fontSize: 9, letterSpacing: "0.10em",
                 opacity: 0.28, background: "rgba(128,128,128,0.08)",
                 border: "1px solid rgba(128,128,128,0.15)", borderRadius: 5,
-                padding: "2px 6px", flexShrink: 0, marginTop: 2,
+                padding: "2px 6px", flexShrink: 0,
                 position: "relative", zIndex: 1,
               }}>⌘K</kbd>
             </div>
