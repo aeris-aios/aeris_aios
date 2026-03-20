@@ -26,7 +26,7 @@ const navItems = [
 const BAR_H    = 42;
 const POCKET_H = 68;
 const TOTAL_H  = BAR_H + POCKET_H;
-const DOCK_W   = 440;   /* real px */
+const DOCK_W   = 490;   /* real px */
 const OUTER_R  = 40;    /* concave join radius */
 const INNER_R  = 22;    /* dock bottom corner radius */
 const ICON_SZ  = 42;
@@ -232,7 +232,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <div style={{
             position: "absolute", top: BAR_H, left: "50%", transform: "translateX(-50%)",
             width: DOCK_W, height: POCKET_H,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 7, zIndex: 3,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 14, zIndex: 3,
           }}>
             {navItems.map((item, idx) => {
               const isActive = location === item.url;
