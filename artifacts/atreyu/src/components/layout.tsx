@@ -2,7 +2,7 @@ import { Link, useLocation } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard, MessageSquare, Microscope, PenTool,
-  Megaphone, Library, Zap, Settings, Command, Search, Sun, Moon,
+  Megaphone, Library, Zap, Settings, Search, Sun, Moon,
 } from "lucide-react";
 import { useTheme } from "@/contexts/theme";
 
@@ -208,27 +208,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             />
           </svg>
 
-          {/* Left wing — transparent, brand text only */}
-          <div style={{
-            position: "absolute", top: 0, left: 0,
-            width: `calc(50% - ${DOCK_W / 2}px)`, height: BAR_H,
-            display: "flex", alignItems: "center", padding: "0 20px",
-            pointerEvents: "auto",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{
-                width: 26, height: 26, borderRadius: 8, background: frameBg,
-                boxShadow: raisedSm,
-                display: "flex", alignItems: "center", justifyContent: "center",
-              }}>
-                <Command style={{ width: 14, height: 14, color: "var(--primary,#2563eb)" }} />
-              </div>
-              <div style={{ lineHeight: 1 }}>
-                <div style={{ fontSize: 9.5, fontWeight: 900, letterSpacing: "0.22em", textTransform: "uppercase", opacity: 0.82 }}>ATREYU</div>
-                <div style={{ fontFamily: "var(--app-font-mono)", fontSize: 7.5, letterSpacing: "0.14em", textTransform: "uppercase", opacity: 0.28, marginTop: 2 }}>MARKETING OS</div>
-              </div>
-            </div>
-          </div>
 
           {/* Right wing — transparent, controls only */}
           <div style={{
