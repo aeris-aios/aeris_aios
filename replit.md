@@ -1,8 +1,8 @@
-# Workspace
+# ATREYU — AI Marketing Operating System
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+ATREYU (Autonomous Tactical Resource & Execution for Your Universe) is a premium AI-powered marketing operating system. It's a full-stack web SaaS platform built on a pnpm monorepo.
 
 ## Stack
 
@@ -10,87 +10,104 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 - **Node.js version**: 24
 - **Package manager**: pnpm
 - **TypeScript version**: 5.9
-- **API framework**: Express 5
+- **Frontend**: React 19 + Vite, Tailwind CSS v4, shadcn/ui, wouter routing, React Query, framer-motion, recharts
+- **Backend**: Express 5 API server
 - **Database**: PostgreSQL + Drizzle ORM
+- **AI**: Anthropic Claude via Replit AI Integrations proxy (`@workspace/integrations-anthropic-ai`)
 - **Validation**: Zod (`zod/v4`), `drizzle-zod`
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 
+## AI Model Architecture
+
+Model aliases configured in API routes:
+- **sonnet** → `claude-sonnet-4-6` (standard chat, content, research, copywriting)
+- **opus** → `claude-opus-4-6` (deep research synthesis, strategic recommendations — "Deep Think" mode)
+- **haiku** → `claude-haiku-4-5` (lightweight tasks, fallback)
+
+The Assistant page has a "Deep Think" toggle that switches between Sonnet and Opus.
+
 ## Structure
 
 ```text
-artifacts-monorepo/
-├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
-├── lib/                    # Shared libraries
-│   ├── api-spec/           # OpenAPI spec + Orval codegen config
-│   ├── api-client-react/   # Generated React Query hooks
-│   ├── api-zod/            # Generated Zod schemas from OpenAPI
-│   └── db/                 # Drizzle ORM schema + DB connection
-├── scripts/                # Utility scripts (single workspace package)
-│   └── src/                # Individual .ts scripts, run via `pnpm --filter @workspace/scripts run <script>`
-├── pnpm-workspace.yaml     # pnpm workspace (artifacts/*, lib/*, lib/integrations/*, scripts)
-├── tsconfig.base.json      # Shared TS options (composite, bundler resolution, es2022)
-├── tsconfig.json           # Root TS project references
-└── package.json            # Root package with hoisted devDeps
+artifacts/
+├── api-server/           # Express 5 API server
+│   └── src/routes/
+│       ├── anthropic/    # AI chat conversations (SSE streaming)
+│       ├── research.ts   # Research jobs + Apify scaffold + AI summarize
+│       ├── content.ts    # Content generation (SSE streaming)
+│       ├── campaigns.ts  # Campaign management
+│       ├── knowledge.ts  # Knowledge base CRUD
+│       ├── automations.ts # Automation engine
+│       └── projects.ts   # Projects + dashboard stats
+├── atreyu/               # React + Vite frontend (previewPath: /)
+│   └── src/
+│       ├── pages/        # landing, dashboard, assistant, research, content, campaigns, knowledge, automations, settings
+│       ├── components/   # layout.tsx (sidebar + topbar)
+│       └── hooks/        # use-sse.ts (SSE streaming hook)
+└── mockup-sandbox/       # Design prototyping sandbox
+
+lib/
+├── api-spec/             # OpenAPI 3.1 spec + Orval codegen config
+├── api-client-react/     # Generated React Query hooks
+├── api-zod/              # Generated Zod schemas
+├── integrations-anthropic-ai/  # Anthropic AI client + batch utilities
+└── db/
+    └── src/schema/
+        ├── conversations.ts    # AI chat conversations
+        ├── messages.ts         # Chat messages
+        ├── projects.ts         # Projects
+        ├── campaigns.ts        # Marketing campaigns
+        ├── research.ts         # Research jobs + results
+        ├── content.ts          # Content assets
+        ├── knowledge.ts        # Knowledge base items
+        └── automations.ts      # Automations + run history
 ```
 
-## TypeScript & Composite Projects
+## Database Schema
 
-Every package extends `tsconfig.base.json` which sets `composite: true`. The root `tsconfig.json` lists all packages as project references. This means:
+Core entities: `conversations`, `messages`, `projects`, `campaigns`, `research_jobs`, `research_results`, `content_assets`, `knowledge_items`, `automations`, `automation_runs`
 
-- **Always typecheck from the root** — run `pnpm run typecheck` (which runs `tsc --build --emitDeclarationOnly`). This builds the full dependency graph so that cross-package imports resolve correctly. Running `tsc` inside a single package will fail if its dependencies haven't been built yet.
-- **`emitDeclarationOnly`** — we only emit `.d.ts` files during typecheck; actual JS bundling is handled by esbuild/tsx/vite...etc, not `tsc`.
-- **Project references** — when package A depends on package B, A's `tsconfig.json` must list B in its `references` array. `tsc --build` uses this to determine build order and skip up-to-date packages.
+All tables use soft deletes (`deleted_at`) where appropriate.
 
-## Root Scripts
+## Apify Integration
 
-- `pnpm run build` — runs `typecheck` first, then recursively runs `build` in all packages that define it
-- `pnpm run typecheck` — runs `tsc --build --emitDeclarationOnly` using project references
+Research jobs scaffold is in `artifacts/api-server/src/routes/research.ts`. Currently simulates scraping with a timeout. To activate real Apify:
+1. Set `APIFY_API_KEY` environment variable
+2. Replace `simulateResearchJob()` with real Apify actor calls
+3. Parse actor output into `research_results` table
 
-## Packages
+## Key API Endpoints
 
-### `artifacts/api-server` (`@workspace/api-server`)
+- `GET/POST /api/anthropic/conversations` — chat threads
+- `POST /api/anthropic/conversations/:id/messages` — SSE streaming AI chat
+- `GET/POST /api/research/jobs` — research job management
+- `POST /api/research/jobs/:id/summarize` — SSE AI summarization
+- `POST /api/content/generate` — SSE content generation
+- `GET /api/dashboard/stats` — dashboard statistics
+- CRUD for campaigns, knowledge, automations, projects
 
-Express 5 API server. Routes live in `src/routes/` and use `@workspace/api-zod` for request and response validation and `@workspace/db` for persistence.
+## Environment Variables
 
-- Entry: `src/index.ts` — reads `PORT`, starts Express
-- App setup: `src/app.ts` — mounts CORS, JSON/urlencoded parsing, routes at `/api`
-- Routes: `src/routes/index.ts` mounts sub-routers; `src/routes/health.ts` exposes `GET /health` (full path: `/api/health`)
-- Depends on: `@workspace/db`, `@workspace/api-zod`
-- `pnpm --filter @workspace/api-server run dev` — run the dev server
-- `pnpm --filter @workspace/api-server run build` — production esbuild bundle (`dist/index.cjs`)
-- Build bundles an allowlist of deps (express, cors, pg, drizzle-orm, zod, etc.) and externalizes the rest
+- `DATABASE_URL` — PostgreSQL connection (auto-set by Replit)
+- `AI_INTEGRATIONS_ANTHROPIC_BASE_URL` — Replit AI proxy URL (auto-set)
+- `AI_INTEGRATIONS_ANTHROPIC_API_KEY` — Replit AI proxy key (auto-set)
+- `PORT` — Service port (auto-assigned per artifact)
 
-### `lib/db` (`@workspace/db`)
+## Workflows
 
-Database layer using Drizzle ORM with PostgreSQL. Exports a Drizzle client instance and schema models.
+- `artifacts/api-server: API Server` — Express API on assigned port, proxied at `/api`
+- `artifacts/atreyu: web` — Vite dev server at `/` (port 19040)
 
-- `src/index.ts` — creates a `Pool` + Drizzle instance, exports schema
-- `src/schema/index.ts` — barrel re-export of all models
-- `src/schema/<modelname>.ts` — table definitions with `drizzle-zod` insert schemas (no models definitions exist right now)
-- `drizzle.config.ts` — Drizzle Kit config (requires `DATABASE_URL`, automatically provided by Replit)
-- Exports: `.` (pool, db, schema), `./schema` (schema only)
+## Running Commands
 
-Production migrations are handled by Replit when publishing. In development, we just use `pnpm --filter @workspace/db run push`, and we fallback to `pnpm --filter @workspace/db run push-force`.
+```bash
+# Push DB schema changes
+pnpm --filter @workspace/db run push
 
-### `lib/api-spec` (`@workspace/api-spec`)
+# Run codegen after OpenAPI spec changes
+pnpm --filter @workspace/api-spec run codegen
 
-Owns the OpenAPI 3.1 spec (`openapi.yaml`) and the Orval config (`orval.config.ts`). Running codegen produces output into two sibling packages:
-
-1. `lib/api-client-react/src/generated/` — React Query hooks + fetch client
-2. `lib/api-zod/src/generated/` — Zod schemas
-
-Run codegen: `pnpm --filter @workspace/api-spec run codegen`
-
-### `lib/api-zod` (`@workspace/api-zod`)
-
-Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used by `api-server` for response validation.
-
-### `lib/api-client-react` (`@workspace/api-client-react`)
-
-Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
-
-### `scripts` (`@workspace/scripts`)
-
-Utility scripts package. Each script is a `.ts` file in `src/` with a corresponding npm script in `package.json`. Run scripts via `pnpm --filter @workspace/scripts run <script>`. Scripts can import any workspace package (e.g., `@workspace/db`) by adding it as a dependency in `scripts/package.json`.
+# Typecheck everything
+pnpm run typecheck
+```

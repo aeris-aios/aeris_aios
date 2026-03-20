@@ -1,0 +1,18 @@
+packages:
+  "framer-motion": "For premium page transitions and micro-interactions"
+  "recharts": "For rendering beautiful dashboard analytics"
+  "react-markdown": "For formatting streamed AI markdown responses"
+  "date-fns": "For formatting timestamps across lists"
+  "@hookform/resolvers": "For validating complex form inputs with Zod"
+
+images:
+  - path: "artifacts/atreyu/public/images/hero-bg.png"
+    description: "Ultra premium dark cinematic background with subtle glassmorphism and deep indigo to cyan glowing abstract shapes"
+    aspect_ratio: "16:9"
+  - path: "artifacts/atreyu/public/images/logo.png"
+    description: "Minimalist geometric tech logo icon, an abstract glowing letter A inside a sleek dark circle, premium aesthetic"
+    aspect_ratio: "1:1"
+
+notes:
+  - "App relies on SSE streaming for AI functionality which bypasses standard React Query mutation hooks."
+  - "API calls should use the generated hooks where possible, except for SSE streams which need native fetch."

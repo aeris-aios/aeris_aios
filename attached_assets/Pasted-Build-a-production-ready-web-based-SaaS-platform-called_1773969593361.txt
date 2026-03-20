@@ -1,0 +1,502 @@
+Build a production-ready web-based SaaS platform called “ATREYU”.
+
+ATREYU stands for:
+Autonomous Tactical Resource & Execution for Your Universe
+
+CORE PRODUCT VISION
+
+ATREYU is a premium AI-powered marketing operating system for businesses, agencies, and operators.
+
+This must be a web-based SaaS platform with a clean, sophisticated, highly professional, expensive-looking UI inspired by the attached screenshot.
+
+The platform should help users do real marketing work from one elegant workspace, including:
+- marketing research
+- competitor research
+- offer research
+- audience research
+- content ideation
+- copywriting
+- ad creation
+- email sequences
+- landing page copy
+- SEO research
+- social media content
+- workflow automation
+- scraping and enrichment using Apify
+- AI-assisted execution across marketing operations
+
+This is NOT just a chatbot.
+This is a web-based AI marketing OS with a premium user experience.
+
+PRODUCT POSITIONING
+
+ATREYU should feel like:
+- a premium AI workspace
+- a modern marketing command center
+- a calm, intuitive, high-end SaaS product
+- a system an agency or business owner would pay serious money for
+
+The app should combine:
+- AI assistant
+- research tools
+- campaign workspace
+- content studio
+- scraping/enrichment workflows
+- knowledge base
+- automation engine
+- white-label readiness for future expansion
+
+IMPORTANT ARCHITECTURE NOTE
+
+Claude Code should be used for development and maintenance of this product, not as the live frontend experience itself.
+
+The live SaaS runtime should use:
+- Anthropic API for AI responses and workflows
+- Apify integrations for scraping/data collection
+- provider abstractions for future expansion
+
+TECH STACK
+
+Use:
+- Next.js latest with App Router
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+- Supabase for auth, Postgres, storage, and row-level security
+- Anthropic API for runtime AI features
+- Stripe for subscriptions
+- Apify API integration for scraping and data collection
+- clean service-layer architecture
+- Vercel-compatible deployment
+- strong typing throughout
+- sensible environment variable handling
+- modular codebase designed for future growth
+
+AI MODEL ARCHITECTURE
+
+Use Anthropic as the default provider.
+
+Configuration:
+- PRIMARY_MODEL_ALIAS=sonnet
+- HIGH_REASONING_MODEL_ALIAS=opus
+- FALLBACK_MODEL_ALIAS=haiku
+
+Requirements:
+- do not hardcode dated model names
+- use alias-based runtime model selection
+- use sonnet for standard everyday workflows
+- use opus for higher-complexity reasoning tasks
+- include safe fallback logic
+- log model used, latency, errors, and usage
+- create admin AI settings for model routing, usage, and limits
+
+MODEL ROUTING REQUIREMENTS
+
+Implement intelligent routing:
+- Sonnet for normal chat, writing, summarizing, research formatting, ad variants, content drafting
+- Opus for deeper research synthesis, strategic recommendations, campaign architecture, advanced reasoning, multi-step analysis
+- Haiku or fallback for lightweight operations if needed
+
+Allow:
+- automatic routing
+- manual “Deep Think” mode
+- plan-based access controls for advanced reasoning
+
+PRIMARY USER JOBS TO BE DONE
+
+ATREYU must help users:
+- research competitors
+- identify market angles
+- collect business intelligence
+- scrape websites and data sources via Apify
+- summarize research
+- generate ad copy
+- generate email copy
+- generate landing page copy
+- generate outreach messaging
+- generate social content
+- turn research into campaigns
+- save findings into organized workspaces
+- automate repetitive marketing tasks
+
+WEB-BASED SaaS MODULES
+
+Create these main sections:
+
+1. Dashboard
+- beautiful overview page
+- recent activity
+- quick actions
+- saved projects
+- active automations
+- usage snapshots
+
+2. Assistant
+- central AI workspace
+- typed chat interface
+- persistent conversation threads
+- rich response rendering
+- ability to attach context, URLs, notes, scraped results, and uploaded files
+- suggested actions after responses
+- save outputs into campaigns, documents, or research folders
+
+3. Research Lab
+- competitor research workspace
+- market research workspace
+- audience research workspace
+- offer research workspace
+- Apify-powered scrape jobs
+- saved research outputs
+- AI summaries and insights
+- source tracking where appropriate
+
+4. Content Studio
+- ad copy generator
+- email sequence builder
+- landing page copy generator
+- social content generator
+- hooks, headlines, offers, CTAs
+- content variants
+- tone/style controls
+- save, edit, duplicate, export
+
+5. Campaign Workspace
+- campaigns list
+- campaign briefs
+- linked research
+- linked copy assets
+- linked audiences/offers
+- performance notes
+- execution checklist
+
+6. Knowledge
+- uploaded files
+- saved notes
+- saved URLs
+- scraped research archives
+- tagged collections
+- searchable knowledge library
+- “include in AI context” controls
+
+7. Automations
+- trigger/action workflow system
+- scrape on schedule
+- summarize new research
+- generate daily competitor digest
+- draft content from fresh inputs
+- notify user in app
+- run history and logs
+
+8. Settings
+- profile
+- workspace settings
+- AI settings
+- billing
+- integrations
+- API keys via secure backend configuration
+- team and permissions
+- branding readiness for future white-label
+
+RESEARCH + SCRAPING REQUIREMENTS
+
+Integrate Apify as a first-class feature.
+
+ATREYU must support:
+- launching scraping tasks through Apify
+- saving scrape job outputs
+- parsing and structuring results
+- summarizing findings with AI
+- turning scraped data into actionable marketing insights
+- associating scraped results with a project, campaign, or workspace
+
+Create a modular scraping architecture so ATREYU can support:
+- website research
+- competitor pages
+- review analysis
+- search result analysis
+- social/content source collection
+- other future Apify actors
+
+Add a clean “Research Job” flow:
+- choose source type
+- paste URL(s) or targets
+- choose scrape template
+- launch job
+- monitor status
+- review results
+- summarize with AI
+- save to workspace
+
+UPLOAD + CONTEXT SUPPORT
+
+Allow users to upload and organize:
+- PDF
+- DOCX
+- TXT
+- CSV
+- pasted notes
+- URLs
+- images if feasible
+
+For uploads:
+- store file metadata
+- store parsed text when possible
+- allow summarization
+- tagging
+- foldering/collections
+- linking to campaigns/research/projects
+- future vector search readiness
+
+CONTENT GENERATION FEATURES
+
+ATREYU should generate:
+- Meta ads
+- Google ads copy
+- headlines
+- hooks
+- offers
+- call to actions
+- email sequences
+- nurture emails
+- cold outreach drafts
+- landing page copy
+- social captions
+- LinkedIn content
+- blog/article outlines
+- SEO-driven content drafts
+
+Include:
+- tone selection
+- audience selection
+- platform selection
+- variation generation
+- rewrite tools
+- shorten/expand tools
+- stronger CTA tools
+- angle generation
+- competitor-inspired differentiation suggestions
+
+AUTOMATION FEATURES
+
+Build starter automations for:
+- scrape competitor websites on schedule
+- summarize fresh research
+- turn research into campaign briefs
+- generate ad variations from offer + audience inputs
+- generate social post variations
+- generate landing page copy drafts
+- create daily/weekly research digests
+
+Each automation should have:
+- trigger
+- conditions
+- actions
+- logs
+- run history
+- enable/disable state
+
+AUTH + SaaS FOUNDATION
+
+Use Supabase Auth.
+
+Support:
+- email/password
+- magic link if easy to add
+- users
+- teams/workspaces
+- subscriptions
+- usage metering
+- feature gating by plan
+
+Create plans such as:
+- Starter
+- Growth
+- Pro
+
+Gate by:
+- research jobs
+- AI usage
+- saved projects
+- automations
+- advanced reasoning access
+- team seats
+
+UI DESIGN DIRECTION
+
+This is extremely important.
+
+Design the UI to feel:
+- very clean
+- very refined
+- sophisticated
+- highly professional
+- expensive
+- minimal
+- modern
+- intuitive
+
+The visual style must be strongly inspired by the attached screenshot:
+- floating panels
+- soft glassmorphism
+- translucent surfaces
+- backdrop blur
+- layered desktop-like workspace feel
+- elegant shadows
+- large rounded corners
+- spacious composition
+- calm futuristic environment
+- no clutter
+- no cheap gradients
+- no loud gimmicky neon effects
+
+The UI should feel like:
+- premium Mac-inspired product design
+- cinematic but restrained
+- high-end SaaS
+- polished enough to feel enterprise-grade and luxury-grade at the same time
+
+LAYOUT DIRECTION
+
+Use:
+- elegant left sidebar
+- centered primary workspace
+- floating top utility / command bar
+- modular glass cards
+- clean panel hierarchy
+- premium form controls
+- polished tables/lists
+- beautiful loading states
+- thoughtful empty states
+
+The dashboard should feel like a calm command center, not a noisy admin panel.
+
+BRANDING + TONE
+
+The product should feel intelligent and premium.
+
+Use the name ATREYU prominently in:
+- navbar
+- onboarding
+- assistant area
+- empty states
+- product copy
+
+Tone:
+- sharp
+- modern
+- confident
+- tactically useful
+- sophisticated
+- not robotic
+- not cheesy
+
+DATABASE / CORE ENTITIES
+
+Create clean production-minded schema for:
+- users
+- workspaces
+- memberships
+- subscriptions
+- usage_events
+- projects
+- campaigns
+- research_jobs
+- research_results
+- content_assets
+- knowledge_items
+- uploaded_files
+- automations
+- automation_runs
+- chat_threads
+- chat_messages
+- integration_settings
+- audit_logs
+
+Include:
+- created_at
+- updated_at
+- indexing where needed
+- soft delete where useful
+
+DEVELOPER EXPERIENCE
+
+Structure the project cleanly for long-term maintainability:
+- reusable UI components
+- service layer for AI
+- service layer for Apify
+- service layer for uploads/parsing
+- service layer for automations
+- typed interfaces
+- clear file organization
+- .env.example
+- README
+- sample seed data
+- comments only where useful
+
+ENVIRONMENT VARIABLES
+
+Prepare secure backend configuration for values such as:
+- ANTHROPIC_API_KEY
+- APIFY_API_KEY
+- SUPABASE_URL
+- SUPABASE_ANON_KEY
+- SUPABASE_SERVICE_ROLE_KEY
+- STRIPE_SECRET_KEY
+- NEXT_PUBLIC_APP_URL
+
+Do not expose private secrets client-side.
+
+LANDING PAGE + ONBOARDING
+
+Also create:
+- a premium landing page for ATREYU
+- clear SaaS messaging
+- signup flow
+- onboarding wizard
+
+Onboarding should ask:
+- business/workspace name
+- industry
+- primary use case
+- brand colors or theme preference
+- whether they want research, ads, content, or full workflow support
+- connect integrations later
+- create first project
+
+OUTPUT REQUIREMENTS
+
+At minimum deliver:
+- working auth
+- workspace creation
+- premium dashboard shell
+- assistant page
+- Research Lab page
+- Content Studio page
+- Apify integration scaffold
+- research job UI
+- knowledge library CRUD
+- campaigns/projects structure
+- automations scaffold
+- settings pages
+- billing scaffold
+- clean README
+- seed/demo data
+
+IMPORTANT PRODUCT RULES
+
+- this must be a web-based SaaS, not a local desktop tool
+- do not build a generic chatbot wrapper
+- do not build a cluttered dashboard
+- prioritize maintainability and premium UX
+- optimize for real marketing execution
+- preserve room for future white-label expansion
+- make the product feel like a serious premium software company built it
+
+AFTER BUILD, EXPLAIN:
+1. project structure
+2. AI routing strategy
+3. how Apify is integrated
+4. how research jobs work
+5. how content generation is organized
+6. how billing/usage gating works
+7. what to build next for production hardening
