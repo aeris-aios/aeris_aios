@@ -54,3 +54,19 @@ export type BrandAsset = typeof brandAssetsTable.$inferSelect;
 export const insertStyleExampleSchema = createInsertSchema(styleExamplesTable).omit({ id: true, createdAt: true, deletedAt: true });
 export type InsertStyleExample = z.infer<typeof insertStyleExampleSchema>;
 export type StyleExample = typeof styleExamplesTable.$inferSelect;
+
+export const brandPhotosTable = pgTable("brand_photos", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  objectPath: text("object_path").notNull(),
+  mimeType: text("mime_type"),
+  fileSize: integer("file_size"),
+  setting: text("setting"),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"),
+});
+
+export const insertBrandPhotoSchema = createInsertSchema(brandPhotosTable).omit({ id: true, createdAt: true, deletedAt: true });
+export type InsertBrandPhoto = z.infer<typeof insertBrandPhotoSchema>;
+export type BrandPhoto = typeof brandPhotosTable.$inferSelect;

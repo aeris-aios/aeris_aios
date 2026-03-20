@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { Palette, Upload, FileText, Image, Trash2, Sparkles, CheckCircle2, Loader2, Building2, Tag, Users, Star, Swords, Brush, Globe, Factory, X } from "lucide-react";
+import {
+  Palette, Upload, FileText, Image, Trash2, Sparkles, CheckCircle2, Loader2,
+  Building2, Tag, Users, Star, Swords, Brush, Globe, Factory, X, Camera,
+  MapPin, Pencil, Check,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +28,14 @@ interface BrandProfile {
 
 interface BrandAsset { id: number; name: string; type: string; objectPath: string; mimeType: string; }
 interface StyleExample { id: number; name: string; fileType: string; objectPath: string; mimeType: string; analysisResult: string | null; }
+interface BrandPhoto {
+  id: number;
+  name: string;
+  objectPath: string;
+  mimeType: string | null;
+  setting: string | null;
+  description: string | null;
+}
 
 /* ─────────────── Color swatch ─────────────── */
 function ColorSwatch({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
@@ -92,8 +104,13 @@ const TABS = [
   { id: "identity", label: "Brand Identity", icon: Building2 },
   { id: "assets",   label: "Brand Assets",   icon: Palette },
   { id: "examples", label: "Style Examples", icon: Image },
+  { id: "photos",   label: "Photo Library",  icon: Camera },
 ] as const;
 type Tab = typeof TABS[number]["id"];
+
+const PHOTO_SETTINGS = [
+  "Office", "Outdoor", "Portrait", "Casual", "Event", "Travel", "Studio", "Home",
+] as const;
 
 /* ═══════════════════════════════════════════════════ */
 export default function BrandKit() {
@@ -119,22 +136,22 @@ export default function BrandKit() {
   const [uploadingExample, setUploadingExample] = useState(false);
   const [analyzingId, setAnalyzingId] = useState<number | null>(null);
 
+  /* ── Photos state ── */
+  const [photos, setPhotos] = useState<BrandPhoto[]>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [editingPhotoId, setEditingPhotoId] = useState<number | null>(null);
+  const [editValues, setEditValues] = useState<{ setting: string; description: string }>({ setting: "", description: "" });
+
   /* ── Load data ── */
   useEffect(() => {
     fetch("/api/brand/profile").then(r => r.json()).then(p => {
       if (p) {
         setProfile({
-          name: p.name ?? "",
-          tagline: p.tagline ?? "",
-          description: p.description ?? "",
-          voiceDescription: p.voiceDescription ?? "",
-          primaryAudience: p.primaryAudience ?? "",
-          usps: p.usps ?? "",
-          competitors: p.competitors ?? "",
-          styleNotes: p.styleNotes ?? "",
+          name: p.name ?? "", tagline: p.tagline ?? "", description: p.description ?? "",
+          voiceDescription: p.voiceDescription ?? "", primaryAudience: p.primaryAudience ?? "",
+          usps: p.usps ?? "", competitors: p.competitors ?? "", styleNotes: p.styleNotes ?? "",
           colorPalette: p.colorPalette ?? { primary: "#6366f1", secondary: "#8b5cf6", accent: "#06b6d4" },
-          websiteUrl: p.websiteUrl ?? "",
-          industry: p.industry ?? "",
+          websiteUrl: p.websiteUrl ?? "", industry: p.industry ?? "",
         });
       }
       setProfileLoaded(true);
@@ -142,6 +159,7 @@ export default function BrandKit() {
 
     fetch("/api/brand/assets").then(r => r.json()).then(setAssets).catch(() => {});
     fetch("/api/brand/examples").then(r => r.json()).then(setExamples).catch(() => {});
+    fetch("/api/brand/photos").then(r => r.json()).then(setPhotos).catch(() => {});
   }, []);
 
   /* ── Save profile ── */
@@ -252,6 +270,50 @@ export default function BrandKit() {
     setExamples(prev => prev.filter(e => e.id !== id));
   };
 
+  /* ── Photo Library ── */
+  const handlePhotoUpload = async (files: File[]) => {
+    setUploadingPhoto(true);
+    try {
+      for (const file of files) {
+        const objectPath = await uploadFile(file);
+        const res = await fetch("/api/brand/photos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: file.name, objectPath, mimeType: file.type, fileSize: file.size }),
+        });
+        const photo = await res.json();
+        setPhotos(prev => [...prev, photo]);
+      }
+      toast({ title: `${files.length} photo${files.length > 1 ? "s" : ""} uploaded`, description: "Tag each photo with a setting for best results." });
+    } catch {
+      toast({ title: "Upload failed", variant: "destructive" });
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const savePhotoEdit = async (id: number) => {
+    try {
+      const res = await fetch(`/api/brand/photos/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editValues),
+      });
+      const updated = await res.json();
+      setPhotos(prev => prev.map(p => p.id === id ? updated : p));
+      setEditingPhotoId(null);
+      toast({ title: "Photo updated" });
+    } catch {
+      toast({ title: "Failed to update photo", variant: "destructive" });
+    }
+  };
+
+  const deletePhoto = async (id: number) => {
+    await fetch(`/api/brand/photos/${id}`, { method: "DELETE" });
+    setPhotos(prev => prev.filter(p => p.id !== id));
+    toast({ title: "Photo removed" });
+  };
+
   const logos = assets.filter(a => a.type === "logo");
   const fonts = assets.filter(a => a.type === "font");
 
@@ -295,6 +357,9 @@ export default function BrandKit() {
             >
               <Icon className="h-4 w-4" />
               {tab.label}
+              {tab.id === "photos" && photos.length > 0 && (
+                <span className="ml-1 text-xs bg-primary/15 text-primary px-1.5 py-0.5 rounded-full">{photos.length}</span>
+              )}
             </button>
           );
         })}
@@ -303,7 +368,6 @@ export default function BrandKit() {
       {/* ── IDENTITY TAB ── */}
       {activeTab === "identity" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Core Identity */}
           <Card className="rounded-2xl border border-border bg-card">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -335,7 +399,6 @@ export default function BrandKit() {
             </CardContent>
           </Card>
 
-          {/* Voice & Audience */}
           <Card className="rounded-2xl border border-border bg-card">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -355,7 +418,7 @@ export default function BrandKit() {
               </Field>
               <Field label="Unique Selling Points / Differentiators" icon={<Star className="h-3.5 w-3.5" />}>
                 <Textarea value={profile.usps} onChange={e => setProfile(p => ({ ...p, usps: e.target.value }))}
-                  placeholder="List your key USPs, one per line. These become the backbone of every piece of content."
+                  placeholder="List your key USPs, one per line."
                   className="bg-muted/60 border-border min-h-[80px]" />
               </Field>
               <Field label="Key Competitors" icon={<Swords className="h-3.5 w-3.5" />}>
@@ -364,13 +427,12 @@ export default function BrandKit() {
               </Field>
               <Field label="Style & Aesthetic Notes">
                 <Textarea value={profile.styleNotes} onChange={e => setProfile(p => ({ ...p, styleNotes: e.target.value }))}
-                  placeholder="Any specific style rules: sentence length, formatting preferences, words to avoid, required disclaimers..."
+                  placeholder="Any specific style rules: sentence length, formatting preferences, words to avoid..."
                   className="bg-muted/60 border-border min-h-[80px]" />
               </Field>
             </CardContent>
           </Card>
 
-          {/* Color Palette */}
           <Card className="rounded-2xl border border-border bg-card lg:col-span-2">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -394,7 +456,6 @@ export default function BrandKit() {
       {/* ── ASSETS TAB ── */}
       {activeTab === "assets" && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Logos */}
           <Card className="rounded-2xl border border-border bg-card">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -415,19 +476,14 @@ export default function BrandKit() {
               <div className="grid grid-cols-2 gap-3">
                 {logos.map(asset => (
                   <div key={asset.id} className="relative group rounded-xl border border-border bg-muted/30 overflow-hidden">
-                    <img
-                      src={`/api/storage${asset.objectPath}`}
-                      alt={asset.name}
+                    <img src={`/api/storage${asset.objectPath}`} alt={asset.name}
                       className="w-full h-24 object-contain p-3"
-                      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                    />
+                      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
                     <div className="p-2 border-t border-border bg-muted/50">
                       <p className="text-xs font-medium truncate">{asset.name}</p>
                     </div>
-                    <button
-                      onClick={() => deleteAsset(asset.id)}
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-destructive text-destructive-foreground rounded-md p-1"
-                    >
+                    <button onClick={() => deleteAsset(asset.id)}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-destructive text-destructive-foreground rounded-md p-1">
                       <X className="h-3 w-3" />
                     </button>
                   </div>
@@ -436,7 +492,6 @@ export default function BrandKit() {
             </CardContent>
           </Card>
 
-          {/* Fonts */}
           <Card className="rounded-2xl border border-border bg-card">
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -488,7 +543,7 @@ export default function BrandKit() {
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Upload images of your best-performing ads, social posts, or emails — plus any text documents of copy you love.
-                ATREYU will analyze each one with Claude Vision to extract your aesthetic DNA, then replicate that style in everything it generates.
+                ATREYU will analyze each one with Claude Vision to extract your aesthetic DNA.
               </p>
               <DropZone
                 accept="image/*,.pdf,.txt,.md,.doc,.docx"
@@ -507,22 +562,18 @@ export default function BrandKit() {
                   <CardContent className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2 flex-1 min-w-0">
-                        {ex.fileType === "image"
-                          ? <Image className="h-4 w-4 text-primary shrink-0" />
-                          : <FileText className="h-4 w-4 text-primary shrink-0" />}
+                        {ex.fileType === "image" ? <Image className="h-4 w-4 text-primary shrink-0" /> : <FileText className="h-4 w-4 text-primary shrink-0" />}
                         <span className="text-sm font-medium truncate">{ex.name}</span>
                       </div>
                       <button onClick={() => deleteExample(ex.id)} className="text-muted-foreground hover:text-destructive transition-colors shrink-0">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
-
                     {ex.fileType === "image" && (
                       <div className="rounded-lg overflow-hidden border border-border bg-muted/30 h-32">
                         <img src={`/api/storage${ex.objectPath}`} alt={ex.name} className="w-full h-full object-cover" />
                       </div>
                     )}
-
                     {ex.analysisResult ? (
                       <div className="space-y-2">
                         <div className="flex items-center gap-1.5 text-xs font-medium text-green-600 dark:text-green-400">
@@ -533,14 +584,10 @@ export default function BrandKit() {
                         </div>
                       </div>
                     ) : (
-                      <Button
-                        onClick={() => analyzeExample(ex.id)}
-                        disabled={analyzingId === ex.id}
-                        size="sm"
-                        className="w-full bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20"
-                      >
+                      <Button onClick={() => analyzeExample(ex.id)} disabled={analyzingId === ex.id} size="sm"
+                        className="w-full bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20">
                         {analyzingId === ex.id
-                          ? <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Analyzing style DNA…</>
+                          ? <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> Analyzing…</>
                           : <><Sparkles className="h-3.5 w-3.5 mr-2" /> Extract Style DNA</>}
                       </Button>
                     )}
@@ -554,6 +601,119 @@ export default function BrandKit() {
             <div className="text-center py-16 text-muted-foreground opacity-50">
               <Image className="h-12 w-12 mx-auto mb-3" />
               <p className="text-sm">Upload your first style example to get started</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── PHOTO LIBRARY TAB ── */}
+      {activeTab === "photos" && (
+        <div className="space-y-6">
+          <Card className="rounded-2xl border border-border bg-card">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Camera className="h-4 w-4 text-primary" /> Upload Personal Photos
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Upload your personal photos for LinkedIn posts. Tag each with a setting (office, outdoor, portrait, etc.) so ATREYU can match the right photo to each post's vibe.
+              </p>
+              <DropZone
+                accept="image/jpeg,image/jpg,image/png,image/webp"
+                label="Upload photos (JPG, PNG, WebP)"
+                onFiles={handlePhotoUpload}
+                disabled={uploadingPhoto}
+              />
+              {uploadingPhoto && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Uploading photos…</div>}
+            </CardContent>
+          </Card>
+
+          {photos.length === 0 && !uploadingPhoto && (
+            <div className="text-center py-16 text-muted-foreground opacity-50">
+              <Camera className="h-12 w-12 mx-auto mb-3" />
+              <p className="text-sm">No photos uploaded yet</p>
+              <p className="text-xs mt-1">Upload photos to use in LinkedIn posts</p>
+            </div>
+          )}
+
+          {photos.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {photos.map(photo => (
+                <div key={photo.id} className="group rounded-2xl border border-border bg-card overflow-hidden">
+                  <div className="relative aspect-[3/4] bg-muted/30">
+                    <img
+                      src={`/api/storage${photo.objectPath}`}
+                      alt={photo.name}
+                      className="w-full h-full object-cover"
+                      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                    <button
+                      onClick={() => deletePhoto(photo.id)}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-destructive text-destructive-foreground rounded-lg p-1.5"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                    {photo.setting && (
+                      <div className="absolute bottom-2 left-2">
+                        <span className="flex items-center gap-1 text-xs bg-black/60 text-white px-2 py-1 rounded-full backdrop-blur-sm">
+                          <MapPin className="h-2.5 w-2.5" /> {photo.setting}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3 space-y-2">
+                    {editingPhotoId === photo.id ? (
+                      <>
+                        <div className="flex flex-wrap gap-1">
+                          {PHOTO_SETTINGS.map(s => (
+                            <button
+                              key={s}
+                              onClick={() => setEditValues(v => ({ ...v, setting: s }))}
+                              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                                editValues.setting === s
+                                  ? "bg-primary text-primary-foreground border-primary"
+                                  : "border-border text-muted-foreground hover:border-primary/50"
+                              }`}
+                            >{s}</button>
+                          ))}
+                        </div>
+                        <Input
+                          value={editValues.description}
+                          onChange={e => setEditValues(v => ({ ...v, description: e.target.value }))}
+                          placeholder="Short description (optional)"
+                          className="h-8 text-xs bg-muted/60 border-border"
+                        />
+                        <div className="flex gap-1.5">
+                          <Button size="sm" onClick={() => savePhotoEdit(photo.id)} className="flex-1 h-7 text-xs">
+                            <Check className="h-3 w-3 mr-1" /> Save
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setEditingPhotoId(null)} className="flex-1 h-7 text-xs">
+                            Cancel
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs font-medium truncate text-muted-foreground">{photo.name}</p>
+                        {photo.description && <p className="text-xs text-muted-foreground/70 truncate">{photo.description}</p>}
+                        <button
+                          onClick={() => {
+                            setEditingPhotoId(photo.id);
+                            setEditValues({ setting: photo.setting ?? "", description: photo.description ?? "" });
+                          }}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <Pencil className="h-2.5 w-2.5" />
+                          {photo.setting ? "Edit tags" : "Add setting tag"}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

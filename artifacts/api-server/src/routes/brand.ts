@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { brandProfilesTable, brandAssetsTable, styleExamplesTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { brandProfilesTable, brandAssetsTable, styleExamplesTable, brandPhotosTable } from "@workspace/db";
+import { eq, isNull } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { ObjectStorageService } from "../lib/objectStorage";
 
@@ -150,6 +150,44 @@ router.post("/brand/examples/:id/analyze", async (req, res) => {
 router.delete("/brand/examples/:id", async (req, res) => {
   const id = parseInt(req.params.id);
   await db.update(styleExamplesTable).set({ deletedAt: new Date() }).where(eq(styleExamplesTable.id, id));
+  res.status(204).end();
+});
+
+/* ── Photo Library ── */
+
+router.get("/brand/photos", async (_req, res) => {
+  const photos = await db.select().from(brandPhotosTable)
+    .where(isNull(brandPhotosTable.deletedAt))
+    .orderBy(brandPhotosTable.createdAt);
+  res.json(photos);
+});
+
+router.post("/brand/photos", async (req, res) => {
+  const { name, objectPath, mimeType, fileSize, setting, description } = req.body;
+  if (!name || !objectPath) {
+    res.status(400).json({ error: "name and objectPath are required" });
+    return;
+  }
+  const [photo] = await db.insert(brandPhotosTable)
+    .values({ name, objectPath, mimeType, fileSize, setting, description })
+    .returning();
+  res.status(201).json(photo);
+});
+
+router.patch("/brand/photos/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { setting, description } = req.body;
+  const [updated] = await db.update(brandPhotosTable)
+    .set({ setting, description })
+    .where(eq(brandPhotosTable.id, id))
+    .returning();
+  if (!updated) { res.status(404).json({ error: "Photo not found" }); return; }
+  res.json(updated);
+});
+
+router.delete("/brand/photos/:id", async (req, res) => {
+  const id = parseInt(req.params.id);
+  await db.update(brandPhotosTable).set({ deletedAt: new Date() }).where(eq(brandPhotosTable.id, id));
   res.status(204).end();
 });
 
