@@ -28,6 +28,11 @@ const OUTER_R  = 40;   /* concave join radius */
 const INNER_R  = 22;   /* dock bottom corner radius */
 const ICON_SZ  = 42;
 
+/* ── Bottom command bar geometry (mirror of top, pocket goes UP) */
+const BOT_BAR_H    = 16;   /* thin full-width strip at very bottom */
+const BOT_POCKET_H = 60;   /* pocket going upward — holds the search input */
+const BOT_TOTAL_H  = BOT_BAR_H + BOT_POCKET_H;   /* 76 */
+
 /* ── Full-width sculpted path (solid wings) ────────────────── */
 function buildPath(dockHalf: number) {
   const cx = 500;
@@ -64,6 +69,41 @@ function pocketPath(dockHalf: number) {
     `Q ${cx + dockHalf} ${TOTAL_H} ${cx + dockHalf} ${TOTAL_H - ir}`,
     `L ${cx + dockHalf} ${BAR_H + or}`,
     `Q ${cx + dockHalf} ${BAR_H} ${cx + dockHalf + or} ${BAR_H}`,
+    `Z`,
+  ].join(" ");
+}
+
+/* ── Bottom pocket path — pocket goes UPWARD (inverted top) ───
+   Full-width thin bar at the bottom + center pocket going up.
+   Wings between pocket and edges remain transparent.
+─────────────────────────────────────────────────────────────── */
+function bottomPocketPath(dockHalf: number) {
+  const cx = 500;
+  const or = OUTER_R;
+  const ir = INNER_R;
+  const barY = BOT_POCKET_H;      /* y where pocket meets the bottom bar */
+  const totalY = BOT_TOTAL_H;
+  return [
+    `M 0 ${totalY}`,                          /* bottom-left */
+    `L 1000 ${totalY}`,                        /* bottom-right */
+    `L 1000 ${barY}`,                          /* up right edge */
+    /* right concave join into pocket */
+    `L ${cx + dockHalf + or} ${barY}`,
+    `Q ${cx + dockHalf} ${barY} ${cx + dockHalf} ${barY - or}`,
+    /* up right wall */
+    `L ${cx + dockHalf} ${ir}`,
+    /* top-right corner of pocket */
+    `Q ${cx + dockHalf} 0 ${cx + dockHalf - ir} 0`,
+    /* top of pocket */
+    `L ${cx - dockHalf + ir} 0`,
+    /* top-left corner of pocket */
+    `Q ${cx - dockHalf} 0 ${cx - dockHalf} ${ir}`,
+    /* down left wall */
+    `L ${cx - dockHalf} ${barY - or}`,
+    /* left concave join */
+    `Q ${cx - dockHalf} ${barY} ${cx - dockHalf - or} ${barY}`,
+    /* left of bar */
+    `L 0 ${barY}`,
     `Z`,
   ].join(" ");
 }
@@ -116,9 +156,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const insetMd   = `inset 6px 6px 16px ${fsdark}, inset -6px -6px 16px ${fslite}`;
 
   /* SVG paths — dockHalf in SVG's 0-1000 coordinate space */
-  const dockHalf  = frameW > 0 ? (DOCK_W / 2 / frameW) * 1000 : 204;
-  /* Full-width top bar + hanging pocket: bar is solid, flanking area below bar is transparent */
-  const svgPocket = buildPath(dockHalf);
+  const dockHalf     = frameW > 0 ? (DOCK_W / 2 / frameW) * 1000 : 204;
+  const svgPocket    = buildPath(dockHalf);
+  const svgBotPocket = bottomPocketPath(dockHalf);
 
   function onCmd(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && cmd.trim()) { navigate("/assistant"); setCmd(""); }
@@ -165,12 +205,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           overflowY: "auto",
           overflowX: "hidden",
           paddingTop: TOTAL_H,
+          paddingBottom: BOT_TOTAL_H,
           scrollbarWidth: "none",
           position: "relative",
           zIndex: 1,
         }}>
           <style>{`::-webkit-scrollbar{display:none}`}</style>
-          <div style={{ padding: "24px 32px 32px" }}>
+          <div style={{ padding: `24px 32px ${BOT_TOTAL_H + 16}px` }}>
             {children}
           </div>
         </div>
@@ -331,42 +372,62 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>{/* end header overlay */}
 
         {/* ══════════════════════════════════════════════════════
-            BOTTOM COMMAND BAR — flex-shrink:0, always anchored
+            BOTTOM COMMAND BAR — absolute overlay, inverted notch.
+            Wings are transparent, pocket goes upward.
         ══════════════════════════════════════════════════════ */}
         <div style={{
-          flexShrink: 0,
-          display: "flex", justifyContent: "center", alignItems: "center",
-          padding: "10px 24px 16px",
-          background: frameBg,
-          borderTop: isLight
-            ? "1px solid rgba(176,183,202,0.3)"
-            : "1px solid rgba(255,255,255,0.05)",
-          zIndex: 10,
-          position: "relative",
+          position: "absolute", bottom: 0, left: 0, right: 0,
+          height: BOT_TOTAL_H, zIndex: 20,
+          pointerEvents: "none",
         }}>
+          {/* Inverted pocket SVG — shadow goes upward */}
+          <svg
+            style={{
+              position: "absolute", top: 0, left: 0,
+              width: "100%", height: BOT_TOTAL_H,
+              overflow: "visible",
+              filter: isLight
+                ? `drop-shadow(0 -10px 28px ${fsdark}cc) drop-shadow(0 -4px 10px ${fsdark}88)`
+                : `drop-shadow(0 -10px 28px ${fsdark}) drop-shadow(0 -4px 10px rgba(0,0,0,0.9))`,
+            }}
+            viewBox={`0 0 1000 ${BOT_TOTAL_H}`}
+            preserveAspectRatio="none"
+          >
+            <path d={svgBotPocket} fill={frameBg} />
+          </svg>
+
+          {/* Search input centered inside the upward pocket */}
           <div style={{
-            display: "flex", alignItems: "center", gap: 8,
-            height: 42, padding: "0 18px", borderRadius: 21,
-            background: frameBg, boxShadow: insetMd,
-            width: "100%", maxWidth: 540,
+            position: "absolute",
+            top: 0, left: "50%", transform: "translateX(-50%)",
+            width: DOCK_W + 60, height: BOT_POCKET_H,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            pointerEvents: "auto", zIndex: 2,
           }}>
-            <Search style={{ width: 13, height: 13, opacity: 0.3, flexShrink: 0, color: "var(--foreground,#1e2030)" }} />
-            <input
-              value={cmd}
-              onChange={e => setCmd(e.target.value)}
-              onKeyDown={onCmd}
-              placeholder="Ask ATREYU anything…"
-              style={{
-                flex: 1, background: "transparent", border: "none", outline: "none",
-                fontSize: 13, fontFamily: "inherit",
-                color: "var(--foreground,#1e2030)", opacity: 0.75,
-              }}
-            />
-            <kbd style={{
-              fontFamily: "var(--app-font-mono)", fontSize: 9, letterSpacing: "0.10em",
-              opacity: 0.22, background: "rgba(128,128,128,0.08)",
-              border: "1px solid rgba(128,128,128,0.12)", borderRadius: 5, padding: "2px 6px",
-            }}>⌘K</kbd>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              height: 38, padding: "0 16px", borderRadius: 19,
+              background: frameBg, boxShadow: insetMd,
+              width: "100%",
+            }}>
+              <Search style={{ width: 13, height: 13, opacity: 0.3, flexShrink: 0, color: "var(--foreground,#1e2030)" }} />
+              <input
+                value={cmd}
+                onChange={e => setCmd(e.target.value)}
+                onKeyDown={onCmd}
+                placeholder="Ask ATREYU anything…"
+                style={{
+                  flex: 1, background: "transparent", border: "none", outline: "none",
+                  fontSize: 13, fontFamily: "inherit",
+                  color: "var(--foreground,#1e2030)", opacity: 0.75,
+                }}
+              />
+              <kbd style={{
+                fontFamily: "var(--app-font-mono)", fontSize: 9, letterSpacing: "0.10em",
+                opacity: 0.22, background: "rgba(128,128,128,0.08)",
+                border: "1px solid rgba(128,128,128,0.12)", borderRadius: 5, padding: "2px 6px",
+              }}>⌘K</kbd>
+            </div>
           </div>
         </div>
 
