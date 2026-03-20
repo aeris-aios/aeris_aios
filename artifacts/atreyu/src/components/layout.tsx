@@ -20,7 +20,7 @@ const navItems = [
 /* ─────────────────────────────────────────────────────────────
    GEOMETRY
 ───────────────────────────────────────────────────────────── */
-const BAR_H    = 42;
+const BAR_H    = 72;
 const POCKET_H = 68;
 const TOTAL_H  = BAR_H + POCKET_H;
 const DOCK_W   = 490;
@@ -208,6 +208,37 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             />
           </svg>
 
+
+          {/* Center logo — full-width bar, inset recessed pill */}
+          <div style={{
+            position: "absolute", top: 0, left: 0, right: 0,
+            height: BAR_H,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            pointerEvents: "none",
+          }}>
+            <div style={{
+              padding: "6px 28px",
+              borderRadius: 14,
+              background: frameBg,
+              boxShadow: isLight
+                ? "inset 4px 4px 10px rgba(140,150,175,0.55), inset -3px -3px 8px rgba(255,255,255,0.85)"
+                : "inset 4px 4px 10px rgba(0,0,0,0.55), inset -3px -3px 8px rgba(255,255,255,0.05)",
+              display: "flex", alignItems: "center",
+            }}>
+              <img
+                src="/atreyu-logo.png"
+                alt="ATREYU"
+                style={{
+                  height: 28,
+                  width: "auto",
+                  opacity: isLight ? 0.72 : 0.55,
+                  filter: isLight ? "none" : "brightness(2.5) saturate(0.4)",
+                  userSelect: "none",
+                  display: "block",
+                }}
+              />
+            </div>
+          </div>
 
           {/* Right wing — transparent, controls only */}
           <div style={{
