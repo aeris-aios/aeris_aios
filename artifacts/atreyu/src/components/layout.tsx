@@ -117,7 +117,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   /* SVG paths — dockHalf in SVG's 0-1000 coordinate space */
   const dockHalf  = frameW > 0 ? (DOCK_W / 2 / frameW) * 1000 : 204;
-  const svgPocket = pocketPath(dockHalf);   /* island/peninsula — only the center pocket */
+  /* Full-width top bar + hanging pocket: bar is solid, flanking area below bar is transparent */
+  const svgPocket = buildPath(dockHalf);
 
   function onCmd(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter" && cmd.trim()) { navigate("/assistant"); setCmd(""); }
@@ -199,11 +200,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             preserveAspectRatio="none"
           >
             <path d={svgPocket} fill={frameBg} />
-            {/* Top edge highlight spanning just the pocket width */}
+            {/* Top edge highlight — full width of the bar */}
             <line
-              x1={500 - dockHalf} y1={`${BAR_H}.5`}
-              x2={500 + dockHalf} y2={`${BAR_H}.5`}
-              stroke={fslite} strokeWidth="1.5"
+              x1="0" y1="0.5" x2="1000" y2="0.5"
+              stroke={fslite} strokeWidth="1.2"
               strokeOpacity={isLight ? 0.9 : 0.18}
             />
           </svg>
