@@ -30,8 +30,8 @@ const DOCK_W     = 440;   /* real px */
 /* Separate x and y extents for the concave curve:
    XR = how far the curve sweeps horizontally (wide = gradual slope)
    YR = how deep the curve drops vertically before the straight wall */
-const XR         = 82;    /* SVG units — wide horizontal sweep */
-const YR         = 34;    /* px — modest vertical drop (keeps ~45° feel) */
+const XR         = 100;   /* SVG units — very wide, gradual horizontal sweep */
+const YR         = 16;    /* px — barely perceptible vertical drop */
 const INNER_R    = 20;    /* dock bottom convex corner radius */
 const ICON_SZ    = 42;
 
@@ -179,27 +179,71 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* ══════════════════════════════════════════════════
             SCULPTED HEADER + DOCK (SVG single surface)
+            overflow:visible lets the drop shadow bleed
+            below the header into the workspace.
         ══════════════════════════════════════════════════ */}
-        <div style={{ position: "relative", height: TOTAL_H, flexShrink: 0 }}>
+        <div style={{
+          position: "relative",
+          height: TOTAL_H,
+          flexShrink: 0,
+          overflow: "visible",   /* allow shadow to spill into workspace */
+          zIndex: 10,
+        }}>
 
-          {/* SVG sculpted shape */}
+          {/* ── Shadow layer: separate SVG, same path, blurred ── */}
+          {/* Sits BEHIND the main surface and traces its contour exactly */}
+          <svg
+            aria-hidden="true"
+            style={{
+              position: "absolute", top: 0, left: 0,
+              width: "100%", height: TOTAL_H,
+              overflow: "visible",
+              zIndex: 0,
+              /* CSS blur applied after SVG renders → follows rendered shape */
+              filter: isLight
+                ? `blur(14px) opacity(0.55)`
+                : `blur(16px) opacity(0.85)`,
+              transform: "translateY(6px)",  /* shadow offset */
+            }}
+            viewBox={`0 0 1000 ${TOTAL_H}`}
+            preserveAspectRatio="none"
+          >
+            <path d={svgPath} fill={fsdark} />
+          </svg>
+
+          {/* ── Top highlight: ultra-thin lit-edge above shape ── */}
+          <svg
+            aria-hidden="true"
+            style={{
+              position: "absolute", top: 0, left: 0,
+              width: "100%", height: TOTAL_H,
+              overflow: "visible",
+              zIndex: 0,
+              filter: isLight ? `blur(1px) opacity(0.6)` : `blur(1px) opacity(0.12)`,
+              transform: "translateY(-2px)",
+            }}
+            viewBox={`0 0 1000 ${TOTAL_H}`}
+            preserveAspectRatio="none"
+          >
+            <path d={svgPath} fill={fslite} />
+          </svg>
+
+          {/* ── Main filled surface ────────────────────────────── */}
           <svg
             style={{
               position: "absolute", top: 0, left: 0,
               width: "100%", height: TOTAL_H,
               overflow: "visible",
-              filter: isLight
-                ? `drop-shadow(0 5px 14px ${fsdark}bb) drop-shadow(0 -1px 3px ${fslite})`
-                : `drop-shadow(0 5px 14px ${fsdark}) drop-shadow(0 -1px 2px ${fslite}44)`,
+              zIndex: 1,
             }}
             viewBox={`0 0 1000 ${TOTAL_H}`}
             preserveAspectRatio="none"
           >
             <path d={svgPath} fill={frameBg} />
-            {/* Top highlight edge — lit from above */}
+            {/* Top lit edge line */}
             <line x1="0" y1="0.5" x2="1000" y2="0.5"
               stroke={fslite} strokeWidth="1.5"
-              strokeOpacity={isLight ? 0.95 : 0.15}
+              strokeOpacity={isLight ? 0.9 : 0.15}
             />
           </svg>
 
