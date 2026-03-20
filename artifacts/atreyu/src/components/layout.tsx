@@ -252,20 +252,27 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           pointerEvents: "none",   /* let clicks fall through to workspace in wing zones */
         }}>
 
-          {/* Pocket-only SVG with drop-shadow */}
+          {/* Pocket-only SVG — neumorphic raised with highlight */}
           <svg
             style={{
               position: "absolute", top: 0, left: 0,
               width: "100%", height: TOTAL_H,
               overflow: "visible",
               filter: isLight
-                ? `drop-shadow(0 10px 28px ${fsdark}cc) drop-shadow(0 4px 10px ${fsdark}88)`
-                : `drop-shadow(0 10px 28px ${fsdark}) drop-shadow(0 4px 10px rgba(0,0,0,0.9))`,
+                ? `drop-shadow(4px 4px 12px ${fsdark}cc) drop-shadow(-3px -3px 8px ${fslite})`
+                : `drop-shadow(4px 4px 12px ${fsdark}) drop-shadow(-3px -3px 8px ${fslite}44)`,
             }}
             viewBox={`0 0 1000 ${TOTAL_H}`}
             preserveAspectRatio="none"
           >
+            <defs>
+              <linearGradient id="topNotchGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%"   stopColor={fslite} stopOpacity="0.55" />
+                <stop offset="42%"  stopColor={fslite} stopOpacity="0"    />
+              </linearGradient>
+            </defs>
             <path d={svgPocket} fill={frameBg} />
+            <path d={svgPocket} fill="url(#topNotchGrad)" style={{ pointerEvents: "none" }} />
           </svg>
 
 
@@ -408,20 +415,27 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           transition: "height 0.18s cubic-bezier(0.4,0,0.2,1)",
           zIndex: 20, pointerEvents: "none",
         }}>
-          {/* Inverted pocket SVG — shadow goes upward, animates with notch */}
+          {/* Inverted pocket SVG — neumorphic raised with highlight */}
           <svg
             style={{
               position: "absolute", top: 0, left: 0,
               width: "100%", height: "100%",
               overflow: "visible",
               filter: isLight
-                ? `drop-shadow(0 -10px 28px ${fsdark}cc) drop-shadow(0 -4px 10px ${fsdark}88)`
-                : `drop-shadow(0 -10px 28px ${fsdark}) drop-shadow(0 -4px 10px rgba(0,0,0,0.9))`,
+                ? `drop-shadow(4px 4px 12px ${fsdark}cc) drop-shadow(-3px -3px 8px ${fslite})`
+                : `drop-shadow(4px 4px 12px ${fsdark}) drop-shadow(-3px -3px 8px ${fslite}44)`,
             }}
             viewBox={`0 0 1000 ${botTotalH}`}
             preserveAspectRatio="none"
           >
+            <defs>
+              <linearGradient id="botNotchGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%"   stopColor={fslite} stopOpacity="0.55" />
+                <stop offset="42%"  stopColor={fslite} stopOpacity="0"    />
+              </linearGradient>
+            </defs>
             <path d={svgBotPocket} fill={frameBg} />
+            <path d={svgBotPocket} fill="url(#botNotchGrad)" style={{ pointerEvents: "none" }} />
           </svg>
 
           {/* Input container — centered across FULL overlay (pocket + bar) for optical balance */}
