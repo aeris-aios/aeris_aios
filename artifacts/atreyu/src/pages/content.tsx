@@ -1,218 +1,361 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import {
-  PenTool, Wand2, Download, Save, Palette, CheckCircle2, Loader2,
-  Linkedin, Repeat2, TrendingUp, HeartHandshake, LayoutTemplate,
-  Layers, ChevronDown, ChevronUp, Copy, Check,
+  PenTool, Wand2, ChevronRight, ChevronLeft, CheckCircle2, Loader2,
+  Repeat2, TrendingUp, HeartHandshake, LayoutTemplate, Layers,
+  Copy, Check, Save, Download, Palette, Building2, Globe, Link,
+  Instagram, Youtube, Twitter, Linkedin, Facebook,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSSE } from "@/hooks/use-sse";
 import ReactMarkdown from "react-markdown";
-import { useCreateContentAsset } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 
 /* ─────────────── Types ─────────────── */
-type ContentMethod  = "standard" | "viral_replication" | "trend_surfing" | "pain_point";
-type WritingStyle   = "adam_robinson" | "brand_voice" | "custom";
-type ContentFormat  = "text_only" | "text_carousel";
+type SourceMode   = "brand_kit" | "social_import";
+type Platform     = "instagram" | "facebook" | "linkedin" | "twitter" | "tiktok" | "youtube";
+type Method       = "standard" | "viral_replication" | "trend_surfing" | "pain_point";
+type WritingStyle = "adam_robinson" | "brand_voice" | "custom";
 
-interface CarouselSlide {
-  number?: number;
-  heading: string;
-  subtitle: string;
-  takeaway: string;
-}
+type OutputFormat = {
+  id: string;
+  label: string;
+  sublabel: string;
+  w: number;   // display ratio width
+  h: number;   // display ratio height
+  platforms: string;
+  contentType: string;
+  isText?: boolean;
+  isCarousel?: boolean;
+};
+
+interface CarouselSlide { number?: number; heading: string; subtitle: string; takeaway: string; }
 interface CarouselStructure {
-  title: string;
-  titleEmphasis?: string;
-  brandName: string;
-  accentColor: string;
-  slides: CarouselSlide[];
-  ctaText: string;
-  ctaSubtitle: string;
+  title: string; brandName: string; accentColor: string;
+  slides: CarouselSlide[]; ctaText: string; ctaSubtitle: string;
 }
 
-/* ─────────────── Carousel slide preview ─────────────── */
-function CarouselSlideCard({
-  slide, index, total, accentColor, brandName,
-}: {
-  slide: CarouselSlide & { isCover?: boolean; isCta?: boolean };
-  index: number; total: number; accentColor: string; brandName: string;
-}) {
-  const isCover = index === 0;
-  const isCta = index === total - 1;
+/* ─────────────── Constants ─────────────── */
+const FORMATS: OutputFormat[] = [
+  { id: "linkedin_post",    label: "LinkedIn Post",    sublabel: "Text-only post",         w: 4, h: 3,  platforms: "LinkedIn",                   contentType: "linkedin_post", isText: true  },
+  { id: "carousel",         label: "Carousel",         sublabel: "Multi-slide swipe post",  w: 4, h: 5,  platforms: "LinkedIn · Instagram",        contentType: "linkedin_post", isCarousel: true },
+  { id: "square",           label: "Square 1:1",       sublabel: "Feed image",              w: 1, h: 1,  platforms: "Instagram · Facebook",        contentType: "social"         },
+  { id: "portrait",         label: "Portrait 4:5",     sublabel: "Tall feed image",         w: 4, h: 5,  platforms: "Instagram · LinkedIn",        contentType: "social"         },
+  { id: "vertical",         label: "Vertical 9:16",    sublabel: "Reels / TikTok",          w: 9, h: 16, platforms: "Instagram · TikTok · YouTube",contentType: "social"         },
+  { id: "story",            label: "Story",            sublabel: "Instagram / Facebook",    w: 9, h: 16, platforms: "Instagram · Facebook",        contentType: "social"         },
+  { id: "landscape",        label: "Landscape 16:9",   sublabel: "YouTube / LinkedIn video",w: 16,h: 9,  platforms: "YouTube · LinkedIn",          contentType: "social"         },
+  { id: "youtube_short",    label: "YouTube Short",    sublabel: "60s vertical video",      w: 9, h: 16, platforms: "YouTube",                    contentType: "social"         },
+];
 
+const METHODS = [
+  { id: "standard",          label: "Standard",          icon: PenTool,         desc: "Write a compelling post from your brief"                                },
+  { id: "viral_replication", label: "Viral Replication", icon: Repeat2,         desc: "Clone the structure of a proven viral post"                            },
+  { id: "trend_surfing",     label: "Trend Surfing",     icon: TrendingUp,      desc: "Connect a current trend to your expertise"                             },
+  { id: "pain_point",        label: "Pain Point",        icon: HeartHandshake,  desc: "Pain → Insight → Solution framework"                                   },
+] as const;
+
+const PLATFORMS: { id: Platform; label: string; color: string; example: string }[] = [
+  { id: "instagram", label: "Instagram", color: "#E1306C", example: "instagram.com/username" },
+  { id: "facebook",  label: "Facebook",  color: "#1877F2", example: "facebook.com/pagename"  },
+  { id: "linkedin",  label: "LinkedIn",  color: "#0A66C2", example: "linkedin.com/in/username"},
+  { id: "twitter",   label: "X / Twitter",color:"#000000", example: "x.com/username"          },
+  { id: "tiktok",    label: "TikTok",    color: "#010101", example: "tiktok.com/@username"    },
+  { id: "youtube",   label: "YouTube",   color: "#FF0000", example: "youtube.com/@channel"    },
+];
+
+function detectPlatform(url: string): Platform | null {
+  if (/instagram\.com/i.test(url))  return "instagram";
+  if (/facebook\.com/i.test(url))   return "facebook";
+  if (/linkedin\.com/i.test(url))   return "linkedin";
+  if (/twitter\.com|x\.com/i.test(url)) return "twitter";
+  if (/tiktok\.com/i.test(url))     return "tiktok";
+  if (/youtube\.com|youtu\.be/i.test(url)) return "youtube";
+  return null;
+}
+
+/* ─────────────── Step indicator ─────────────── */
+const STEPS = ["Source", "Brief", "Format"];
+
+function StepBar({ step }: { step: number }) {
   return (
-    <div
-      className="rounded-xl overflow-hidden border border-border flex-shrink-0"
-      style={{ width: 180, aspectRatio: "4/5", background: "#F5F3EE", position: "relative", fontFamily: "Georgia, serif" }}
-    >
-      {/* Bottom banner */}
-      <div style={{
-        position: "absolute", bottom: 0, left: 0, right: 0, height: 28,
-        background: "#1A1A1A", display: "flex", alignItems: "center", justifyContent: "center",
-      }}>
-        <span style={{ color: "#fff", fontSize: 7, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 1 }}>
-          {brandName.toUpperCase()}
-        </span>
-      </div>
-
-      <div style={{ padding: "10px 10px 36px", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
-        {isCover ? (
-          /* Cover slide */
-          <>
-            <div style={{ height: 2, width: 40, background: accentColor, margin: "4px auto 8px" }} />
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <p style={{ fontSize: 10, fontWeight: 700, color: "#1A1A1A", textAlign: "center", lineHeight: 1.3 }}>
-                {slide.heading}
-              </p>
-            </div>
-            <p style={{ fontSize: 6, color: "#888", textAlign: "center", fontFamily: "sans-serif" }}>swipe →</p>
-          </>
-        ) : isCta ? (
-          /* CTA slide */
-          <>
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-              <div style={{ width: 16, height: 16, borderRadius: "50%", background: accentColor, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ color: "#1A1A1A", fontSize: 8 }}>✓</span>
+    <div className="flex items-center justify-center gap-0 mb-10">
+      {STEPS.map((label, i) => {
+        const done    = i < step;
+        const current = i === step;
+        return (
+          <div key={i} className="flex items-center">
+            <div className="flex flex-col items-center">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold border-2 transition-all ${
+                done    ? "bg-primary border-primary text-primary-foreground" :
+                current ? "bg-primary/10 border-primary text-primary" :
+                          "bg-muted/50 border-border text-muted-foreground"
+              }`}>
+                {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
               </div>
-              <p style={{ fontSize: 8, fontWeight: 700, color: "#1A1A1A", textAlign: "center", lineHeight: 1.3 }}>
-                {slide.heading}
-              </p>
-              <p style={{ fontSize: 6, color: "#888", textAlign: "center", fontFamily: "sans-serif", lineHeight: 1.4 }}>
-                {slide.subtitle}
-              </p>
+              <span className={`text-xs mt-1 font-medium ${current ? "text-foreground" : "text-muted-foreground"}`}>
+                {label}
+              </span>
             </div>
-          </>
-        ) : (
-          /* Content slide */
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
-              <div style={{ width: 14, height: 14, borderRadius: "50%", background: accentColor, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <span style={{ fontSize: 7, fontWeight: 700, color: "#1A1A1A" }}>{slide.number}</span>
-              </div>
-              <p style={{ fontSize: 7.5, fontWeight: 700, color: "#1A1A1A", lineHeight: 1.2 }}>{slide.heading}</p>
-            </div>
-            <p style={{ fontSize: 6, color: "#555", lineHeight: 1.4, fontFamily: "sans-serif", marginBottom: 4 }}>
-              {slide.subtitle}
-            </p>
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ width: 28, height: 28, borderRadius: "50%", border: `1.5px solid ${accentColor}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ width: 10, height: 10, borderRadius: "50%", background: accentColor }} />
-              </div>
-            </div>
-            <p style={{ fontSize: 5.5, fontStyle: "italic", color: "#333", textAlign: "center", lineHeight: 1.4 }}>
-              "{slide.takeaway}"
-            </p>
-          </>
-        )}
-      </div>
+            {i < STEPS.length - 1 && (
+              <div className={`w-20 h-0.5 mb-4 mx-2 rounded-full transition-colors ${done ? "bg-primary" : "bg-border"}`} />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-/* ─────────────── Option pill button ─────────────── */
-function Pill({
-  label, icon: Icon, active, onClick,
-}: { label: string; icon?: React.ElementType; active: boolean; onClick: () => void }) {
+/* ─────────────── Format visual card ─────────────── */
+function FormatCard({ fmt, selected, onClick }: { fmt: OutputFormat; selected: boolean; onClick: () => void }) {
+  const maxH = 72;
+  const maxW = 90;
+  const ratio = fmt.w / fmt.h;
+  const displayH = ratio < 1 ? maxH : Math.round(maxW / ratio);
+  const displayW = ratio < 1 ? Math.round(maxH * ratio) : maxW;
+
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-        active
-          ? "bg-primary text-primary-foreground border-primary shadow-sm"
-          : "bg-muted/50 text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+      className={`flex flex-col items-center gap-3 p-4 rounded-2xl border-2 transition-all text-center w-full hover:border-primary/50 ${
+        selected
+          ? "border-primary bg-primary/5 shadow-sm"
+          : "border-border bg-card hover:bg-muted/30"
       }`}
     >
-      {Icon && <Icon className="h-3 w-3" />}
-      {label}
+      {/* Aspect ratio visual */}
+      <div className="flex items-center justify-center" style={{ height: maxH + 4, width: maxW + 4 }}>
+        <div
+          className={`rounded-lg flex items-center justify-center transition-colors ${
+            selected ? "bg-primary/20 border-2 border-primary/40" : "bg-muted/60 border-2 border-border"
+          }`}
+          style={{ width: displayW, height: displayH }}
+        >
+          {fmt.isText && (
+            <div className="flex flex-col gap-1 p-1 w-full px-2">
+              {[100, 80, 90, 60].map((w, i) => (
+                <div key={i} className={`h-1 rounded-full ${selected ? "bg-primary/40" : "bg-muted-foreground/30"}`} style={{ width: `${w}%` }} />
+              ))}
+            </div>
+          )}
+          {fmt.isCarousel && (
+            <div className="flex gap-0.5 items-stretch h-full py-1 px-1">
+              {[0, 1, 2].map(i => (
+                <div key={i} className={`flex-1 rounded-sm ${selected ? "bg-primary/40" : "bg-muted-foreground/30"}`} style={{ opacity: 1 - i * 0.25 }} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <div>
+        <p className={`text-sm font-semibold leading-tight ${selected ? "text-primary" : "text-foreground"}`}>{fmt.label}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">{fmt.sublabel}</p>
+        <p className="text-xs text-muted-foreground/60 mt-1 leading-tight">{fmt.platforms}</p>
+      </div>
+      {selected && <CheckCircle2 className="h-4 w-4 text-primary" />}
     </button>
+  );
+}
+
+/* ─────────────── Carousel preview ─────────────── */
+function CarouselPreview({ data }: { data: CarouselStructure }) {
+  const [copied, setCopied] = useState<number | null>(null);
+  const accent = data.accentColor ?? "#6366f1";
+
+  const allSlides = [
+    { heading: data.title, subtitle: "", takeaway: "", isCover: true },
+    ...data.slides,
+    { heading: data.ctaText, subtitle: data.ctaSubtitle, takeaway: "", isCta: true },
+  ];
+
+  const copy = (slide: any, idx: number) => {
+    const text = [slide.heading, slide.subtitle, slide.takeaway ? `"${slide.takeaway}"` : ""].filter(Boolean).join("\n\n");
+    navigator.clipboard.writeText(text);
+    setCopied(idx);
+    setTimeout(() => setCopied(null), 1800);
+  };
+
+  return (
+    <div className="mt-6 space-y-4">
+      {/* Strip */}
+      <div className="flex gap-3 overflow-x-auto pb-3">
+        {allSlides.map((slide, idx) => {
+          const isCover = idx === 0;
+          const isCta = idx === allSlides.length - 1;
+          return (
+            <div key={idx} className="flex-shrink-0 flex flex-col items-center gap-1">
+              <div className="rounded-xl overflow-hidden border border-border"
+                style={{ width: 120, aspectRatio: "4/5", background: "#F5F3EE", fontFamily: "Georgia,serif", position: "relative" }}>
+                {/* Bottom band */}
+                <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 20, background: "#1A1A1A",
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ color: "#fff", fontSize: 5.5, fontFamily: "sans-serif", fontWeight: 700, letterSpacing: 1 }}>
+                    {data.brandName?.toUpperCase() ?? "BRAND"}
+                  </span>
+                </div>
+                <div style={{ padding: "8px 8px 26px", height: "100%", display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+                  {isCover ? (
+                    <>
+                      <div style={{ height: 1.5, width: 28, background: accent, margin: "3px auto 6px" }} />
+                      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <p style={{ fontSize: 7, fontWeight: 700, color: "#1A1A1A", textAlign: "center", lineHeight: 1.3 }}>{slide.heading}</p>
+                      </div>
+                      <p style={{ fontSize: 5, color: "#999", textAlign: "center", fontFamily: "sans-serif" }}>swipe →</p>
+                    </>
+                  ) : isCta ? (
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3 }}>
+                      <div style={{ width: 12, height: 12, borderRadius: "50%", background: accent, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <span style={{ color: "#fff", fontSize: 6 }}>✓</span>
+                      </div>
+                      <p style={{ fontSize: 6, fontWeight: 700, color: "#1A1A1A", textAlign: "center", lineHeight: 1.3 }}>{slide.heading}</p>
+                      <p style={{ fontSize: 4.5, color: "#888", textAlign: "center", fontFamily: "sans-serif", lineHeight: 1.4 }}>{slide.subtitle}</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", gap: 3, marginBottom: 3 }}>
+                        <div style={{ width: 10, height: 10, borderRadius: "50%", background: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <span style={{ fontSize: 5.5, fontWeight: 700, color: "#fff" }}>{(slide as any).number}</span>
+                        </div>
+                        <p style={{ fontSize: 5.5, fontWeight: 700, color: "#1A1A1A", lineHeight: 1.2 }}>{slide.heading}</p>
+                      </div>
+                      <p style={{ fontSize: 4.5, color: "#555", lineHeight: 1.4, fontFamily: "sans-serif", marginBottom: 3 }}>{slide.subtitle}</p>
+                      {slide.takeaway && (
+                        <p style={{ fontSize: 4, fontStyle: "italic", color: "#333", textAlign: "center" }}>"{slide.takeaway}"</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+              <button onClick={() => copy(slide, idx)}
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5 transition-colors">
+                {copied === idx ? <><Check className="h-2.5 w-2.5 text-green-500" />Copied</> : <><Copy className="h-2.5 w-2.5" />Copy</>}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Slide content */}
+      <div className="space-y-2 border-t border-border pt-4">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Slide Content</p>
+        {data.slides.map((s, i) => (
+          <div key={i} className="flex gap-3 p-3 rounded-xl bg-muted/40 border border-border">
+            <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+              style={{ background: accent + "22", color: accent }}>{s.number ?? i + 1}</div>
+            <div className="flex-1">
+              <p className="text-sm font-semibold">{s.heading}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{s.subtitle}</p>
+              {s.takeaway && <p className="text-xs italic text-muted-foreground/70 mt-1">"{s.takeaway}"</p>}
+            </div>
+          </div>
+        ))}
+        <div className="flex gap-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
+          <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
+            <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold">{data.ctaText}</p>
+            <p className="text-xs text-muted-foreground">{data.ctaSubtitle}</p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════ */
 export default function ContentStudio() {
   const [, navigate] = useLocation();
-  const [brandProfile, setBrandProfile] = useState<{ name: string; styleExamplesCount?: number } | null>(null);
-
-  useEffect(() => {
-    fetch("/api/brand/profile").then(r => r.json()).then(p => {
-      if (p?.name) setBrandProfile({ name: p.name });
-    }).catch(() => {});
-    fetch("/api/brand/examples").then(r => r.json()).then((examples: any[]) => {
-      const analyzed = examples.filter((e: any) => e.analysisResult);
-      if (analyzed.length > 0) setBrandProfile(prev => prev ? { ...prev, styleExamplesCount: analyzed.length } : null);
-    }).catch(() => {});
-  }, []);
-
-  /* ── Core form state ── */
-  const [formData, setFormData] = useState({
-    type: "linkedin_post",
-    platform: "LinkedIn",
-    tone: "",
-    audience: "",
-    context: "",
-    model: "sonnet",
-  });
-
-  /* ── LinkedIn mode state ── */
-  const [method, setMethod]               = useState<ContentMethod>("standard");
-  const [writingStyle, setWritingStyle]   = useState<WritingStyle>("adam_robinson");
-  const [customStyle, setCustomStyle]     = useState("");
-  const [format, setFormat]               = useState<ContentFormat>("text_only");
-  const [originalPost, setOriginalPost]   = useState("");
-  const [slideCount, setSlideCount]       = useState(7);
-  const [showOriginalPost, setShowOriginalPost] = useState(false);
-
-  /* ── Carousel state ── */
-  const [carouselData, setCarouselData]       = useState<CarouselStructure | null>(null);
-  const [carouselLoading, setCarouselLoading] = useState(false);
-  const [copiedIdx, setCopiedIdx]             = useState<number | null>(null);
-
-  const { stream, data: generatedText, isStreaming } = useSSE();
-  const { mutate: saveAsset, isPending: isSaving } = useCreateContentAsset();
   const { toast } = useToast();
 
-  const isLinkedIn = formData.type === "linkedin_post";
+  /* ── Brand profile ── */
+  const [brand, setBrand] = useState<{ name: string } | null>(null);
+  useEffect(() => {
+    fetch("/api/brand/profile").then(r => r.json()).then(p => { if (p?.name) setBrand({ name: p.name }); }).catch(() => {});
+  }, []);
 
-  /* ── Generate post text ── */
+  /* ── Wizard state ── */
+  const [step, setStep] = useState(0);
+
+  /* Step 1 – Source */
+  const [sourceMode, setSourceMode]   = useState<SourceMode | null>(null);
+  const [socialUrl, setSocialUrl]     = useState("");
+  const [detectedPlatform, setDetectedPlatform] = useState<Platform | null>(null);
+
+  /* Step 2 – Brief */
+  const [brief, setBrief]             = useState("");
+  const [audience, setAudience]       = useState("");
+  const [method, setMethod]           = useState<Method>("standard");
+  const [writingStyle, setWritingStyle] = useState<WritingStyle>("adam_robinson");
+  const [customStyle, setCustomStyle] = useState("");
+  const [originalPost, setOriginalPost] = useState("");
+
+  /* Step 3 – Format */
+  const [formatId, setFormatId]       = useState<string | null>(null);
+  const [slideCount, setSlideCount]   = useState(7);
+
+  /* Generation */
+  const { stream, data: generatedText, isStreaming, setData } = useSSE();
+  const [carouselData, setCarouselData]   = useState<CarouselStructure | null>(null);
+  const [carouselLoading, setCarouselLoading] = useState(false);
+  const [generated, setGenerated]     = useState(false);
+
+  const selectedFormat = FORMATS.find(f => f.id === formatId);
+
+  /* Detect platform from URL */
+  useEffect(() => {
+    setDetectedPlatform(detectPlatform(socialUrl));
+  }, [socialUrl]);
+
+  /* ── Navigation ── */
+  const canNext = (
+    (step === 0 && (sourceMode === "brand_kit" || (sourceMode === "social_import" && socialUrl.trim().length > 5))) ||
+    (step === 1 && brief.trim().length > 0) ||
+    (step === 2 && !!formatId)
+  );
+
+  const goNext = () => { if (step < 2) setStep(s => s + 1); };
+  const goBack = () => { setStep(s => s - 1); };
+
+  /* ── Generate ── */
   const handleGenerate = async () => {
-    if (!formData.context.trim()) return;
+    if (!formatId) return;
+    setData("");
     setCarouselData(null);
+    setGenerated(true);
+
+    const fmt = FORMATS.find(f => f.id === formatId)!;
+
     await stream("/api/content/generate", {
-      ...formData,
+      type: fmt.contentType,
+      platform: fmt.platforms.split("·")[0].trim(),
+      context: brief,
+      audience,
+      model: "sonnet",
       method,
       writingStyle,
       customStyle,
-      format,
       originalPost: method === "viral_replication" ? originalPost : "",
+      format: fmt.isCarousel ? "text_carousel" : "text_only",
+      socialProfileUrl: sourceMode === "social_import" ? socialUrl : "",
     });
   };
 
-  /* ── Generate carousel structure ── */
-  const handleGenerateCarousel = async () => {
-    if (!formData.context.trim()) return;
+  /* ── Build carousel ── */
+  const handleCarousel = async () => {
     setCarouselLoading(true);
     try {
       const res = await fetch("/api/content/carousel/structure", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          topic: formData.context,
-          slideCount,
-          audience: formData.audience,
-          model: formData.model,
-          postText: generatedText ?? "",
-        }),
+        body: JSON.stringify({ topic: brief, slideCount, audience, model: "sonnet", postText: generatedText ?? "" }),
       });
-      if (!res.ok) throw new Error("Carousel generation failed");
       const data = await res.json();
       setCarouselData(data);
-      toast({ title: "Carousel structure ready", description: `${data.slides?.length ?? 0} slides generated.` });
+      toast({ title: "Carousel built", description: `${data.slides?.length ?? 0} slides ready.` });
     } catch {
       toast({ title: "Carousel generation failed", variant: "destructive" });
     } finally {
@@ -220,348 +363,387 @@ export default function ContentStudio() {
     }
   };
 
-  /* ── Save asset ── */
-  const handleSave = () => {
-    if (!generatedText) return;
-    saveAsset({
-      data: {
-        title: `${isLinkedIn ? "LinkedIn Post" : formData.type} — ${new Date().toLocaleDateString()}`,
-        type: formData.type,
-        content: generatedText,
-        platform: formData.platform,
-        tone: formData.tone,
-      }
-    }, {
-      onSuccess: () => toast({ title: "Asset saved", description: "Content saved to your workspace." }),
-    });
+  /* ── Start over ── */
+  const startOver = () => {
+    setStep(0); setSourceMode(null); setSocialUrl(""); setBrief(""); setAudience("");
+    setMethod("standard"); setFormatId(null); setGenerated(false); setCarouselData(null);
+    setData("");
   };
 
-  /* ── Copy slide text ── */
-  const copySlideText = (slide: CarouselSlide, idx: number) => {
-    const text = [slide.heading, slide.subtitle, slide.takeaway ? `"${slide.takeaway}"` : ""].filter(Boolean).join("\n\n");
-    navigator.clipboard.writeText(text);
-    setCopiedIdx(idx);
-    setTimeout(() => setCopiedIdx(null), 1800);
-  };
-
-  /* ── Carousel slides array for display (cover + content + cta) ── */
-  const carouselSlides = carouselData ? [
-    { heading: carouselData.title, subtitle: "", takeaway: "", isCover: true },
-    ...carouselData.slides,
-    { heading: carouselData.ctaText, subtitle: carouselData.ctaSubtitle, takeaway: "", isCta: true },
-  ] : [];
-
+  /* ══════ RENDER ══════ */
   return (
-    <div className="space-y-8 animate-in fade-in duration-500 pb-12">
+    <div className="max-w-4xl mx-auto space-y-2 animate-in fade-in duration-500 pb-16">
+
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
             <PenTool className="h-8 w-8 text-primary" />
             Content Studio
           </h1>
-          <p className="text-muted-foreground mt-2 text-sm">Synthesize high-converting copy across all channels.</p>
+          <p className="text-muted-foreground mt-1 text-sm">Create high-converting content in three steps.</p>
         </div>
-        {brandProfile ? (
-          <button onClick={() => navigate("/brand")}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-pink-500/10 border border-pink-500/20 text-pink-600 dark:text-pink-400 text-xs font-medium hover:bg-pink-500/20 transition-colors">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            <span>{brandProfile.name}</span>
-            {brandProfile.styleExamplesCount ? <span className="opacity-60">· {brandProfile.styleExamplesCount} style {brandProfile.styleExamplesCount === 1 ? "example" : "examples"}</span> : null}
-          </button>
-        ) : (
-          <button onClick={() => navigate("/brand")}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-muted/60 border border-border text-muted-foreground text-xs font-medium hover:bg-muted transition-colors">
-            <Palette className="h-3.5 w-3.5" />
-            Set up Brand Kit
-          </button>
+        {generated && (
+          <Button variant="outline" onClick={startOver} className="text-sm border-border">
+            ← Start Over
+          </Button>
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* ── Controls ── */}
-        <Card className="lg:col-span-4 rounded-2xl border border-border bg-card h-fit">
-          <CardHeader>
-            <CardTitle className="text-lg">Parameters</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-
-            {/* Content type */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">Content Type</label>
-              <Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v, platform: v === "linkedin_post" ? "LinkedIn" : formData.platform })}>
-                <SelectTrigger className="bg-muted/60 border-border">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-black border-border text-white">
-                  <SelectItem value="linkedin_post">
-                    <span className="flex items-center gap-2"><Linkedin className="h-3.5 w-3.5" /> LinkedIn Post</span>
-                  </SelectItem>
-                  <SelectItem value="ad_copy">Ad Copy</SelectItem>
-                  <SelectItem value="email">Email Sequence</SelectItem>
-                  <SelectItem value="landing_page">Landing Page</SelectItem>
-                  <SelectItem value="social">Social Media Post</SelectItem>
-                  <SelectItem value="headline">Headlines & Hooks</SelectItem>
-                </SelectContent>
-              </Select>
+      {/* ── GENERATION OUTPUT (shown after generate) ── */}
+      {generated ? (
+        <div className="space-y-6">
+          {/* Format badge */}
+          {selectedFormat && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">{selectedFormat.label}</span>
+              <span>·</span>
+              <span>{selectedFormat.platforms}</span>
+              {sourceMode === "social_import" && detectedPlatform && (
+                <><span>·</span><span className="capitalize">{detectedPlatform} import</span></>
+              )}
             </div>
+          )}
 
-            {/* ── LinkedIn-specific controls ── */}
-            {isLinkedIn && (
-              <>
-                {/* Method */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Method</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Pill label="Standard"  active={method === "standard"}          onClick={() => { setMethod("standard"); setShowOriginalPost(false); }} />
-                    <Pill label="Viral Replication" icon={Repeat2}    active={method === "viral_replication"} onClick={() => { setMethod("viral_replication"); setShowOriginalPost(true); }} />
-                    <Pill label="Trend Surfing"     icon={TrendingUp} active={method === "trend_surfing"}     onClick={() => { setMethod("trend_surfing"); setShowOriginalPost(false); }} />
-                    <Pill label="Pain Point"        icon={HeartHandshake} active={method === "pain_point"}   onClick={() => { setMethod("pain_point"); setShowOriginalPost(false); }} />
-                  </div>
-                </div>
-
-                {/* Original post (viral replication) */}
-                {showOriginalPost && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-muted-foreground">Original Post to Replicate</label>
-                    <Textarea
-                      value={originalPost}
-                      onChange={e => setOriginalPost(e.target.value)}
-                      placeholder="Paste the viral post here. ATREYU will keep the hook + structure and adapt the topic to your brand."
-                      className="bg-muted/60 border-border min-h-[100px] text-sm"
-                    />
-                  </div>
-                )}
-
-                {/* Writing style */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Writing Style</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Pill label="Adam Robinson"  active={writingStyle === "adam_robinson"} onClick={() => setWritingStyle("adam_robinson")} />
-                    <Pill label="Brand Voice"    active={writingStyle === "brand_voice"}   onClick={() => setWritingStyle("brand_voice")} />
-                    <Pill label="Custom"         active={writingStyle === "custom"}         onClick={() => setWritingStyle("custom")} />
-                  </div>
-                  {writingStyle === "adam_robinson" && (
-                    <p className="text-xs text-muted-foreground/70 leading-relaxed mt-1">
-                      Raw, conversational, stream-of-consciousness. Real numbers. Parenthetical asides. Short paragraphs. Never corporate.
-                    </p>
-                  )}
-                  {writingStyle === "brand_voice" && (
-                    <p className="text-xs text-muted-foreground/70 mt-1">Uses the voice description from your Brand Kit.</p>
-                  )}
-                  {writingStyle === "custom" && (
-                    <Textarea
-                      value={customStyle}
-                      onChange={e => setCustomStyle(e.target.value)}
-                      placeholder="Describe the writing style in detail..."
-                      className="bg-muted/60 border-border min-h-[80px] text-sm mt-1"
-                    />
-                  )}
-                </div>
-
-                {/* Format */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Format</label>
-                  <div className="flex gap-1.5">
-                    <Pill label="Post Only"      active={format === "text_only"}    onClick={() => setFormat("text_only")} />
-                    <Pill label="Post + Carousel" icon={LayoutTemplate} active={format === "text_carousel"} onClick={() => setFormat("text_carousel")} />
-                  </div>
-                  {format === "text_carousel" && (
-                    <div className="flex items-center gap-2 mt-1">
-                      <label className="text-xs text-muted-foreground">Slides:</label>
-                      <div className="flex items-center gap-1">
-                        {[5, 7, 9, 11].map(n => (
-                          <button key={n} onClick={() => setSlideCount(n)}
-                            className={`w-8 h-7 text-xs rounded-lg border transition-colors ${n === slideCount ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-                            {n}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* Non-LinkedIn: platform + tone */}
-            {!isLinkedIn && (
-              <>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Platform</label>
-                  <Input value={formData.platform} onChange={e => setFormData({ ...formData, platform: e.target.value })}
-                    placeholder="Meta, LinkedIn, Google..." className="bg-muted/60 border-border" />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Tone of Voice</label>
-                  <Input value={formData.tone} onChange={e => setFormData({ ...formData, tone: e.target.value })}
-                    placeholder="Persuasive, technical, witty..." className="bg-muted/60 border-border" />
-                </div>
-              </>
-            )}
-
-            {/* Audience */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">Target Audience</label>
-              <Input value={formData.audience} onChange={e => setFormData({ ...formData, audience: e.target.value })}
-                placeholder="SaaS Founders, D2C Marketers..." className="bg-muted/60 border-border" />
-            </div>
-
-            {/* Context / Brief */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">
-                {isLinkedIn ? "Post Topic / Brief" : "Context / Brief"}
-              </label>
-              <Textarea value={formData.context} onChange={e => setFormData({ ...formData, context: e.target.value })}
-                placeholder={isLinkedIn
-                  ? "What's this post about? Include any specific angles, numbers, stories, or talking points."
-                  : "Product details, unique selling points, offers..."}
-                className="bg-muted/60 border-border min-h-[120px]" />
-            </div>
-
-            {/* Model */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-muted-foreground">Model</label>
-              <Select value={formData.model} onValueChange={v => setFormData({ ...formData, model: v })}>
-                <SelectTrigger className="bg-muted/60 border-border">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-black border-border text-white">
-                  <SelectItem value="haiku">Claude Haiku (Fast)</SelectItem>
-                  <SelectItem value="sonnet">Claude Sonnet (Balanced)</SelectItem>
-                  <SelectItem value="opus">Claude Opus (Best)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button
-              onClick={handleGenerate}
-              disabled={isStreaming || !formData.context.trim()}
-              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(0,150,255,0.3)]"
-            >
-              <Wand2 className={`h-4 w-4 mr-2 ${isStreaming ? "animate-spin" : ""}`} />
-              {isStreaming ? "Writing…" : isLinkedIn ? "Write Post" : "Generate Content"}
-            </Button>
-
-            {/* Carousel trigger */}
-            {isLinkedIn && format === "text_carousel" && generatedText && !isStreaming && (
-              <Button
-                onClick={handleGenerateCarousel}
-                disabled={carouselLoading}
-                variant="outline"
-                className="w-full border-primary/30 text-primary hover:bg-primary/5"
-              >
-                {carouselLoading
-                  ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Building Carousel…</>
-                  : <><Layers className="h-4 w-4 mr-2" /> Build Carousel ({slideCount} slides)</>}
-              </Button>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── Output ── */}
-        <div className="lg:col-span-8 space-y-6">
-          <Card className="glass-panel border-border bg-muted/60 flex flex-col min-h-[500px]">
-            <CardHeader className="flex flex-row items-center justify-between border-b border-border bg-muted/50">
-              <CardTitle className="text-lg">
-                {isLinkedIn ? "LinkedIn Post" : "Generated Output"}
-              </CardTitle>
+          {/* Post output */}
+          <Card className="rounded-2xl border border-border bg-card">
+            <div className="flex items-center justify-between p-5 border-b border-border">
+              <span className="font-semibold text-sm">Generated Copy</span>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={!generatedText || isStreaming} className="bg-transparent border-border hover:bg-muted">
-                  <Download className="h-4 w-4 mr-2" /> Export
+                <Button size="sm" variant="outline" className="h-8 text-xs border-border">
+                  <Download className="h-3.5 w-3.5 mr-1.5" /> Export
                 </Button>
-                <Button onClick={handleSave} size="sm" disabled={!generatedText || isStreaming || isSaving}
-                  className="bg-primary/20 text-primary hover:bg-primary/30 border border-primary/30">
-                  <Save className="h-4 w-4 mr-2" /> Save
+                <Button size="sm" className="h-8 text-xs bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25">
+                  <Save className="h-3.5 w-3.5 mr-1.5" /> Save
                 </Button>
               </div>
-            </CardHeader>
-            <CardContent className="flex-1 p-8 overflow-y-auto">
+            </div>
+            <div className="p-6 min-h-[200px]">
               {generatedText ? (
-                <div className="prose dark:prose-invert max-w-none">
+                <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed">
                   <ReactMarkdown>{generatedText}</ReactMarkdown>
                   {isStreaming && <span className="inline-block w-2 h-5 ml-1 bg-primary animate-pulse align-middle" />}
                 </div>
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50">
-                  <Wand2 className="h-16 w-16 mb-4" />
-                  <p className="text-sm">Configure parameters and generate content.</p>
-                  {isLinkedIn && (
-                    <p className="text-xs mt-2 max-w-xs text-center">
-                      Choose a method, write your brief, and ATREYU will write in your style.
-                    </p>
-                  )}
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <span className="text-sm">Writing your content…</span>
                 </div>
               )}
-            </CardContent>
+            </div>
           </Card>
 
-          {/* ── Carousel preview ── */}
-          {carouselData && (
-            <Card className="rounded-2xl border border-border bg-card">
-              <CardHeader className="border-b border-border">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Layers className="h-4 w-4 text-primary" />
-                    Carousel Preview — {carouselSlides.length} slides
-                  </CardTitle>
-                  <span className="text-xs text-muted-foreground">1080 × 1350px (4:5)</span>
-                </div>
-              </CardHeader>
-              <CardContent className="p-6">
-                {/* Slide strip */}
-                <div className="flex gap-3 overflow-x-auto pb-4">
-                  {carouselSlides.map((slide, idx) => (
-                    <div key={idx} className="flex-shrink-0">
-                      <CarouselSlideCard
-                        slide={slide as any}
-                        index={idx}
-                        total={carouselSlides.length}
-                        accentColor={carouselData.accentColor ?? "#6366f1"}
-                        brandName={carouselData.brandName ?? "BRAND"}
-                      />
-                      <button
-                        onClick={() => copySlideText(slide as any, idx)}
-                        className="mt-1.5 w-full flex items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {copiedIdx === idx
-                          ? <><Check className="h-3 w-3 text-green-500" /> Copied</>
-                          : <><Copy className="h-3 w-3" /> Copy text</>}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Slide content list (full text) */}
-                <div className="mt-6 space-y-3 border-t border-border pt-6">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Slide Content</p>
-                  {carouselData.slides.map((slide, idx) => (
-                    <div key={idx} className="flex gap-3 p-3 rounded-xl bg-muted/40 border border-border">
-                      <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
-                        style={{ background: carouselData.accentColor + "33", color: carouselData.accentColor }}>
-                        {slide.number ?? idx + 1}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground">{slide.heading}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{slide.subtitle}</p>
-                        {slide.takeaway && <p className="text-xs italic text-muted-foreground/70 mt-1">"{slide.takeaway}"</p>}
-                      </div>
-                    </div>
-                  ))}
-                  <div className="flex gap-3 p-3 rounded-xl bg-primary/5 border border-primary/20">
-                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-foreground">{carouselData.ctaText}</p>
-                      <p className="text-xs text-muted-foreground">{carouselData.ctaSubtitle}</p>
-                    </div>
+          {/* Carousel trigger + preview */}
+          {selectedFormat?.isCarousel && generatedText && !isStreaming && (
+            <div>
+              {!carouselData ? (
+                <Button onClick={handleCarousel} disabled={carouselLoading}
+                  className="w-full border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10" variant="outline">
+                  {carouselLoading
+                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Building carousel slides…</>
+                    : <><Layers className="h-4 w-4 mr-2" /> Build Carousel Slides ({slideCount} slides)</>}
+                </Button>
+              ) : (
+                <Card className="rounded-2xl border border-border bg-card">
+                  <div className="p-5 border-b border-border flex items-center justify-between">
+                    <span className="font-semibold text-sm flex items-center gap-2">
+                      <Layers className="h-4 w-4 text-primary" /> Carousel Preview
+                    </span>
+                    <span className="text-xs text-muted-foreground">{carouselData.slides.length + 2} slides · 1080×1350</span>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                  <div className="p-5">
+                    <CarouselPreview data={carouselData} />
+                  </div>
+                </Card>
+              )}
+            </div>
           )}
         </div>
-      </div>
+      ) : (
+        /* ── WIZARD ── */
+        <div>
+          <StepBar step={step} />
+
+          {/* ══ STEP 1: SOURCE ══ */}
+          {step === 0 && (
+            <div className="space-y-5">
+              <div className="text-center mb-8">
+                <h2 className="text-xl font-bold text-foreground">Where should ATREYU pull your brand from?</h2>
+                <p className="text-sm text-muted-foreground mt-1">Your brand identity shapes every word of the output.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Brand Kit card */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSourceMode("brand_kit")}
+                  onKeyDown={e => e.key === "Enter" && setSourceMode("brand_kit")}
+                  className={`relative text-left p-6 rounded-2xl border-2 transition-all cursor-pointer select-none ${
+                    sourceMode === "brand_kit"
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border bg-card hover:border-primary/40 hover:bg-muted/20"
+                  }`}
+                >
+                  {sourceMode === "brand_kit" && (
+                    <CheckCircle2 className="absolute top-4 right-4 h-5 w-5 text-primary" />
+                  )}
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+                      <Building2 className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">Use My Brand Kit</p>
+                      <p className="text-xs text-muted-foreground">Recommended</p>
+                    </div>
+                  </div>
+                  {brand ? (
+                    <div className="flex items-center gap-2 text-sm mt-2">
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                      <span className="text-green-600 dark:text-green-400 font-medium">{brand.name} configured</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 mt-2">
+                      <p className="text-sm text-muted-foreground">ATREYU will use your saved brand identity, voice, colours, and style examples.</p>
+                      <span onClick={e => { e.stopPropagation(); navigate("/brand"); }}
+                        className="text-xs text-primary hover:underline flex items-center gap-1 cursor-pointer">
+                        <Palette className="h-3 w-3" /> Set up Brand Kit first →
+                      </span>
+                    </div>
+                  )}
+                  {brand && <p className="text-sm text-muted-foreground mt-1">Uses your saved voice, colours, and style examples.</p>}
+                </div>
+
+                {/* Social import card */}
+                <button
+                  onClick={() => setSourceMode("social_import")}
+                  className={`relative text-left p-6 rounded-2xl border-2 transition-all ${
+                    sourceMode === "social_import"
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border bg-card hover:border-primary/40 hover:bg-muted/20"
+                  }`}
+                >
+                  {sourceMode === "social_import" && (
+                    <CheckCircle2 className="absolute top-4 right-4 h-5 w-5 text-primary" />
+                  )}
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-11 h-11 rounded-xl bg-violet-500/10 flex items-center justify-center">
+                      <Globe className="h-5 w-5 text-violet-500" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">Import Social Profile</p>
+                      <p className="text-xs text-muted-foreground">Match a profile's style</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Paste a social profile link — ATREYU will analyse their content style and replicate it.
+                  </p>
+                  {/* Platform icons */}
+                  <div className="flex items-center gap-3 mt-3">
+                    {[
+                      { color: "#E1306C", icon: Instagram },
+                      { color: "#1877F2", icon: Facebook },
+                      { color: "#0A66C2", icon: Linkedin },
+                      { color: "#000", icon: Twitter },
+                      { color: "#FF0000", icon: Youtube },
+                    ].map(({ color, icon: Icon }, i) => (
+                      <Icon key={i} className="h-5 w-5" style={{ color }} />
+                    ))}
+                    <span className="text-xs text-muted-foreground">+ TikTok</span>
+                  </div>
+                </button>
+              </div>
+
+              {/* Social URL input */}
+              {sourceMode === "social_import" && (
+                <div className="space-y-3 p-5 rounded-2xl border border-border bg-muted/30">
+                  <div className="flex items-center gap-2">
+                    <Link className="h-4 w-4 text-muted-foreground" />
+                    <label className="text-sm font-medium">Profile URL</label>
+                    {detectedPlatform && (
+                      <span className="ml-auto text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full capitalize">
+                        {detectedPlatform} detected
+                      </span>
+                    )}
+                  </div>
+                  <Input
+                    value={socialUrl}
+                    onChange={e => setSocialUrl(e.target.value)}
+                    placeholder="e.g. instagram.com/nike or linkedin.com/in/username"
+                    className="bg-card border-border"
+                  />
+                  <div className="flex flex-wrap gap-1.5">
+                    {PLATFORMS.map(p => (
+                      <button key={p.id} onClick={() => setSocialUrl(`https://${p.example}`)}
+                        className="text-xs px-2.5 py-1 rounded-full border border-border text-muted-foreground hover:border-primary/40 hover:text-foreground transition-colors">
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ══ STEP 2: BRIEF ══ */}
+          {step === 1 && (
+            <div className="space-y-6">
+              <div className="text-center mb-8">
+                <h2 className="text-xl font-bold text-foreground">What do you want to say?</h2>
+                <p className="text-sm text-muted-foreground mt-1">Give ATREYU a clear brief — the more specific, the better the output.</p>
+              </div>
+
+              {/* Message brief */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-foreground">Your Message / Topic *</label>
+                <Textarea
+                  value={brief}
+                  onChange={e => setBrief(e.target.value)}
+                  placeholder="e.g. We just hit 10,000 customers in 18 months without paid ads. Here's the exact 3-step content strategy we used — share the process, specific numbers, and why most people get step 2 wrong."
+                  className="bg-muted/60 border-border min-h-[120px] text-sm"
+                />
+                <p className="text-xs text-muted-foreground">Include specific numbers, stories, or angles you want covered.</p>
+              </div>
+
+              {/* Audience */}
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-foreground">Target Audience</label>
+                <Input
+                  value={audience}
+                  onChange={e => setAudience(e.target.value)}
+                  placeholder="e.g. SaaS founders, D2C marketing managers, freelancers scaling to agency…"
+                  className="bg-muted/60 border-border"
+                />
+              </div>
+
+              {/* Content method */}
+              <div className="space-y-3">
+                <label className="text-sm font-semibold text-foreground">Content Method</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {METHODS.map(m => {
+                    const Icon = m.icon;
+                    const active = method === m.id;
+                    return (
+                      <button key={m.id} onClick={() => setMethod(m.id as Method)}
+                        className={`text-left p-4 rounded-2xl border-2 transition-all ${
+                          active ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/30 hover:bg-muted/20"
+                        }`}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Icon className={`h-4 w-4 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                          <span className={`text-sm font-semibold ${active ? "text-primary" : "text-foreground"}`}>{m.label}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground leading-snug">{m.desc}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Viral original post */}
+              {method === "viral_replication" && (
+                <div className="space-y-2 p-5 rounded-2xl border border-amber-500/20 bg-amber-500/5">
+                  <label className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Repeat2 className="h-4 w-4 text-amber-500" /> Paste the Original Viral Post
+                  </label>
+                  <Textarea
+                    value={originalPost}
+                    onChange={e => setOriginalPost(e.target.value)}
+                    placeholder="Paste the viral post here. ATREYU keeps the hook structure and body architecture — only swapping the topic for your brand's story."
+                    className="bg-card border-border min-h-[100px] text-sm"
+                  />
+                </div>
+              )}
+
+              {/* Writing style */}
+              <div className="space-y-3">
+                <label className="text-sm font-semibold text-foreground">Writing Style</label>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { id: "adam_robinson", label: "Adam Robinson", desc: "Raw · conversational · real numbers · never corporate" },
+                    { id: "brand_voice",   label: "Brand Voice",   desc: "Your Brand Kit voice profile"                          },
+                    { id: "custom",        label: "Custom",        desc: "Describe your own style"                               },
+                  ].map(s => (
+                    <button key={s.id} onClick={() => setWritingStyle(s.id as WritingStyle)}
+                      className={`flex-1 min-w-[140px] text-left p-3 rounded-xl border-2 transition-all ${
+                        writingStyle === s.id ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/30"
+                      }`}>
+                      <p className={`text-sm font-semibold ${writingStyle === s.id ? "text-primary" : "text-foreground"}`}>{s.label}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{s.desc}</p>
+                    </button>
+                  ))}
+                </div>
+                {writingStyle === "custom" && (
+                  <Textarea value={customStyle} onChange={e => setCustomStyle(e.target.value)}
+                    placeholder="Describe the writing style in detail — tone, sentence length, words to avoid, favourite phrases…"
+                    className="bg-muted/60 border-border min-h-[80px] text-sm" />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ══ STEP 3: FORMAT ══ */}
+          {step === 2 && (
+            <div className="space-y-6">
+              <div className="text-center mb-8">
+                <h2 className="text-xl font-bold text-foreground">What's the output format?</h2>
+                <p className="text-sm text-muted-foreground mt-1">Choose where and how this content will be published.</p>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                {FORMATS.map(fmt => (
+                  <FormatCard key={fmt.id} fmt={fmt} selected={formatId === fmt.id} onClick={() => setFormatId(fmt.id)} />
+                ))}
+              </div>
+
+              {/* Carousel slide count */}
+              {formatId === "carousel" && (
+                <div className="flex items-center gap-3 p-4 rounded-2xl border border-border bg-muted/30">
+                  <LayoutTemplate className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-medium">Number of slides:</span>
+                  <div className="flex gap-1.5">
+                    {[5, 7, 9, 11].map(n => (
+                      <button key={n} onClick={() => setSlideCount(n)}
+                        className={`w-9 h-8 text-sm rounded-lg border transition-colors ${
+                          n === slideCount ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"
+                        }`}>{n}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Format info */}
+              {selectedFormat && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 rounded-xl px-4 py-3">
+                  <CheckCircle2 className="h-4 w-4 text-primary" />
+                  <span>Selected: <strong className="text-foreground">{selectedFormat.label}</strong> — {selectedFormat.platforms}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Navigation */}
+          <div className="flex items-center justify-between mt-10 pt-6 border-t border-border">
+            <Button variant="outline" onClick={goBack} disabled={step === 0} className="border-border">
+              <ChevronLeft className="h-4 w-4 mr-1" /> Back
+            </Button>
+
+            {step < 2 ? (
+              <Button onClick={goNext} disabled={!canNext} className="bg-primary text-primary-foreground hover:bg-primary/90 px-6">
+                Continue <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            ) : (
+              <Button
+                onClick={handleGenerate}
+                disabled={!canNext || isStreaming}
+                className="bg-primary text-primary-foreground hover:bg-primary/90 px-8 shadow-[0_0_20px_rgba(0,150,255,0.3)]"
+              >
+                <Wand2 className={`h-4 w-4 mr-2 ${isStreaming ? "animate-spin" : ""}`} />
+                Generate Content
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
