@@ -23,38 +23,30 @@ const navItems = [
 /* ─────────────────────────────────────────────────────────────
    DOCK GEOMETRY
 ───────────────────────────────────────────────────────────── */
-const BAR_H      = 42;
-const POCKET_H   = 64;
-const TOTAL_H    = BAR_H + POCKET_H;
-const DOCK_W     = 440;   /* real px */
-/* Separate x and y extents for the concave curve:
-   XR = how far the curve sweeps horizontally (wide = gradual slope)
-   YR = how deep the curve drops vertically before the straight wall */
-const XR         = 100;   /* SVG units — very wide, gradual horizontal sweep */
-const YR         = 16;    /* px — barely perceptible vertical drop */
-const INNER_R    = 20;    /* dock bottom convex corner radius */
-const ICON_SZ    = 42;
+const BAR_H    = 42;
+const POCKET_H = 68;
+const TOTAL_H  = BAR_H + POCKET_H;
+const DOCK_W   = 440;   /* real px */
+const OUTER_R  = 40;    /* concave join radius */
+const INNER_R  = 22;    /* dock bottom corner radius */
+const ICON_SZ  = 42;
 
 function buildPath(dockHalf: number) {
   const cx = 500;
+  const or = OUTER_R;
   const ir = INNER_R;
   return [
     `M 0 0`,
     `L 1000 0`,
     `L 1000 ${BAR_H}`,
-    /* Right side: flat → gentle concave curve into dock wall */
-    `L ${cx + dockHalf + XR} ${BAR_H}`,
-    `Q ${cx + dockHalf} ${BAR_H} ${cx + dockHalf} ${BAR_H + YR}`,
-    /* Straight dock wall then convex bottom-right corner */
+    `L ${cx + dockHalf + or} ${BAR_H}`,
+    `Q ${cx + dockHalf} ${BAR_H} ${cx + dockHalf} ${BAR_H + or}`,
     `L ${cx + dockHalf} ${TOTAL_H - ir}`,
     `Q ${cx + dockHalf} ${TOTAL_H} ${cx + dockHalf - ir} ${TOTAL_H}`,
-    /* Dock bottom */
     `L ${cx - dockHalf + ir} ${TOTAL_H}`,
-    /* Convex bottom-left corner */
     `Q ${cx - dockHalf} ${TOTAL_H} ${cx - dockHalf} ${TOTAL_H - ir}`,
-    /* Straight dock wall then gentle concave curve back to flat */
-    `L ${cx - dockHalf} ${BAR_H + YR}`,
-    `Q ${cx - dockHalf} ${BAR_H} ${cx - dockHalf - XR} ${BAR_H}`,
+    `L ${cx - dockHalf} ${BAR_H + or}`,
+    `Q ${cx - dockHalf} ${BAR_H} ${cx - dockHalf - or} ${BAR_H}`,
     `L 0 ${BAR_H}`,
     `Z`,
   ].join(" ");
@@ -179,71 +171,27 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* ══════════════════════════════════════════════════
             SCULPTED HEADER + DOCK (SVG single surface)
-            overflow:visible lets the drop shadow bleed
-            below the header into the workspace.
         ══════════════════════════════════════════════════ */}
-        <div style={{
-          position: "relative",
-          height: TOTAL_H,
-          flexShrink: 0,
-          overflow: "visible",   /* allow shadow to spill into workspace */
-          zIndex: 10,
-        }}>
+        <div style={{ position: "relative", height: TOTAL_H, flexShrink: 0 }}>
 
-          {/* ── Shadow layer: separate SVG, same path, blurred ── */}
-          {/* Sits BEHIND the main surface and traces its contour exactly */}
+          {/* SVG sculpted shape */}
           <svg
-            aria-hidden="true"
             style={{
               position: "absolute", top: 0, left: 0,
               width: "100%", height: TOTAL_H,
               overflow: "visible",
-              zIndex: 0,
-              /* CSS blur applied after SVG renders → follows rendered shape */
               filter: isLight
-                ? `blur(14px) opacity(0.55)`
-                : `blur(16px) opacity(0.85)`,
-              transform: "translateY(6px)",  /* shadow offset */
-            }}
-            viewBox={`0 0 1000 ${TOTAL_H}`}
-            preserveAspectRatio="none"
-          >
-            <path d={svgPath} fill={fsdark} />
-          </svg>
-
-          {/* ── Top highlight: ultra-thin lit-edge above shape ── */}
-          <svg
-            aria-hidden="true"
-            style={{
-              position: "absolute", top: 0, left: 0,
-              width: "100%", height: TOTAL_H,
-              overflow: "visible",
-              zIndex: 0,
-              filter: isLight ? `blur(1px) opacity(0.6)` : `blur(1px) opacity(0.12)`,
-              transform: "translateY(-2px)",
-            }}
-            viewBox={`0 0 1000 ${TOTAL_H}`}
-            preserveAspectRatio="none"
-          >
-            <path d={svgPath} fill={fslite} />
-          </svg>
-
-          {/* ── Main filled surface ────────────────────────────── */}
-          <svg
-            style={{
-              position: "absolute", top: 0, left: 0,
-              width: "100%", height: TOTAL_H,
-              overflow: "visible",
-              zIndex: 1,
+                ? `drop-shadow(0 5px 14px ${fsdark}bb) drop-shadow(0 -1px 3px ${fslite})`
+                : `drop-shadow(0 5px 14px ${fsdark}) drop-shadow(0 -1px 2px ${fslite}44)`,
             }}
             viewBox={`0 0 1000 ${TOTAL_H}`}
             preserveAspectRatio="none"
           >
             <path d={svgPath} fill={frameBg} />
-            {/* Top lit edge line */}
+            {/* Top highlight edge — lit from above */}
             <line x1="0" y1="0.5" x2="1000" y2="0.5"
               stroke={fslite} strokeWidth="1.5"
-              strokeOpacity={isLight ? 0.9 : 0.15}
+              strokeOpacity={isLight ? 0.95 : 0.15}
             />
           </svg>
 
