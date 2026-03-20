@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard, Bot, Microscope, PenTool,
   Megaphone, Library, Zap, Settings, Search, Sun, Moon, Palette, Code2,
+  ChevronDown, ChevronUp,
 } from "lucide-react";
 import { useTheme } from "@/contexts/theme";
 
@@ -142,13 +143,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [cmd, setCmd]             = useState("");
   const [hov, setHov]             = useState<number | null>(null);
   const [inputH, setInputH]       = useState(21);  /* natural single-line textarea height */
+  const [botMinimized, setBotMinimized] = useState(false);
   const frameRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [frameW, setFrameW]       = useState(1200);
 
   /* ── Dynamic bottom bar geometry based on textarea content ── */
   const botPocketH = Math.max(BOT_MIN_POCKET_H, inputH + BOT_V_PAD * 2);
-  const botTotalH  = BOT_BAR_H + botPocketH;
+  const botTotalH    = BOT_BAR_H + botPocketH;
+  const effectiveBotH = botMinimized ? BOT_BAR_H : botTotalH;
 
   function autoGrow(el: HTMLTextAreaElement) {
     el.style.height = "auto";
@@ -248,13 +251,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           overflowY: "auto",
           overflowX: "hidden",
           paddingTop: TOTAL_H,
-          paddingBottom: botTotalH,
+          paddingBottom: effectiveBotH,
           scrollbarWidth: "none",
           position: "relative",
           zIndex: 1,
+          transition: "padding-bottom 0.28s cubic-bezier(0.4,0,0.2,1)",
         }}>
           <style>{`::-webkit-scrollbar{display:none}`}</style>
-          <div style={{ padding: `24px 32px ${botTotalH + 16}px` }}>
+          <div style={{ padding: `24px 32px ${effectiveBotH + 16}px` }}>
             {children}
           </div>
         </div>
@@ -433,80 +437,129 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         ══════════════════════════════════════════════════════ */}
         <div style={{
           position: "absolute", bottom: 0, left: 0, right: 0,
-          height: botTotalH,
-          transition: "height 0.18s cubic-bezier(0.4,0,0.2,1)",
+          height: effectiveBotH,
+          transition: "height 0.28s cubic-bezier(0.4,0,0.2,1)",
           zIndex: 20, pointerEvents: "none",
         }}>
-          {/* Inverted pocket SVG — neumorphic raised with highlight */}
-          <svg
-            style={{
-              position: "absolute", top: 0, left: 0,
-              width: "100%", height: "100%",
-              overflow: "visible",
-              filter: isLight
-                ? `drop-shadow(4px 4px 12px ${fsdark}cc) drop-shadow(-3px -3px 8px ${fslite})`
-                : `drop-shadow(4px 4px 12px ${fsdark}) drop-shadow(-3px -3px 8px ${fslite}44)`,
-            }}
-            viewBox={`0 0 1000 ${botTotalH}`}
-            preserveAspectRatio="none"
-          >
-            <defs>
-              <linearGradient id="botNotchGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%"   stopColor={fslite} stopOpacity="0.55" />
-                <stop offset="42%"  stopColor={fslite} stopOpacity="0"    />
-              </linearGradient>
-            </defs>
-            <path d={svgBotPocket} fill={frameBg} />
-            <path d={svgBotPocket} fill="url(#botNotchGrad)" style={{ pointerEvents: "none" }} />
-          </svg>
+          {/* Inverted pocket SVG — only rendered when expanded */}
+          {!botMinimized && (
+            <svg
+              style={{
+                position: "absolute", top: 0, left: 0,
+                width: "100%", height: "100%",
+                overflow: "visible",
+                filter: isLight
+                  ? `drop-shadow(4px 4px 12px ${fsdark}cc) drop-shadow(-3px -3px 8px ${fslite})`
+                  : `drop-shadow(4px 4px 12px ${fsdark}) drop-shadow(-3px -3px 8px ${fslite}44)`,
+              }}
+              viewBox={`0 0 1000 ${botTotalH}`}
+              preserveAspectRatio="none"
+            >
+              <defs>
+                <linearGradient id="botNotchGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%"   stopColor={fslite} stopOpacity="0.55" />
+                  <stop offset="42%"  stopColor={fslite} stopOpacity="0"    />
+                </linearGradient>
+              </defs>
+              <path d={svgBotPocket} fill={frameBg} />
+              <path d={svgBotPocket} fill="url(#botNotchGrad)" style={{ pointerEvents: "none" }} />
+            </svg>
+          )}
 
-          {/* Input container — centered across FULL overlay (pocket + bar) for optical balance */}
-          <div style={{
-            position: "absolute",
-            top: 0, bottom: 0,
-            left: "50%", transform: "translateX(-50%)",
-            width: BOT_PILL_W,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            pointerEvents: "auto", zIndex: 2,
-          }}>
+          {/* Minimized bar — thin strip with a centered expand pill */}
+          {botMinimized && (
             <div style={{
-              display: "flex", alignItems: "center", gap: 8,
-              padding: "0 16px", minHeight: 66, borderRadius: 20,
-              background: frameBg,
-              boxShadow: insetSm,
-              width: "100%", position: "relative", overflow: "hidden",
-              transition: "box-shadow 0.2s ease",
+              position: "absolute", bottom: 0, left: 0, right: 0,
+              height: BOT_BAR_H,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              pointerEvents: "auto",
             }}>
-              <Search style={{
-                width: 14, height: 14, opacity: 0.35, flexShrink: 0,
-                color: "var(--foreground,#1e2030)",
-                position: "relative", zIndex: 1,
-              }} />
-              <textarea
-                ref={textareaRef}
-                value={cmd}
-                rows={1}
-                onChange={e => { setCmd(e.target.value); autoGrow(e.target); }}
-                onKeyDown={onCmd}
-                placeholder="Ask ATREYU anything…"
+              <button
+                onClick={() => setBotMinimized(false)}
                 style={{
-                  flex: 1, background: "transparent", border: "none", outline: "none",
-                  fontSize: 13, fontFamily: "inherit", lineHeight: "1.55",
-                  color: "var(--foreground,#1e2030)", opacity: 0.8,
-                  resize: "none", overflow: "hidden",
-                  height: inputH,
-                  position: "relative", zIndex: 1,
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "4px 14px 4px 12px",
+                  borderRadius: 20, border: "none", cursor: "pointer",
+                  background: frameBg, boxShadow: raisedSm,
+                  color: "var(--foreground,#1e2030)", opacity: 0.55,
+                  fontSize: 10, fontFamily: "inherit", letterSpacing: "0.06em",
+                  transition: "opacity 0.15s",
                 }}
-              />
-              <kbd style={{
-                fontFamily: "var(--app-font-mono)", fontSize: 9, letterSpacing: "0.10em",
-                opacity: 0.28, background: "rgba(128,128,128,0.08)",
-                border: "1px solid rgba(128,128,128,0.15)", borderRadius: 5,
-                padding: "2px 6px", flexShrink: 0,
-                position: "relative", zIndex: 1,
-              }}>⌘K</kbd>
+                onMouseEnter={e => (e.currentTarget.style.opacity = "0.85")}
+                onMouseLeave={e => (e.currentTarget.style.opacity = "0.55")}
+              >
+                <ChevronUp style={{ width: 11, height: 11 }} />
+                Ask ATREYU anything
+              </button>
             </div>
-          </div>
+          )}
+
+          {/* Input container — only rendered when expanded */}
+          {!botMinimized && (
+            <div style={{
+              position: "absolute",
+              top: 0, bottom: 0,
+              left: "50%", transform: "translateX(-50%)",
+              width: BOT_PILL_W,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              pointerEvents: "auto", zIndex: 2,
+            }}>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "0 16px", minHeight: 66, borderRadius: 20,
+                background: frameBg,
+                boxShadow: insetSm,
+                width: "100%", position: "relative", overflow: "hidden",
+                transition: "box-shadow 0.2s ease",
+              }}>
+                <Search style={{
+                  width: 14, height: 14, opacity: 0.35, flexShrink: 0,
+                  color: "var(--foreground,#1e2030)",
+                  position: "relative", zIndex: 1,
+                }} />
+                <textarea
+                  ref={textareaRef}
+                  value={cmd}
+                  rows={1}
+                  onChange={e => { setCmd(e.target.value); autoGrow(e.target); }}
+                  onKeyDown={onCmd}
+                  placeholder="Ask ATREYU anything…"
+                  style={{
+                    flex: 1, background: "transparent", border: "none", outline: "none",
+                    fontSize: 13, fontFamily: "inherit", lineHeight: "1.55",
+                    color: "var(--foreground,#1e2030)", opacity: 0.8,
+                    resize: "none", overflow: "hidden",
+                    height: inputH,
+                    position: "relative", zIndex: 1,
+                  }}
+                />
+                <kbd style={{
+                  fontFamily: "var(--app-font-mono)", fontSize: 9, letterSpacing: "0.10em",
+                  opacity: 0.28, background: "rgba(128,128,128,0.08)",
+                  border: "1px solid rgba(128,128,128,0.15)", borderRadius: 5,
+                  padding: "2px 6px", flexShrink: 0,
+                  position: "relative", zIndex: 1,
+                }}>⌘K</kbd>
+                {/* Collapse toggle — sits at the right edge of the pill */}
+                <button
+                  onClick={() => setBotMinimized(true)}
+                  title="Minimize"
+                  style={{
+                    width: 22, height: 22, borderRadius: 7, border: "none",
+                    background: frameBg, boxShadow: raisedSm,
+                    cursor: "pointer", flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    opacity: 0.4, transition: "opacity 0.15s",
+                    position: "relative", zIndex: 1,
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = "0.85")}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = "0.4")}
+                >
+                  <ChevronDown style={{ width: 11, height: 11 }} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
       </div>{/* end frame */}
