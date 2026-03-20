@@ -203,39 +203,41 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </svg>
 
 
-          {/* Center logo — each letter in its own inset tile */}
+          {/* Center logo — debossed letters, no boxes, letter shapes pressed into surface */}
           <div style={{
             position: "absolute", top: 0, left: 0, right: 0,
             height: BAR_H,
             display: "flex", alignItems: "center", justifyContent: "center",
             pointerEvents: "none",
-            gap: 5,
+            gap: 1,
           }}>
             {["A","T","R","E","Y","U"].map((letter) => (
-              <div
+              <span
                 key={letter}
                 style={{
-                  width: 38, height: 42,
-                  borderRadius: 10,
-                  background: frameBg,
-                  boxShadow: isLight
-                    ? "inset 3px 3px 8px rgba(130,140,168,0.60), inset -2px -2px 6px rgba(255,255,255,0.90)"
-                    : "inset 3px 3px 8px rgba(0,0,0,0.60), inset -2px -2px 6px rgba(255,255,255,0.06)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  userSelect: "none",
-                }}
-              >
-                <span style={{
                   fontFamily: "'Raleway', sans-serif",
                   fontWeight: 200,
-                  fontSize: 20,
-                  letterSpacing: "0.02em",
-                  color: isLight ? "rgba(58,66,102,0.70)" : "rgba(180,192,220,0.55)",
+                  fontSize: 34,
+                  letterSpacing: "0.12em",
                   lineHeight: 1,
-                }}>
-                  {letter}
-                </span>
-              </div>
+                  userSelect: "none",
+                  /* Debossed / carved-in effect:
+                     text color = near-surface tone (the "floor" of the carving)
+                     shadow top-left = dark (surface casting shadow into the groove)
+                     shadow bottom-right = white (light bouncing off the carved lower edge) */
+                  color: isLight
+                    ? "rgba(165,173,196,1)"
+                    : "rgba(22,28,46,1)",
+                  textShadow: isLight
+                    ? `-1px -1px 1px rgba(110,120,150,0.75),
+                        1px  1px 1px rgba(255,255,255,0.95),
+                        0px  0px 3px rgba(110,120,150,0.25)`
+                    : `-1px -1px 1px rgba(0,0,0,0.9),
+                        1px  1px 1px rgba(60,75,115,0.35)`,
+                }}
+              >
+                {letter}
+              </span>
             ))}
           </div>
 
