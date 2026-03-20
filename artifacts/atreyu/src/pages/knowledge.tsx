@@ -70,7 +70,7 @@ export default function KnowledgeBase() {
           <DialogTrigger asChild>
             <Button className="bg-primary hover:bg-primary/90 text-primary-foreground"><Plus className="mr-2 h-4 w-4"/> Add Source</Button>
           </DialogTrigger>
-          <DialogContent className="glass-panel border-white/10 bg-black/90">
+          <DialogContent className="rounded-2xl border border-border bg-popover">
             <DialogHeader>
               <DialogTitle>Inject Knowledge</DialogTitle>
             </DialogHeader>
@@ -79,7 +79,7 @@ export default function KnowledgeBase() {
                 <FormField control={form.control} name="title" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Source Title</FormLabel>
-                    <FormControl><Input {...field} className="bg-white/5 border-white/10" /></FormControl>
+                    <FormControl><Input {...field} className="bg-muted/50 border-border" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -88,11 +88,11 @@ export default function KnowledgeBase() {
                     <FormLabel>Type</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
-                        <SelectTrigger className="bg-white/5 border-white/10">
+                        <SelectTrigger className="bg-muted/50 border-border">
                           <SelectValue />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent className="bg-black border-white/10 text-white">
+                      <SelectContent className="bg-black border-border text-white">
                         <SelectItem value="note">Text Note</SelectItem>
                         <SelectItem value="url">URL Reference</SelectItem>
                       </SelectContent>
@@ -103,12 +103,12 @@ export default function KnowledgeBase() {
                 <FormField control={form.control} name="content" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Content / Knowledge</FormLabel>
-                    <FormControl><Textarea {...field} className="bg-white/5 border-white/10 min-h-[150px]" /></FormControl>
+                    <FormControl><Textarea {...field} className="bg-muted/50 border-border min-h-[150px]" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
                 <FormField control={form.control} name="includeInContext" render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border border-white/10 bg-white/5 p-4">
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border border-border bg-muted/50 p-4">
                     <div className="space-y-0.5">
                       <FormLabel className="text-base">Auto-Inject to Prompts</FormLabel>
                       <p className="text-sm text-muted-foreground">Always include this context when generating content.</p>
@@ -129,10 +129,10 @@ export default function KnowledgeBase() {
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1,2,3,4].map(i => <div key={i} className="h-48 rounded-xl bg-white/5 animate-pulse" />)}
+          {[1,2,3,4].map(i => <div key={i} className="h-48 rounded-xl bg-muted/50 animate-pulse" />)}
         </div>
       ) : !items?.length ? (
-        <Card className="glass-panel border-white/5 bg-white/5 border-dashed">
+        <Card className="rounded-2xl border border-border bg-card border-dashed">
           <CardContent className="flex flex-col items-center justify-center h-64 text-center">
             <Library className="h-12 w-12 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-medium text-foreground mb-2">Knowledge Base Empty</h3>
@@ -142,10 +142,10 @@ export default function KnowledgeBase() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {items.map(item => (
-            <Card key={item.id} className="glass-panel border-white/5 bg-black/40 hover:bg-white/5 transition-colors group flex flex-col">
+            <Card key={item.id} className="glass-panel border-border bg-muted/60 hover:bg-muted/50 transition-colors group flex flex-col">
               <CardHeader className="pb-3 flex-row justify-between items-start space-y-0">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+                  <div className="h-10 w-10 rounded-lg bg-muted/50 border border-border flex items-center justify-center">
                     {getIconForType(item.type)}
                   </div>
                   <div>
@@ -164,8 +164,8 @@ export default function KnowledgeBase() {
               </CardHeader>
               <CardContent className="flex-1 flex flex-col">
                 <p className="text-sm text-gray-400 line-clamp-3 mb-4 flex-1">{item.content}</p>
-                <div className="flex items-center justify-between mt-auto pt-4 border-t border-white/5">
-                  <Badge variant="outline" className={item.includeInContext ? "bg-primary/20 text-primary border-primary/30" : "bg-white/5 text-gray-500 border-white/10"}>
+                <div className="flex items-center justify-between mt-auto pt-4 border-t border-border">
+                  <Badge variant="outline" className={item.includeInContext ? "bg-primary/20 text-primary border-primary/30" : "bg-muted/50 text-gray-500 border-border"}>
                     {item.includeInContext ? "Auto-Inject: ON" : "Auto-Inject: OFF"}
                   </Badge>
                   <span className="text-xs text-muted-foreground">{format(new Date(item.createdAt), 'MMM d, yy')}</span>

@@ -79,7 +79,7 @@ export default function Automations() {
           <DialogTrigger asChild>
             <Button className="bg-primary hover:bg-primary/90 text-primary-foreground"><Plus className="mr-2 h-4 w-4"/> New Sequence</Button>
           </DialogTrigger>
-          <DialogContent className="glass-panel border-white/10 bg-black/90">
+          <DialogContent className="rounded-2xl border border-border bg-popover">
             <DialogHeader>
               <DialogTitle>Configure Sequence</DialogTitle>
             </DialogHeader>
@@ -88,14 +88,14 @@ export default function Automations() {
                 <FormField control={form.control} name="title" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Sequence Name</FormLabel>
-                    <FormControl><Input {...field} className="bg-white/5 border-white/10" /></FormControl>
+                    <FormControl><Input {...field} className="bg-muted/50 border-border" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
                 <FormField control={form.control} name="description" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Description</FormLabel>
-                    <FormControl><Textarea {...field} className="bg-white/5 border-white/10" /></FormControl>
+                    <FormControl><Textarea {...field} className="bg-muted/50 border-border" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -103,14 +103,14 @@ export default function Automations() {
                   <FormField control={form.control} name="trigger" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Trigger / Condition</FormLabel>
-                      <FormControl><Input {...field} placeholder="e.g. Daily at 9am" className="bg-white/5 border-white/10" /></FormControl>
+                      <FormControl><Input {...field} placeholder="e.g. Daily at 9am" className="bg-muted/50 border-border" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
                   <FormField control={form.control} name="action" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Action / Execution</FormLabel>
-                      <FormControl><Input {...field} placeholder="e.g. Generate LinkedIn Post" className="bg-white/5 border-white/10" /></FormControl>
+                      <FormControl><Input {...field} placeholder="e.g. Generate LinkedIn Post" className="bg-muted/50 border-border" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -126,10 +126,10 @@ export default function Automations() {
 
       {isLoading ? (
         <div className="grid grid-cols-1 gap-6">
-          {[1,2,3].map(i => <div key={i} className="h-40 rounded-xl bg-white/5 animate-pulse" />)}
+          {[1,2,3].map(i => <div key={i} className="h-40 rounded-xl bg-muted/50 animate-pulse" />)}
         </div>
       ) : !automations?.length ? (
-        <Card className="glass-panel border-white/5 bg-white/5 border-dashed">
+        <Card className="rounded-2xl border border-border bg-card border-dashed">
           <CardContent className="flex flex-col items-center justify-center h-64 text-center">
             <Zap className="h-12 w-12 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-medium text-foreground mb-2">No sequences configured</h3>
@@ -139,7 +139,7 @@ export default function Automations() {
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {automations.map(auto => (
-            <Card key={auto.id} className={`glass-panel transition-all duration-300 ${auto.enabled ? 'border-primary/30 bg-primary/5 shadow-[0_0_20px_rgba(0,150,255,0.05)]' : 'border-white/5 bg-black/40'}`}>
+            <Card key={auto.id} className={`glass-panel transition-all duration-300 ${auto.enabled ? 'border-primary/30 bg-primary/5 shadow-[0_0_20px_rgba(0,150,255,0.05)]' : 'border-border bg-muted/60'}`}>
               <CardContent className="p-6 flex flex-col md:flex-row gap-6 justify-between items-start md:items-center">
                 <div className="flex-1 space-y-4 w-full">
                   <div className="flex items-center justify-between md:justify-start gap-4">
@@ -152,7 +152,7 @@ export default function Automations() {
                     </div>
                   </div>
                   
-                  <div className="flex flex-col md:flex-row items-start md:items-center gap-4 text-sm font-mono bg-black/40 p-3 rounded-lg border border-white/5">
+                  <div className="flex flex-col md:flex-row items-start md:items-center gap-4 text-sm font-mono bg-muted/60 p-3 rounded-lg border border-border">
                     <div className="flex items-center gap-2 text-amber-400">
                       <Clock className="h-4 w-4" />
                       {auto.trigger}
@@ -169,12 +169,12 @@ export default function Automations() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 w-full md:w-auto justify-end border-t border-white/5 pt-4 md:pt-0 md:border-0">
+                <div className="flex items-center gap-4 w-full md:w-auto justify-end border-t border-border pt-4 md:pt-0 md:border-0">
                   <div className="hidden md:flex items-center gap-2 mr-4">
                     <span className="text-xs font-medium text-muted-foreground">Status</span>
                     <Switch checked={auto.enabled} onCheckedChange={() => handleToggle(auto.id)} />
                   </div>
-                  <Button variant="outline" className="bg-white/5 border-white/10 hover:bg-white/10" onClick={() => handleRun(auto.id)}>
+                  <Button variant="outline" className="bg-muted/50 border-border hover:bg-muted" onClick={() => handleRun(auto.id)}>
                     <Play className="h-4 w-4 mr-2" /> Force Run
                   </Button>
                   <Button 

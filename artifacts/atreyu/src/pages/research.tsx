@@ -55,7 +55,7 @@ export default function ResearchLab() {
       case 'completed': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
       case 'running': return 'bg-primary/20 text-primary border-primary/30';
       case 'failed': return 'bg-destructive/20 text-destructive border-destructive/30';
-      default: return 'bg-white/10 text-gray-300 border-white/20';
+      default: return 'bg-muted text-foreground/70 border-white/20';
     }
   };
 
@@ -74,7 +74,7 @@ export default function ResearchLab() {
           <DialogTrigger asChild>
             <Button className="bg-primary hover:bg-primary/90 text-primary-foreground">Launch Job</Button>
           </DialogTrigger>
-          <DialogContent className="glass-panel border-white/10 bg-black/90">
+          <DialogContent className="rounded-2xl border border-border bg-popover">
             <DialogHeader>
               <DialogTitle>Deploy Research Agent</DialogTitle>
             </DialogHeader>
@@ -83,7 +83,7 @@ export default function ResearchLab() {
                 <FormField control={form.control} name="title" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Job Title</FormLabel>
-                    <FormControl><Input {...field} className="bg-white/5 border-white/10" /></FormControl>
+                    <FormControl><Input {...field} className="bg-muted/50 border-border" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -92,11 +92,11 @@ export default function ResearchLab() {
                     <FormLabel>Source Type</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
-                        <SelectTrigger className="bg-white/5 border-white/10">
+                        <SelectTrigger className="bg-muted/50 border-border">
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent className="bg-black border-white/10 text-white">
+                      <SelectContent className="bg-black border-border text-white">
                         <SelectItem value="website">Website Scraping</SelectItem>
                         <SelectItem value="competitor">Competitor Intel</SelectItem>
                         <SelectItem value="reviews">Customer Reviews</SelectItem>
@@ -109,7 +109,7 @@ export default function ResearchLab() {
                 <FormField control={form.control} name="targets" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Targets (URLs, Keywords)</FormLabel>
-                    <FormControl><Textarea {...field} className="bg-white/5 border-white/10 min-h-[100px]" placeholder="https://..." /></FormControl>
+                    <FormControl><Textarea {...field} className="bg-muted/50 border-border min-h-[100px]" placeholder="https://..." /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -124,10 +124,10 @@ export default function ResearchLab() {
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {[1,2,3].map(i => <div key={i} className="h-48 rounded-xl bg-white/5 animate-pulse" />)}
+          {[1,2,3].map(i => <div key={i} className="h-48 rounded-xl bg-muted/50 animate-pulse" />)}
         </div>
       ) : !jobs?.length ? (
-        <Card className="glass-panel border-white/5 bg-white/5 border-dashed">
+        <Card className="rounded-2xl border border-border bg-card border-dashed">
           <CardContent className="flex flex-col items-center justify-center h-64 text-center">
             <Globe className="h-12 w-12 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-medium text-foreground mb-2">No active research jobs</h3>
@@ -137,7 +137,7 @@ export default function ResearchLab() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {jobs.map(job => (
-            <Card key={job.id} className="glass-panel border-white/5 bg-white/5 flex flex-col group hover:border-primary/30 transition-all">
+            <Card key={job.id} className="rounded-2xl border border-border bg-card flex flex-col group hover:border-primary/30 transition-all">
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start">
                   <Badge variant="outline" className={`capitalize ${getStatusColor(job.status)}`}>{job.status}</Badge>
@@ -162,17 +162,17 @@ export default function ResearchLab() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex-1 flex flex-col justify-end">
-                <div className="bg-black/40 p-3 rounded-lg text-xs text-muted-foreground line-clamp-2 font-mono mb-4 border border-white/5">
+                <div className="bg-muted/60 p-3 rounded-lg text-xs text-muted-foreground line-clamp-2 font-mono mb-4 border border-border">
                   {job.targets}
                 </div>
                 
                 <Dialog open={viewResultsId === job.id} onOpenChange={(open) => setViewResultsId(open ? job.id : null)}>
                   <DialogTrigger asChild>
-                    <Button variant="outline" className="w-full bg-white/5 border-white/10 hover:bg-white/10 hover:text-white" disabled={job.status !== 'completed'}>
+                    <Button variant="outline" className="w-full bg-muted/50 border-border hover:bg-muted hover:text-foreground" disabled={job.status !== 'completed'}>
                       View Intelligence <ChevronRight className="h-4 w-4 ml-2" />
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto glass-panel border-white/10 bg-black/95">
+                  <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto rounded-2xl border border-border bg-popover">
                     <DialogHeader>
                       <DialogTitle className="flex items-center gap-2">
                         <FileText className="h-5 w-5 text-primary" />
@@ -184,10 +184,10 @@ export default function ResearchLab() {
                         <div className="text-center py-8 text-muted-foreground animate-pulse">Compiling findings...</div>
                       ) : results?.length ? (
                         results.map((r, i) => (
-                          <div key={i} className="bg-white/5 border border-white/10 rounded-xl p-6">
+                          <div key={i} className="bg-muted/50 border border-border rounded-xl p-6">
                             {r.title && <h4 className="font-bold text-lg mb-2">{r.title}</h4>}
                             {r.url && <a href={r.url} target="_blank" className="text-primary text-sm hover:underline mb-4 block">{r.url}</a>}
-                            <div className="prose prose-invert max-w-none text-sm text-gray-300">
+                            <div className="prose dark:prose-invert max-w-none text-sm text-foreground/70">
                               {r.content}
                             </div>
                           </div>

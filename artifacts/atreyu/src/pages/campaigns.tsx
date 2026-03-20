@@ -49,7 +49,7 @@ export default function Campaigns() {
       active: "bg-primary/20 text-primary border-primary/30",
       completed: "bg-emerald-500/20 text-emerald-500 border-emerald-500/30"
     };
-    return <Badge variant="outline" className={`capitalize ${colors[status] || 'bg-white/10 text-white border-white/20'}`}>{status}</Badge>;
+    return <Badge variant="outline" className={`capitalize ${colors[status] || 'bg-muted text-white border-white/20'}`}>{status}</Badge>;
   };
 
   return (
@@ -67,7 +67,7 @@ export default function Campaigns() {
           <DialogTrigger asChild>
             <Button className="bg-primary hover:bg-primary/90 text-primary-foreground"><Plus className="mr-2 h-4 w-4"/> New Campaign</Button>
           </DialogTrigger>
-          <DialogContent className="glass-panel border-white/10 bg-black/90">
+          <DialogContent className="rounded-2xl border border-border bg-popover">
             <DialogHeader>
               <DialogTitle>Initialize Campaign</DialogTitle>
             </DialogHeader>
@@ -76,14 +76,14 @@ export default function Campaigns() {
                 <FormField control={form.control} name="title" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Campaign Name</FormLabel>
-                    <FormControl><Input {...field} className="bg-white/5 border-white/10" /></FormControl>
+                    <FormControl><Input {...field} className="bg-muted/50 border-border" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
                 <FormField control={form.control} name="description" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Brief Description</FormLabel>
-                    <FormControl><Textarea {...field} className="bg-white/5 border-white/10" /></FormControl>
+                    <FormControl><Textarea {...field} className="bg-muted/50 border-border" /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -91,14 +91,14 @@ export default function Campaigns() {
                   <FormField control={form.control} name="objective" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Primary Objective</FormLabel>
-                      <FormControl><Input {...field} className="bg-white/5 border-white/10" placeholder="e.g. Lead Gen" /></FormControl>
+                      <FormControl><Input {...field} className="bg-muted/50 border-border" placeholder="e.g. Lead Gen" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
                   <FormField control={form.control} name="audience" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Target Audience</FormLabel>
-                      <FormControl><Input {...field} className="bg-white/5 border-white/10" placeholder="e.g. CMOs" /></FormControl>
+                      <FormControl><Input {...field} className="bg-muted/50 border-border" placeholder="e.g. CMOs" /></FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
@@ -114,10 +114,10 @@ export default function Campaigns() {
 
       {isLoading ? (
         <div className="grid grid-cols-1 gap-4">
-          {[1,2,3].map(i => <div key={i} className="h-32 rounded-xl bg-white/5 animate-pulse" />)}
+          {[1,2,3].map(i => <div key={i} className="h-32 rounded-xl bg-muted/50 animate-pulse" />)}
         </div>
       ) : !campaigns?.length ? (
-        <Card className="glass-panel border-white/5 bg-white/5 border-dashed">
+        <Card className="rounded-2xl border border-border bg-card border-dashed">
           <CardContent className="flex flex-col items-center justify-center h-64 text-center">
             <Megaphone className="h-12 w-12 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-medium text-foreground mb-2">No campaigns found</h3>
@@ -127,7 +127,7 @@ export default function Campaigns() {
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {campaigns.map(campaign => (
-            <Card key={campaign.id} className="glass-panel border-white/5 bg-black/40 hover:bg-white/5 transition-colors group">
+            <Card key={campaign.id} className="glass-panel border-border bg-muted/60 hover:bg-muted/50 transition-colors group">
               <CardContent className="p-6 flex flex-col md:flex-row gap-6 justify-between items-start md:items-center">
                 <div className="flex-1 space-y-3">
                   <div className="flex items-center gap-3">
@@ -140,13 +140,13 @@ export default function Campaigns() {
                     {campaign.objective && (
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Target className="h-4 w-4 text-primary/70" />
-                        <span className="font-medium text-gray-300">{campaign.objective}</span>
+                        <span className="font-medium text-foreground/70">{campaign.objective}</span>
                       </div>
                     )}
                     {campaign.audience && (
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Users className="h-4 w-4 text-primary/70" />
-                        <span className="font-medium text-gray-300">{campaign.audience}</span>
+                        <span className="font-medium text-foreground/70">{campaign.audience}</span>
                       </div>
                     )}
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -157,7 +157,7 @@ export default function Campaigns() {
                 </div>
 
                 <div className="flex items-center gap-2 w-full md:w-auto justify-end">
-                  <Button variant="outline" className="bg-white/5 border-white/10 hover:bg-white/10">Manage Assets</Button>
+                  <Button variant="outline" className="bg-muted/50 border-border hover:bg-muted">Manage Assets</Button>
                   <Button 
                     variant="ghost" 
                     size="icon" 

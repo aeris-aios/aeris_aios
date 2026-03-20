@@ -62,8 +62,8 @@ export default function Assistant() {
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col md:flex-row gap-6 animate-in fade-in">
       {/* Sidebar */}
-      <Card className="w-full md:w-64 flex-shrink-0 flex flex-col glass-panel border-white/5 bg-white/5">
-        <div className="p-4 border-b border-white/5">
+      <Card className="w-full md:w-64 flex-shrink-0 flex flex-col rounded-2xl border border-border bg-card">
+        <div className="p-4 border-b border-border">
           <Button onClick={handleCreate} disabled={creatingConvo} className="w-full bg-primary/20 text-primary hover:bg-primary/30 border border-primary/30">
             {creatingConvo ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
             New Session
@@ -77,7 +77,7 @@ export default function Assistant() {
               <button
                 key={c.id}
                 onClick={() => setActiveId(c.id)}
-                className={`w-full text-left px-3 py-3 text-sm rounded-lg transition-all flex items-center gap-3 ${activeId === c.id ? 'bg-white/10 text-foreground' : 'text-muted-foreground hover:bg-white/5'}`}
+                className={`w-full text-left px-3 py-3 text-sm rounded-lg transition-all flex items-center gap-3 ${activeId === c.id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50'}`}
               >
                 <MessageSquare className="h-4 w-4 shrink-0" />
                 <span className="truncate">{c.title}</span>
@@ -90,9 +90,9 @@ export default function Assistant() {
       </Card>
 
       {/* Main Chat Area */}
-      <Card className="flex-1 flex flex-col min-w-0 glass-panel border-white/5 bg-white/5">
+      <Card className="flex-1 flex flex-col min-w-0 rounded-2xl border border-border bg-card">
         {/* Header */}
-        <div className="p-4 border-b border-white/5 flex justify-between items-center bg-black/20 rounded-t-xl">
+        <div className="p-4 border-b border-border flex justify-between items-center bg-black/20 rounded-t-xl">
           <h2 className="font-medium text-foreground">
             {activeConversation ? activeConversation.title : "Select a session"}
           </h2>
@@ -100,7 +100,7 @@ export default function Assistant() {
             variant="outline" 
             size="sm" 
             onClick={() => setDeepThink(!deepThink)}
-            className={`transition-all duration-300 ${deepThink ? 'bg-primary/20 border-primary/50 text-primary shadow-[0_0_15px_rgba(0,150,255,0.2)]' : 'bg-transparent border-white/10 text-muted-foreground'}`}
+            className={`transition-all duration-300 ${deepThink ? 'bg-primary/20 border-primary/50 text-primary shadow-[0_0_15px_rgba(0,150,255,0.2)]' : 'bg-transparent border-border text-muted-foreground'}`}
           >
             <BrainCircuit className="h-4 w-4 mr-2" />
             {deepThink ? "Opus Engine Active" : "Sonnet Engine"}
@@ -120,8 +120,8 @@ export default function Assistant() {
             <>
               {activeConversation?.messages.map((m) => (
                 <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[80%] rounded-2xl px-5 py-4 ${m.role === 'user' ? 'bg-primary/20 border border-primary/30 text-white' : 'bg-white/5 border border-white/10 text-gray-200'}`}>
-                    <div className="prose prose-invert max-w-none text-sm leading-relaxed">
+                  <div className={`max-w-[80%] rounded-2xl px-5 py-4 ${m.role === 'user' ? 'bg-primary/20 border border-primary/30 text-white' : 'bg-muted/50 border border-border text-gray-200'}`}>
+                    <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed">
                       <ReactMarkdown>{m.content}</ReactMarkdown>
                     </div>
                   </div>
@@ -129,8 +129,8 @@ export default function Assistant() {
               ))}
               {isStreaming && (
                 <div className="flex justify-start">
-                  <div className="max-w-[80%] rounded-2xl px-5 py-4 bg-white/5 border border-white/10 text-gray-200">
-                    <div className="prose prose-invert max-w-none text-sm leading-relaxed">
+                  <div className="max-w-[80%] rounded-2xl px-5 py-4 bg-muted/50 border border-border text-gray-200">
+                    <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed">
                       <ReactMarkdown>{streamData}</ReactMarkdown>
                     </div>
                     <span className="inline-block w-1.5 h-4 ml-1 bg-primary animate-pulse align-middle" />
@@ -142,14 +142,14 @@ export default function Assistant() {
         </div>
 
         {/* Input */}
-        <div className="p-4 border-t border-white/5 bg-black/20 rounded-b-xl">
+        <div className="p-4 border-t border-border bg-black/20 rounded-b-xl">
           <form onSubmit={handleSend} className="relative flex items-center">
             <Input 
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={activeId ? "Command Atreyu..." : "Start a session first..."}
               disabled={!activeId || isStreaming}
-              className="w-full bg-white/5 border-white/10 h-14 pl-4 pr-14 rounded-xl text-base focus-visible:ring-primary/50"
+              className="w-full bg-muted/50 border-border h-14 pl-4 pr-14 rounded-xl text-base focus-visible:ring-primary/50"
             />
             <Button 
               type="submit" 

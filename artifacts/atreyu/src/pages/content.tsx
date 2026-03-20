@@ -58,7 +58,7 @@ export default function ContentStudio() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Controls */}
-        <Card className="lg:col-span-4 glass-panel border-white/5 bg-white/5 h-fit">
+        <Card className="lg:col-span-4 rounded-2xl border border-border bg-card h-fit">
           <CardHeader>
             <CardTitle className="text-lg">Synthesis Parameters</CardTitle>
           </CardHeader>
@@ -66,10 +66,10 @@ export default function ContentStudio() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-muted-foreground">Asset Type</label>
               <Select value={formData.type} onValueChange={(v) => setFormData({...formData, type: v})}>
-                <SelectTrigger className="bg-black/40 border-white/10">
+                <SelectTrigger className="bg-muted/60 border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-black border-white/10 text-white">
+                <SelectContent className="bg-black border-border text-white">
                   <SelectItem value="ad_copy">Ad Copy</SelectItem>
                   <SelectItem value="email">Email Sequence</SelectItem>
                   <SelectItem value="landing_page">Landing Page</SelectItem>
@@ -85,7 +85,7 @@ export default function ContentStudio() {
                 value={formData.platform}
                 onChange={(e) => setFormData({...formData, platform: e.target.value})}
                 placeholder="Meta, LinkedIn, Google..."
-                className="bg-black/40 border-white/10" 
+                className="bg-muted/60 border-border" 
               />
             </div>
 
@@ -95,7 +95,7 @@ export default function ContentStudio() {
                 value={formData.tone}
                 onChange={(e) => setFormData({...formData, tone: e.target.value})}
                 placeholder="Persuasive, technical, witty..."
-                className="bg-black/40 border-white/10" 
+                className="bg-muted/60 border-border" 
               />
             </div>
 
@@ -105,7 +105,7 @@ export default function ContentStudio() {
                 value={formData.audience}
                 onChange={(e) => setFormData({...formData, audience: e.target.value})}
                 placeholder="SaaS Founders, D2C Marketers..."
-                className="bg-black/40 border-white/10" 
+                className="bg-muted/60 border-border" 
               />
             </div>
 
@@ -115,7 +115,7 @@ export default function ContentStudio() {
                 value={formData.context}
                 onChange={(e) => setFormData({...formData, context: e.target.value})}
                 placeholder="Product details, unique selling points, offers..."
-                className="bg-black/40 border-white/10 min-h-[120px]" 
+                className="bg-muted/60 border-border min-h-[120px]" 
               />
             </div>
 
@@ -131,11 +131,11 @@ export default function ContentStudio() {
         </Card>
 
         {/* Output */}
-        <Card className="lg:col-span-8 glass-panel border-white/5 bg-black/40 flex flex-col min-h-[600px]">
-          <CardHeader className="flex flex-row items-center justify-between border-b border-white/5 bg-white/5">
+        <Card className="lg:col-span-8 glass-panel border-border bg-muted/60 flex flex-col min-h-[600px]">
+          <CardHeader className="flex flex-row items-center justify-between border-b border-border bg-muted/50">
             <CardTitle className="text-lg">Generated Output</CardTitle>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" disabled={!generatedText || isStreaming} className="bg-transparent border-white/10 hover:bg-white/10">
+              <Button variant="outline" size="sm" disabled={!generatedText || isStreaming} className="bg-transparent border-border hover:bg-muted">
                 <Download className="h-4 w-4 mr-2" /> Export
               </Button>
               <Button onClick={handleSave} size="sm" disabled={!generatedText || isStreaming || isSaving} className="bg-primary/20 text-primary hover:bg-primary/30 border border-primary/30">
@@ -145,7 +145,7 @@ export default function ContentStudio() {
           </CardHeader>
           <CardContent className="flex-1 p-8 overflow-y-auto">
             {generatedText ? (
-              <div className="prose prose-invert max-w-none">
+              <div className="prose dark:prose-invert max-w-none">
                 <ReactMarkdown>{generatedText}</ReactMarkdown>
                 {isStreaming && <span className="inline-block w-2 h-5 ml-1 bg-primary animate-pulse align-middle" />}
               </div>
