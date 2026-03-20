@@ -1,0 +1,506 @@
+mportant clarification first: Claude Code itself is not an embeddable component. It's Anthropic's CLI tool tied to a terminal environment. You cannot drop it into a web app as a widget.
+
+What you can do is build a Claude-powered coding assistant that replicates the Claude Code experience using the Anthropic SDK + Agent SDK. Here's the architecture and code you'd give Replit:
+
+Architecture Overview
+
+ATREYU (Your AIOS)
+├── Frontend (React)
+│   ├── File Explorer (upload/browse)
+│   ├── Code Editor (Monaco Editor - same as VS Code)
+│   ├── Chat Panel (Claude interaction)
+│   └── Terminal Emulator
+├── Backend (Node.js/Express or Python/FastAPI)
+│   ├── File Management API
+│   ├── Git Integration (simple-git)
+│   └── Claude Agent SDK integration
+└── Storage (uploaded projects/files)
+Key Dependencies
+
+{
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@monaco-editor/react": "^4.6.0",
+    "isomorphic-git": "^1.25.0",
+    "express": "^4.18.0",
+    "multer": "^1.4.5",
+    "xterm": "^5.3.0",
+    "react": "^18.0.0"
+  }
+}
+Core Backend — Claude Agent Integration
+
+// server/claude-agent.ts
+import Anthropic from "@anthropic-ai/sdk";
+import fs from "fs/promises";
+import path from "path";
+
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Tool definitions that let Claude read/edit files in the user's project
+const tools: Anthropic.Tool[] = [
+  {
+    name: "read_file",
+    description: "Read a file from the user's project",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path: { type: "string", description: "Relative file path" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "write_file",
+    description: "Write or create a file in the user's project",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path: { type: "string", description: "Relative file path" },
+        content: { type: "string", description: "File content" },
+      },
+      required: ["path", "content"],
+    },
+  },
+  {
+    name: "list_files",
+    description: "List files in a directory",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        directory: { type: "string", description: "Directory path" },
+      },
+      required: ["directory"],
+    },
+  },
+  {
+    name: "search_files",
+    description: "Search for a pattern across project files",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        pattern: { type: "string", description: "Search pattern (regex)" },
+        directory: { type: "string", description: "Directory to search" },
+      },
+      required: ["pattern"],
+    },
+  },
+  {
+    name: "run_command",
+    description: "Run a shell command in the project directory",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        command: { type: "string", description: "Shell command to execute" },
+      },
+      required: ["command"],
+    },
+  },
+];
+
+// Execute tool calls against the user's project directory
+async function executeTool(
+  toolName: string,
+  input: Record<string, string>,
+  projectDir: string
+): Promise<string> {
+  const safePath = (p: string) => {
+    const resolved = path.resolve(projectDir, p);
+    if (!resolved.startsWith(path.resolve(projectDir))) {
+      throw new Error("Path traversal blocked");
+    }
+    return resolved;
+  };
+
+  switch (toolName) {
+    case "read_file":
+      return await fs.readFile(safePath(input.path), "utf-8");
+
+    case "write_file":
+      const filePath = safePath(input.path);
+      await fs.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.writeFile(filePath, input.content);
+      return `Wrote ${input.path}`;
+
+    case "list_files":
+      const dir = safePath(input.directory || ".");
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      return entries
+        .map((e) => `${e.isDirectory() ? "📁" : "📄"} ${e.name}`)
+        .join("\n");
+
+    case "search_files":
+      const { execSync } = require("child_process");
+      const result = execSync(
+        `grep -rn "${input.pattern.replace(/"/g, '\\"')}" ${input.directory || "."} --include='*' -l 2>/dev/null || true`,
+        { cwd: projectDir, encoding: "utf-8", timeout: 10000 }
+      );
+      return result || "No matches found";
+
+    case "run_command":
+      const { execSync: exec } = require("child_process");
+      return exec(input.command, {
+        cwd: projectDir,
+        encoding: "utf-8",
+        timeout: 30000,
+      });
+
+    default:
+      return `Unknown tool: ${toolName}`;
+  }
+}
+
+// Main agent loop — streams Claude responses and handles tool use
+export async function runAgent(
+  userMessage: string,
+  projectDir: string,
+  conversationHistory: Anthropic.MessageParam[],
+  onText: (text: string) => void
+) {
+  conversationHistory.push({ role: "user", content: userMessage });
+
+  const systemPrompt = `You are ATREYU, an AI coding assistant embedded in an IDE. 
+You have access to the user's project files. Help them write, debug, and understand code.
+The project directory is loaded and you can read/write files and run commands.
+Be concise and direct. When editing files, show what you changed.`;
+
+  // Agentic loop: keep going until Claude stops using tools
+  while (true) {
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 8096,
+      system: systemPrompt,
+      tools,
+      messages: conversationHistory,
+    });
+
+    // Collect text and tool use blocks
+    const assistantContent = response.content;
+    conversationHistory.push({ role: "assistant", content: assistantContent });
+
+    // Stream text blocks to the frontend
+    for (const block of assistantContent) {
+      if (block.type === "text") {
+        onText(block.text);
+      }
+    }
+
+    // If no more tool use, we're done
+    if (response.stop_reason === "end_turn") break;
+
+    // Execute all tool calls and feed results back
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const block of assistantContent) {
+      if (block.type === "tool_use") {
+        onText(`\n⚙️ Running: ${block.name}(${JSON.stringify(block.input).slice(0, 100)})\n`);
+        try {
+          const result = await executeTool(
+            block.name,
+            block.input as Record<string, string>,
+            projectDir
+          );
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: result.slice(0, 10000),
+          });
+        } catch (err: any) {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: `Error: ${err.message}`,
+            is_error: true,
+          });
+        }
+      }
+    }
+
+    if (toolResults.length > 0) {
+      conversationHistory.push({ role: "user", content: toolResults });
+    } else {
+      break;
+    }
+  }
+
+  return conversationHistory;
+}
+Express Server — File Upload + Git + Chat
+
+// server/index.ts
+import express from "express";
+import multer from "multer";
+import { execSync } from "child_process";
+import fs from "fs/promises";
+import path from "path";
+import { runAgent } from "./claude-agent";
+
+const app = express();
+app.use(express.json());
+
+const PROJECTS_DIR = path.join(process.cwd(), "projects");
+
+// File upload endpoint
+const upload = multer({ dest: "uploads/" });
+
+app.post("/api/upload", upload.array("files"), async (req, res) => {
+  const projectId = req.body.projectId || `project-${Date.now()}`;
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  await fs.mkdir(projectDir, { recursive: true });
+
+  for (const file of req.files as Express.Multer.File[]) {
+    const relativePath = req.body[`path_${file.fieldname}`] || file.originalname;
+    const dest = path.join(projectDir, relativePath);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.rename(file.path, dest);
+  }
+
+  res.json({ projectId, message: "Files uploaded" });
+});
+
+// Git clone endpoint
+app.post("/api/git/clone", async (req, res) => {
+  const { repoUrl, projectId } = req.body;
+  const projectDir = path.join(PROJECTS_DIR, projectId || `git-${Date.now()}`);
+
+  try {
+    execSync(`git clone --depth 50 "${repoUrl}" "${projectDir}"`, {
+      timeout: 60000,
+    });
+    res.json({ projectId: path.basename(projectDir), message: "Cloned" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Chat with Claude about a project
+const sessions: Record<string, any[]> = {};
+
+app.post("/api/chat", async (req, res) => {
+  const { projectId, message, sessionId } = req.body;
+  const projectDir = path.join(PROJECTS_DIR, projectId);
+  const history = sessions[sessionId] || [];
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+
+  const updatedHistory = await runAgent(
+    message,
+    projectDir,
+    history,
+    (text) => res.write(`data: ${JSON.stringify({ text })}\n\n`)
+  );
+
+  sessions[sessionId] = updatedHistory;
+  res.write("data: [DONE]\n\n");
+  res.end();
+});
+
+// File tree endpoint
+app.get("/api/files/:projectId", async (req, res) => {
+  const projectDir = path.join(PROJECTS_DIR, req.params.projectId);
+  async function tree(dir: string, prefix = ""): Promise<any[]> {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const result = [];
+    for (const e of entries) {
+      if (e.name.startsWith(".") || e.name === "node_modules") continue;
+      const full = path.join(prefix, e.name);
+      if (e.isDirectory()) {
+        result.push({ name: e.name, path: full, type: "dir", children: await tree(path.join(dir, e.name), full) });
+      } else {
+        result.push({ name: e.name, path: full, type: "file" });
+      }
+    }
+    return result;
+  }
+  res.json(await tree(projectDir));
+});
+
+// Read single file for editor
+app.get("/api/files/:projectId/*", async (req, res) => {
+  const filePath = path.join(PROJECTS_DIR, req.params.projectId, req.params[0]);
+  res.type("text/plain").send(await fs.readFile(filePath, "utf-8"));
+});
+
+app.listen(3001, () => console.log("ATREYU backend on :3001"));
+Frontend — React IDE Shell
+
+// client/src/App.tsx
+import React, { useState, useRef, useEffect } from "react";
+import Editor from "@monaco-editor/react";
+
+function App() {
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [fileTree, setFileTree] = useState<any[]>([]);
+  const [activeFile, setActiveFile] = useState<{ path: string; content: string } | null>(null);
+  const [messages, setMessages] = useState<{ role: string; text: string }[]>([]);
+  const [input, setInput] = useState("");
+  const sessionId = useRef(`session-${Date.now()}`);
+
+  // Upload files
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files) return;
+    const form = new FormData();
+    const pid = projectId || `project-${Date.now()}`;
+    form.append("projectId", pid);
+    Array.from(files).forEach((f) => form.append("files", f));
+
+    const res = await fetch("/api/upload", { method: "POST", body: form });
+    const data = await res.json();
+    setProjectId(data.projectId);
+    loadFileTree(data.projectId);
+  }
+
+  // Clone git repo
+  async function handleGitClone(repoUrl: string) {
+    const res = await fetch("/api/git/clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl }),
+    });
+    const data = await res.json();
+    setProjectId(data.projectId);
+    loadFileTree(data.projectId);
+  }
+
+  async function loadFileTree(pid: string) {
+    const res = await fetch(`/api/files/${pid}`);
+    setFileTree(await res.json());
+  }
+
+  async function openFile(filePath: string) {
+    const res = await fetch(`/api/files/${projectId}/${filePath}`);
+    setActiveFile({ path: filePath, content: await res.text() });
+  }
+
+  // Chat with ATREYU (Claude)
+  async function sendMessage() {
+    if (!input.trim() || !projectId) return;
+    const userMsg = input;
+    setInput("");
+    setMessages((m) => [...m, { role: "user", text: userMsg }]);
+
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectId,
+        message: userMsg,
+        sessionId: sessionId.current,
+      }),
+    });
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let assistantText = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value);
+      for (const line of chunk.split("\n")) {
+        if (line.startsWith("data: ") && line !== "data: [DONE]") {
+          const { text } = JSON.parse(line.slice(6));
+          assistantText += text;
+          setMessages((m) => {
+            const updated = [...m];
+            const last = updated[updated.length - 1];
+            if (last?.role === "assistant") {
+              last.text = assistantText;
+            } else {
+              updated.push({ role: "assistant", text: assistantText });
+            }
+            return updated;
+          });
+        }
+      }
+    }
+    // Refresh file tree in case Claude created/modified files
+    loadFileTree(projectId);
+  }
+
+  return (
+    <div style={{ display: "flex", height: "100vh", background: "#1e1e1e", color: "#fff" }}>
+      {/* Sidebar — File Explorer */}
+      <div style={{ width: 250, borderRight: "1px solid #333", padding: 10, overflow: "auto" }}>
+        <h3>ATREYU IDE</h3>
+        <input type="file" multiple onChange={handleUpload} />
+        <button onClick={() => {
+          const url = prompt("Git repo URL:");
+          if (url) handleGitClone(url);
+        }}>Clone Git Repo</button>
+        <FileTree files={fileTree} onSelect={openFile} />
+      </div>
+
+      {/* Editor */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        {activeFile ? (
+          <Editor
+            height="60%"
+            theme="vs-dark"
+            path={activeFile.path}
+            value={activeFile.content}
+            onChange={(v) => setActiveFile((f) => f ? { ...f, content: v || "" } : f)}
+          />
+        ) : (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            Upload files or clone a repo to get started
+          </div>
+        )}
+
+        {/* Chat Panel */}
+        <div style={{ height: "40%", borderTop: "1px solid #333", display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1, overflow: "auto", padding: 10 }}>
+            {messages.map((m, i) => (
+              <div key={i} style={{ marginBottom: 8 }}>
+                <strong>{m.role === "user" ? "You" : "ATREYU"}:</strong>
+                <pre style={{ whiteSpace: "pre-wrap", margin: 0 }}>{m.text}</pre>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", padding: 10 }}>
+            <input
+              style={{ flex: 1, background: "#333", color: "#fff", border: "none", padding: 8 }}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+              placeholder="Ask ATREYU anything about your code..."
+            />
+            <button onClick={sendMessage}>Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FileTree({ files, onSelect, depth = 0 }: any) {
+  return (
+    <ul style={{ listStyle: "none", paddingLeft: depth * 12 }}>
+      {files.map((f: any) => (
+        <li key={f.path}>
+          {f.type === "dir" ? (
+            <>
+              <span>📁 {f.name}</span>
+              <FileTree files={f.children} onSelect={onSelect} depth={depth + 1} />
+            </>
+          ) : (
+            <span style={{ cursor: "pointer" }} onClick={() => onSelect(f.path)}>
+              📄 {f.name}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export default App;
+What to Give Replit
+Set the environment variable ANTHROPIC_API_KEY in Replit Secrets
+Use the Replit template: Node.js or TypeScript
+Copy the 3 files above into your project structure:
+server/claude-agent.ts — the agent loop
+server/index.ts — the API server
+client/src/App.tsx — the frontend
+Install deps: npm install @anthropic-ai/sdk @monaco-editor/react express multer
