@@ -1,4 +1,5 @@
 import { Router } from "express";
+import Anthropic from "@anthropic-ai/sdk";
 import multer from "multer";
 import fs from "fs/promises";
 import path from "path";
@@ -20,17 +21,9 @@ async function ensureProjectsDir() {
 /* ─── UUID v4 regex ─────────────────────────────────────────── */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/**
- * Validates the project :id param, derives the project directory, and
- * enforces that the directory stays inside PROJECTS_ROOT.
- * Returns the resolved project directory or throws.
- */
 function resolveProjectDir(id: string): string {
-  if (!UUID_RE.test(id)) {
-    throw new Error(`Invalid project ID: ${id}`);
-  }
+  if (!UUID_RE.test(id)) throw new Error(`Invalid project ID: ${id}`);
   const dir = path.resolve(PROJECTS_ROOT, id);
-  /* secondary boundary check: dir must be a direct child of PROJECTS_ROOT */
   if (!dir.startsWith(PROJECTS_ROOT + path.sep)) {
     throw new Error(`Project directory escape blocked: ${id}`);
   }
@@ -42,11 +35,112 @@ function guardPath(projectDir: string, relativePath: string): string {
   const root     = path.resolve(projectDir);
   const resolved = path.resolve(root, relativePath);
   const rel      = path.relative(root, resolved);
-  /* reject if relative path escapes root or is absolute */
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error(`Path traversal blocked: ${relativePath}`);
   }
   return resolved;
+}
+
+/* ─── BYOK Auth session store ──────────────────────────────────
+   Map from sessionToken (UUID) → { apiKey, keyHint }
+   Stored in memory only — the raw key never persists to disk.   */
+interface AuthSession {
+  apiKey:  string;
+  keyHint: string;   /* e.g. "sk-ant-...abc123" */
+}
+const authSessions = new Map<string, AuthSession>();
+
+/* ────────────────────────────────────────────────────────────
+   POST /api/codestudio/auth/connect
+   Body: { apiKey: string }
+   Validates the key with a live Anthropic call, then stores it.
+   Returns: { sessionToken, keyHint }
+──────────────────────────────────────────────────────────── */
+router.post("/auth/connect", async (req, res) => {
+  const { apiKey } = req.body as { apiKey?: string };
+
+  if (!apiKey || typeof apiKey !== "string") {
+    res.status(400).json({ error: "apiKey is required" });
+    return;
+  }
+  if (!apiKey.startsWith("sk-ant-")) {
+    res.status(400).json({ error: "Invalid key — Anthropic keys start with sk-ant-" });
+    return;
+  }
+
+  /* Validate the key by making a minimal test call */
+  try {
+    const client = new Anthropic({ apiKey });
+    await client.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 1,
+      messages: [{ role: "user", content: "hi" }],
+    });
+  } catch (err: unknown) {
+    const e = err as { status?: number; message?: string };
+    if (e.status === 401) {
+      res.status(401).json({ error: "Invalid API key — Anthropic rejected it. Please double-check and try again." });
+    } else {
+      res.status(500).json({ error: `Could not validate key: ${e.message ?? "unknown error"}` });
+    }
+    return;
+  }
+
+  const sessionToken = randomUUID();
+  const keyHint      = `${apiKey.slice(0, 10)}...${apiKey.slice(-6)}`;
+  authSessions.set(sessionToken, { apiKey, keyHint });
+
+  res.json({ sessionToken, keyHint });
+});
+
+/* ────────────────────────────────────────────────────────────
+   GET /api/codestudio/auth/status?token=<sessionToken>
+──────────────────────────────────────────────────────────── */
+router.get("/auth/status", (req, res) => {
+  const token = req.query.token as string | undefined;
+  if (!token) {
+    res.json({ connected: false });
+    return;
+  }
+  const session = authSessions.get(token);
+  if (!session) {
+    res.json({ connected: false });
+    return;
+  }
+  res.json({ connected: true, keyHint: session.keyHint });
+});
+
+/* ────────────────────────────────────────────────────────────
+   POST /api/codestudio/auth/disconnect
+   Body: { sessionToken: string }
+──────────────────────────────────────────────────────────── */
+router.post("/auth/disconnect", (req, res) => {
+  const { sessionToken } = req.body as { sessionToken?: string };
+  if (sessionToken) authSessions.delete(sessionToken);
+  res.json({ ok: true });
+});
+
+/* ─── Require auth middleware ──────────────────────────────── */
+function requireApiKey(
+  req: import("express").Request,
+  res: import("express").Response,
+  next: import("express").NextFunction,
+): void {
+  const token = (req.body?.sessionToken as string | undefined)
+    ?? (req.query.sessionToken as string | undefined);
+
+  if (!token) {
+    res.status(401).json({ error: "sessionToken required — connect your Anthropic API key first" });
+    return;
+  }
+  const session = authSessions.get(token);
+  if (!session) {
+    res.status(401).json({ error: "Invalid or expired session — please reconnect your API key" });
+    return;
+  }
+  /* Attach apiKey to locals for downstream handlers */
+  res.locals.apiKey = session.apiKey;
+  next();
 }
 
 /* ─── File tree helper ─────────────────────────────────────── */
@@ -82,7 +176,7 @@ async function buildTree(dir: string, rel = ""): Promise<FileNode[]> {
   });
 }
 
-/* ─── Multer — disk storage into a temp dir ────────────────── */
+/* ─── Multer ────────────────────────────────────────────────── */
 const upload = multer({
   storage: multer.diskStorage({
     destination: async (_req, _file, cb) => {
@@ -97,11 +191,10 @@ const upload = multer({
 
 /* ────────────────────────────────────────────────────────────
    POST /api/codestudio/projects
-   Create a new project; returns { projectId }
 ──────────────────────────────────────────────────────────── */
-router.post("/projects", async (_req, res) => {
+router.post("/projects", requireApiKey, async (_req, res) => {
   await ensureProjectsDir();
-  const projectId = randomUUID();
+  const projectId  = randomUUID();
   const projectDir = path.resolve(PROJECTS_ROOT, projectId);
   await fs.mkdir(projectDir, { recursive: true });
   res.json({ projectId });
@@ -110,7 +203,7 @@ router.post("/projects", async (_req, res) => {
 /* ────────────────────────────────────────────────────────────
    POST /api/codestudio/projects/:id/upload
 ──────────────────────────────────────────────────────────── */
-router.post("/projects/:id/upload", upload.array("files"), async (req, res) => {
+router.post("/projects/:id/upload", requireApiKey, upload.array("files"), async (req, res) => {
   let projectDir: string;
   try {
     projectDir = resolveProjectDir(req.params.id);
@@ -137,7 +230,7 @@ router.post("/projects/:id/upload", upload.array("files"), async (req, res) => {
 
       const MAX_ENTRIES = 1000;
       const MAX_TOTAL   = 500 * 1024 * 1024;
-      const MAX_ENTRY   = 50  * 1024 * 1024;
+      const MAX_ENTRY   =  50 * 1024 * 1024;
 
       if (entries.length > MAX_ENTRIES) {
         await fs.unlink(file.path);
@@ -148,18 +241,10 @@ router.post("/projects/:id/upload", upload.array("files"), async (req, res) => {
       let totalBytes = 0;
       for (const entry of entries) {
         if (entry.isDirectory) continue;
-
         const entrySize = entry.header.size;
-        if (entrySize > MAX_ENTRY) {
-          results.push(`SKIPPED (too large) ${entry.entryName}`);
-          continue;
-        }
+        if (entrySize > MAX_ENTRY) { results.push(`SKIPPED (too large): ${entry.entryName}`); continue; }
         totalBytes += entrySize;
-        if (totalBytes > MAX_TOTAL) {
-          results.push(`STOPPED: total extracted size limit reached`);
-          break;
-        }
-
+        if (totalBytes > MAX_TOTAL) { results.push("STOPPED: total size limit reached"); break; }
         try {
           const destPath = guardPath(projectDir, entry.entryName);
           await fs.mkdir(path.dirname(destPath), { recursive: true });
@@ -171,8 +256,7 @@ router.post("/projects/:id/upload", upload.array("files"), async (req, res) => {
       }
       await fs.unlink(file.path);
     } else {
-      const relativePath = (req.body as Record<string, string>)[`path_${file.fieldname}`]
-        || file.originalname;
+      const relativePath = (req.body as Record<string, string>)[`path_${file.fieldname}`] || file.originalname;
       try {
         const destPath = guardPath(projectDir, relativePath);
         await fs.mkdir(path.dirname(destPath), { recursive: true });
@@ -192,7 +276,7 @@ router.post("/projects/:id/upload", upload.array("files"), async (req, res) => {
 /* ────────────────────────────────────────────────────────────
    POST /api/codestudio/projects/:id/git-clone
 ──────────────────────────────────────────────────────────── */
-router.post("/projects/:id/git-clone", async (req, res) => {
+router.post("/projects/:id/git-clone", requireApiKey, async (req, res) => {
   let projectDir: string;
   try {
     projectDir = resolveProjectDir(req.params.id);
@@ -225,7 +309,7 @@ router.post("/projects/:id/git-clone", async (req, res) => {
 /* ────────────────────────────────────────────────────────────
    GET /api/codestudio/projects/:id/files
 ──────────────────────────────────────────────────────────── */
-router.get("/projects/:id/files", async (req, res) => {
+router.get("/projects/:id/files", requireApiKey, async (req, res) => {
   let projectDir: string;
   try {
     projectDir = resolveProjectDir(req.params.id);
@@ -239,9 +323,9 @@ router.get("/projects/:id/files", async (req, res) => {
 });
 
 /* ────────────────────────────────────────────────────────────
-   GET /api/codestudio/projects/:id/file?path=src/foo.ts
+   GET /api/codestudio/projects/:id/file?path=...&sessionToken=...
 ──────────────────────────────────────────────────────────── */
-router.get("/projects/:id/file", async (req, res) => {
+router.get("/projects/:id/file", requireApiKey, async (req, res) => {
   let projectDir: string;
   try {
     projectDir = resolveProjectDir(req.params.id);
@@ -262,18 +346,15 @@ router.get("/projects/:id/file", async (req, res) => {
     res.type("text/plain").send(content);
   } catch (err: unknown) {
     const e = err as NodeJS.ErrnoException;
-    if (e.code === "ENOENT") {
-      res.status(404).json({ error: "File not found" });
-    } else {
-      res.status(400).json({ error: (e as Error).message });
-    }
+    if (e.code === "ENOENT") res.status(404).json({ error: "File not found" });
+    else res.status(400).json({ error: (e as Error).message });
   }
 });
 
 /* ────────────────────────────────────────────────────────────
    PUT /api/codestudio/projects/:id/file
 ──────────────────────────────────────────────────────────── */
-router.put("/projects/:id/file", async (req, res) => {
+router.put("/projects/:id/file", requireApiKey, async (req, res) => {
   let projectDir: string;
   try {
     projectDir = resolveProjectDir(req.params.id);
@@ -299,9 +380,9 @@ router.put("/projects/:id/file", async (req, res) => {
 });
 
 /* ────────────────────────────────────────────────────────────
-   DELETE /api/codestudio/projects/:id/file?path=src/foo.ts
+   DELETE /api/codestudio/projects/:id/file?path=...&sessionToken=...
 ──────────────────────────────────────────────────────────── */
-router.delete("/projects/:id/file", async (req, res) => {
+router.delete("/projects/:id/file", requireApiKey, async (req, res) => {
   let projectDir: string;
   try {
     projectDir = resolveProjectDir(req.params.id);
@@ -328,18 +409,15 @@ router.delete("/projects/:id/file", async (req, res) => {
     res.json({ ok: true, tree });
   } catch (err: unknown) {
     const e = err as NodeJS.ErrnoException;
-    if (e.code === "ENOENT") {
-      res.status(404).json({ error: "File not found" });
-    } else {
-      res.status(400).json({ error: (e as Error).message });
-    }
+    if (e.code === "ENOENT") res.status(404).json({ error: "File not found" });
+    else res.status(400).json({ error: (e as Error).message });
   }
 });
 
 /* ────────────────────────────────────────────────────────────
    POST /api/codestudio/projects/:id/chat
 ──────────────────────────────────────────────────────────── */
-router.post("/projects/:id/chat", async (req, res) => {
+router.post("/projects/:id/chat", requireApiKey, async (req, res) => {
   let projectDir: string;
   try {
     projectDir = resolveProjectDir(req.params.id);
@@ -364,7 +442,8 @@ router.post("/projects/:id/chat", async (req, res) => {
 
   try {
     await runCodeStudioAgent({
-      sessionId: sessionId || `anon-${req.params.id}`,
+      apiKey:     res.locals.apiKey as string,
+      sessionId:  sessionId || `anon-${req.params.id}`,
       projectId:  req.params.id,
       projectDir,
       message,

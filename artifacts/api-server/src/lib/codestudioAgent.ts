@@ -1,5 +1,4 @@
-import type Anthropic from "@anthropic-ai/sdk";
-import { anthropic } from "@workspace/integrations-anthropic-ai";
+import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs/promises";
 import path from "path";
 import { execSync, execFileSync } from "child_process";
@@ -9,7 +8,7 @@ const MAX_ITERATIONS = 25;
 
 const BLOCKED_COMMANDS: RegExp[] = [
   /rm\s+-rf\s+[/~]/,
-  /:\(\)\s*\{\s*:\|:&\s*\};:/,   // fork bomb
+  /:\(\)\s*\{\s*:\|:&\s*\};:/,
   /mkfs\./,
   /dd\s+if=/,
   />\s*\/dev\/sd/,
@@ -44,7 +43,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: "edit_file",
-    description: "Replace a specific string in a file. Prefer this over write_file for targeted edits — avoids rewriting the whole file.",
+    description: "Replace a specific string in a file. Prefer this over write_file for targeted edits.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -90,7 +89,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: "search_files",
-    description: "Search for a regex pattern across project files using grep. Returns matching file paths.",
+    description: "Search for a regex pattern across project files. Returns matching file paths.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -103,7 +102,7 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: "run_command",
-    description: "Run a shell command inside the project directory. Useful for npm install, tests, builds. Returns stdout/stderr.",
+    description: "Run a shell command inside the project directory. Useful for npm install, tests, builds.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -152,7 +151,6 @@ async function executeTool(
       if (!content.includes(input.old_text)) {
         return `Error: could not find the specified text in ${input.path} — check the exact match`;
       }
-      /* replace only the first occurrence */
       const updated = content.replace(input.old_text, input.new_text);
       await fs.writeFile(fp, updated, "utf-8");
       return `Edited ${input.path}`;
@@ -194,11 +192,8 @@ async function executeTool(
 
     case "search_files": {
       const searchDir = safePath(projectDir, input.directory || ".");
-      /* Build grep argv — execFileSync prevents shell injection */
       const args: string[] = ["-rn", "-l"];
-      if (input.file_glob) {
-        args.push(`--include=${input.file_glob}`);
-      }
+      if (input.file_glob) args.push(`--include=${input.file_glob}`);
       args.push(input.pattern, ".");
       try {
         const result = execFileSync("grep", args, {
@@ -234,9 +229,7 @@ async function executeTool(
         return (output || "(no output)").slice(0, 15_000);
       } catch (err: unknown) {
         const e = err as { stdout?: string; stderr?: string; message?: string };
-        const out = (e.stdout ?? "").slice(0, 5_000);
-        const err2 = (e.stderr ?? e.message ?? "unknown error").slice(0, 5_000);
-        return `Command failed:\n${out}\n${err2}`.trim();
+        return `Command failed:\n${(e.stdout ?? "").slice(0, 5_000)}\n${(e.stderr ?? e.message ?? "").slice(0, 5_000)}`.trim();
       }
     }
 
@@ -245,8 +238,7 @@ async function executeTool(
   }
 }
 
-/* ─── In-memory conversation history ─────────────────────────
-   Key = sessionId; value = Anthropic message history array.  */
+/* ─── In-memory conversation history ──────────────────────── */
 const sessions = new Map<string, Anthropic.MessageParam[]>();
 
 export function clearSession(sessionId: string): void {
@@ -260,13 +252,17 @@ export type SseEvent =
 
 /* ─── Main agent loop ──────────────────────────────────────── */
 export async function runCodeStudioAgent(opts: {
+  apiKey: string;       /* user's own Anthropic API key */
   sessionId: string;
   projectId: string;
   projectDir: string;
   message: string;
   onEvent: (event: SseEvent) => void;
 }): Promise<void> {
-  const { sessionId, projectId, projectDir, message, onEvent } = opts;
+  const { apiKey, sessionId, projectId, projectDir, message, onEvent } = opts;
+
+  /* Create a client using the user's own API key — billed to their account */
+  const client = new Anthropic({ apiKey });
 
   const history: Anthropic.MessageParam[] = sessions.get(sessionId) ?? [];
   history.push({ role: "user", content: message });
@@ -280,7 +276,6 @@ Tool guidance:
 - Use edit_file for targeted changes; write_file only for new files or complete rewrites.
 - Use create_directory before writing files in new directories.
 - Run commands (tests, linters, builds) to verify your work when helpful.
-- When asked to build something, write the actual code.
 
 Response style: Be direct and concise. Lead with the solution. Plain text only — no ## headers or **bold**.`;
 
@@ -289,7 +284,7 @@ Response style: Be direct and concise. Lead with the solution. Plain text only �
   while (iterations < MAX_ITERATIONS) {
     iterations++;
 
-    const response = await anthropic.messages.create({
+    const response = await client.messages.create({
       model: "claude-opus-4-5",
       max_tokens: 8096,
       system: systemPrompt,
@@ -300,7 +295,6 @@ Response style: Be direct and concise. Lead with the solution. Plain text only �
     const assistantContent = response.content;
     history.push({ role: "assistant", content: assistantContent });
 
-    /* stream text blocks immediately */
     for (const block of assistantContent) {
       if (block.type === "text" && block.text) {
         onEvent({ type: "text", text: block.text });
@@ -309,14 +303,12 @@ Response style: Be direct and concise. Lead with the solution. Plain text only �
 
     if (response.stop_reason === "end_turn") break;
 
-    /* execute tool calls */
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
     for (const block of assistantContent) {
       if (block.type !== "tool_use") continue;
 
       const inputStr = JSON.stringify(block.input).slice(0, 120);
-      /* emit with tool call id so frontend can match result to call */
       onEvent({ type: "tool", id: block.id, name: block.name, input: inputStr });
 
       let result: string;
@@ -346,7 +338,6 @@ Response style: Be direct and concise. Lead with the solution. Plain text only �
     }
   }
 
-  /* keep last 60 messages to avoid unbounded memory growth */
   sessions.set(sessionId, history.slice(-60));
   onEvent({ type: "done" });
 }

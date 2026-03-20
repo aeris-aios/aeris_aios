@@ -4,6 +4,7 @@ import { useTheme } from "@/contexts/theme";
 import {
   FolderOpen, Folder, FileText, Upload, GitBranch,
   Send, RefreshCw, Trash2, ChevronRight, ChevronDown, X,
+  KeyRound, LogOut, ExternalLink,
 } from "lucide-react";
 
 const API = "/api/codestudio";
@@ -26,7 +27,7 @@ type ActiveFile = { path: string; content: string; isDirty: boolean };
 /* ─── File-mutating tools — trigger auto tree refresh ──────── */
 const MUTATING_TOOLS = new Set(["write_file", "edit_file", "delete_file", "create_directory"]);
 
-/* ─── Language map for Monaco ─────────────────────────────── */
+/* ─── Language map ──────────────────────────────────────────── */
 const LANG: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
   py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
@@ -36,23 +37,187 @@ const LANG: Record<string, string> = {
   md: "markdown", mdx: "markdown", sh: "shell", bash: "shell",
   sql: "sql", graphql: "graphql", xml: "xml", svg: "xml",
 };
-
-function getLang(filePath: string): string {
-  const ext = filePath.split(".").pop()?.toLowerCase() ?? "";
-  return LANG[ext] ?? "plaintext";
+function getLang(p: string) {
+  return LANG[p.split(".").pop()?.toLowerCase() ?? ""] ?? "plaintext";
 }
 
-/* ─── Tool icon map ─────────────────────────────────────────── */
 const TOOL_ICON: Record<string, string> = {
-  read_file:        "📖",
-  write_file:       "✏️",
-  edit_file:        "🔧",
-  list_files:       "📂",
-  create_directory: "📁",
-  delete_file:      "🗑️",
-  search_files:     "🔍",
-  run_command:      "⚡",
+  read_file: "📖", write_file: "✏️", edit_file: "🔧", list_files: "📂",
+  create_directory: "📁", delete_file: "🗑️", search_files: "🔍", run_command: "⚡",
 };
+
+/* ─── Helper: build URL with sessionToken query param ─────── */
+function withToken(url: string, token: string) {
+  const u = new URL(url, "https://placeholder");
+  u.searchParams.set("sessionToken", token);
+  return u.pathname + u.search;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONNECT SCREEN — shown until user pastes their API key
+════════════════════════════════════════════════════════════════ */
+function ConnectScreen({
+  onConnected,
+}: {
+  onConnected: (token: string, keyHint: string) => void;
+}) {
+  const [apiKey,     setApiKey]     = useState("");
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState("");
+
+  async function connect() {
+    const key = apiKey.trim();
+    if (!key) { setError("Please enter your API key."); return; }
+    if (!key.startsWith("sk-ant-")) { setError("Anthropic keys start with sk-ant-"); return; }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const r = await fetch(`${API}/auth/connect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey: key }),
+      });
+      const d = await r.json() as { sessionToken?: string; keyHint?: string; error?: string };
+
+      if (!r.ok || d.error) {
+        setError(d.error ?? "Connection failed. Check your key and try again.");
+        return;
+      }
+      onConnected(d.sessionToken!, d.keyHint!);
+    } catch {
+      setError("Network error — check your connection and try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        background: "var(--app-bg)",
+        padding: 24,
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 440,
+          borderRadius: 16,
+          padding: 32,
+          background: "var(--app-surface)",
+          boxShadow: "var(--neu-raised)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 20,
+        }}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <KeyRound size={18} style={{ color: "#a78bfa" }} />
+            <span style={{ fontSize: 16, fontWeight: 700, color: "var(--app-fg)" }}>
+              Connect your Anthropic key
+            </span>
+          </div>
+          <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--app-muted)" }}>
+            ATREYU Code Studio uses your personal Anthropic API key so that Claude calls are billed directly
+            to your Anthropic account — not ours. Your key is stored only in memory for this session and
+            never saved to disk.
+          </p>
+        </div>
+
+        {/* Get a key link */}
+        <a
+          href="https://console.anthropic.com/settings/keys"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: 11,
+            color: "#a78bfa",
+            textDecoration: "none",
+          }}
+        >
+          <ExternalLink size={11} />
+          Get a key from Anthropic Console
+        </a>
+
+        {/* Input */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <label style={{ fontSize: 11, fontWeight: 600, color: "var(--app-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            API Key
+          </label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && connect()}
+            placeholder="sk-ant-api03-..."
+            autoFocus
+            className="neu-inset-sm"
+            style={{
+              borderRadius: 8,
+              padding: "10px 12px",
+              fontSize: 13,
+              border: "none",
+              background: "transparent",
+              color: "var(--app-fg)",
+              outline: "none",
+              fontFamily: "monospace",
+              letterSpacing: "0.06em",
+            }}
+          />
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div style={{
+            padding: "8px 12px",
+            borderRadius: 8,
+            background: "rgba(248,81,73,0.1)",
+            border: "1px solid rgba(248,81,73,0.25)",
+            fontSize: 12,
+            color: "#f85149",
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Connect button */}
+        <button
+          onClick={connect}
+          disabled={loading}
+          style={{
+            padding: "11px 0",
+            borderRadius: 10,
+            border: "none",
+            background: loading ? "rgba(124,58,237,0.4)" : "linear-gradient(135deg,#7c3aed,#5b21b6)",
+            color: "#fff",
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: loading ? "not-allowed" : "pointer",
+            letterSpacing: "0.04em",
+          }}
+        >
+          {loading ? "Validating…" : "Connect & Launch Code Studio"}
+        </button>
+
+        <p style={{ fontSize: 11, color: "var(--app-muted)", textAlign: "center", lineHeight: 1.5 }}>
+          Your key is only stored in-memory for this session.<br />
+          Refreshing the page will require reconnecting.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 /* ─── File Tree component ───────────────────────────────────── */
 function FileTree({
@@ -66,29 +231,25 @@ function FileTree({
   onDelete: (node: FileNode) => void;
   activePath: string | null;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsed,   setCollapsed]   = useState<Set<string>>(new Set());
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
 
-  function toggle(path: string) {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.has(path) ? next.delete(path) : next.add(path);
-      return next;
-    });
+  function toggle(p: string) {
+    setCollapsed((prev) => { const n = new Set(prev); n.has(p) ? n.delete(p) : n.add(p); return n; });
   }
 
   function renderNode(node: FileNode, depth: number): React.ReactNode {
-    const isActive = node.path === activePath;
-    const isOpen   = !collapsed.has(node.path);
+    const isActive  = node.path === activePath;
+    const isOpen    = !collapsed.has(node.path);
     const isHovered = hoveredPath === node.path;
-    const indent   = depth * 12;
+    const pl        = 8 + depth * 12;
 
     if (node.type === "dir") {
       return (
         <div key={node.path}>
           <div
-            className="w-full text-left flex items-center gap-1 px-2 py-[3px] rounded hover:bg-white/10 transition-colors group"
-            style={{ paddingLeft: 8 + indent, cursor: "pointer" }}
+            className="flex items-center gap-1 px-2 py-[3px] rounded hover:bg-white/10 transition-colors"
+            style={{ paddingLeft: pl, cursor: "pointer" }}
             onMouseEnter={() => setHoveredPath(node.path)}
             onMouseLeave={() => setHoveredPath(null)}
             onClick={() => toggle(node.path)}
@@ -105,7 +266,6 @@ function FileTree({
             {isHovered && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(node); }}
-                title="Delete directory"
                 style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", color: "var(--app-muted)", flexShrink: 0 }}
                 className="hover:text-red-400 transition-colors"
               >
@@ -113,7 +273,7 @@ function FileTree({
               </button>
             )}
           </div>
-          {isOpen && node.children?.map((child) => renderNode(child, depth + 1))}
+          {isOpen && node.children?.map((c) => renderNode(c, depth + 1))}
         </div>
       );
     }
@@ -122,11 +282,7 @@ function FileTree({
       <div
         key={node.path}
         className="flex items-center gap-1 rounded transition-colors"
-        style={{
-          paddingLeft: 8 + indent,
-          paddingRight: 4,
-          background: isActive ? "rgba(124,58,237,0.18)" : "transparent",
-        }}
+        style={{ paddingLeft: pl, paddingRight: 4, background: isActive ? "rgba(124,58,237,0.18)" : "transparent" }}
         onMouseEnter={() => setHoveredPath(node.path)}
         onMouseLeave={() => setHoveredPath(null)}
       >
@@ -141,7 +297,6 @@ function FileTree({
         {(isHovered || isActive) && (
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(node); }}
-            title="Delete file"
             style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", color: "var(--app-muted)", flexShrink: 0 }}
             className="hover:text-red-400 transition-colors"
           >
@@ -159,14 +314,12 @@ function FileTree({
       </p>
     );
   }
-
   return <div className="py-1">{nodes.map((n) => renderNode(n, 0))}</div>;
 }
 
 /* ─── Chat message renderer ─────────────────────────────────── */
 function ChatMessage({ msg }: { msg: Message }) {
   const isUser = msg.role === "user";
-
   return (
     <div className={`flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
       {msg.blocks.map((block, i) => {
@@ -176,9 +329,7 @@ function ChatMessage({ msg }: { msg: Message }) {
               key={i}
               className="max-w-[90%] px-3 py-2 rounded-xl text-[12px] leading-[1.6] whitespace-pre-wrap"
               style={{
-                background: isUser
-                  ? "linear-gradient(135deg,#7c3aed,#5b21b6)"
-                  : "var(--app-surface)",
+                background: isUser ? "linear-gradient(135deg,#7c3aed,#5b21b6)" : "var(--app-surface)",
                 color: isUser ? "#fff" : "var(--app-fg)",
                 boxShadow: isUser ? "none" : "var(--neu-raised-sm)",
               }}
@@ -187,8 +338,6 @@ function ChatMessage({ msg }: { msg: Message }) {
             </div>
           );
         }
-
-        /* tool block — keyed by unique tool call id */
         const tb = block as ToolBlock;
         const icon = TOOL_ICON[tb.name] ?? "⚙️";
         return (
@@ -204,11 +353,7 @@ function ChatMessage({ msg }: { msg: Message }) {
             {tb.result && (
               <pre
                 className="mt-1 px-2 py-1 rounded text-[10px] overflow-x-auto max-h-[120px]"
-                style={{
-                  background: "var(--app-surface)",
-                  color: "var(--app-muted)",
-                  boxShadow: "var(--neu-inset-sm)",
-                }}
+                style={{ background: "var(--app-surface)", color: "var(--app-muted)", boxShadow: "var(--neu-inset-sm)" }}
               >
                 {tb.result}
               </pre>
@@ -220,168 +365,200 @@ function ChatMessage({ msg }: { msg: Message }) {
   );
 }
 
-/* ─── Main page ─────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   MAIN PAGE
+════════════════════════════════════════════════════════════════ */
 export default function CodeStudio() {
   const { theme } = useTheme();
 
-  /* project state */
+  /* ── Auth state ──────────────────────────────────────────── */
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [keyHint,      setKeyHint]      = useState<string>("");
+  const [authChecked,  setAuthChecked]  = useState(false);
+
+  /* ── Project / editor state ──────────────────────────────── */
   const [projectId,   setProjectId]   = useState<string | null>(null);
   const [fileTree,    setFileTree]    = useState<FileNode[]>([]);
   const [activeFile,  setActiveFile]  = useState<ActiveFile | null>(null);
   const [projectName, setProjectName] = useState("New Project");
 
-  /* chat state */
+  /* ── Chat state ──────────────────────────────────────────── */
   const sessionId  = useRef(`cs-${Date.now()}`);
   const [messages,  setMessages]  = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const chatBottom = useRef<HTMLDivElement>(null);
-
-  /* track whether any mutating tools fired this turn */
   const mutatedThisTurn = useRef(false);
 
-  /* ui state */
+  /* ── UI state ────────────────────────────────────────────── */
   const [uploading, setUploading] = useState(false);
   const [cloning,   setCloning]   = useState(false);
   const [cloneUrl,  setCloneUrl]  = useState("");
   const [showClone, setShowClone] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const saveTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /* auto-save debounce */
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /* ── Create project on mount ────────────────────────────── */
+  /* ── On mount: restore session from localStorage ─────────── */
   useEffect(() => {
-    fetch(`${API}/projects`, { method: "POST" })
+    const stored = localStorage.getItem("csSessionToken");
+    if (!stored) { setAuthChecked(true); return; }
+
+    fetch(`${API}/auth/status?token=${stored}`)
+      .then((r) => r.json())
+      .then((d: { connected: boolean; keyHint?: string }) => {
+        if (d.connected) {
+          setSessionToken(stored);
+          setKeyHint(d.keyHint ?? "");
+        } else {
+          localStorage.removeItem("csSessionToken");
+        }
+      })
+      .catch(() => {})
+      .finally(() => setAuthChecked(true));
+  }, []);
+
+  /* ── Create project once auth is ready ───────────────────── */
+  useEffect(() => {
+    if (!sessionToken) return;
+    fetch(`${API}/projects`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionToken }),
+    })
       .then((r) => r.json())
       .then((d: { projectId: string }) => setProjectId(d.projectId))
       .catch(console.error);
-  }, []);
+  }, [sessionToken]);
 
-  /* ── Scroll chat to bottom ─────────────────────────────── */
+  /* ── Scroll chat ─────────────────────────────────────────── */
   useEffect(() => {
     chatBottom.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* ── Open a file in Monaco ─────────────────────────────── */
+  /* ── Auth handlers ───────────────────────────────────────── */
+  function handleConnected(token: string, hint: string) {
+    localStorage.setItem("csSessionToken", token);
+    setSessionToken(token);
+    setKeyHint(hint);
+  }
+
+  async function handleDisconnect() {
+    if (!sessionToken) return;
+    await fetch(`${API}/auth/disconnect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionToken }),
+    }).catch(() => {});
+    localStorage.removeItem("csSessionToken");
+    setSessionToken(null);
+    setKeyHint("");
+    setProjectId(null);
+    setFileTree([]);
+    setActiveFile(null);
+    setMessages([]);
+  }
+
+  /* ── File ops ────────────────────────────────────────────── */
   async function openFile(filePath: string) {
-    if (!projectId) return;
-    const r = await fetch(`${API}/projects/${projectId}/file?path=${encodeURIComponent(filePath)}`);
+    if (!projectId || !sessionToken) return;
+    const r = await fetch(withToken(`${API}/projects/${projectId}/file?path=${encodeURIComponent(filePath)}`, sessionToken));
     if (!r.ok) return;
     const content = await r.text();
     setActiveFile({ path: filePath, content, isDirty: false });
   }
 
-  /* ── Monaco change handler (debounced save) ────────────── */
   const handleEditorChange = useCallback((value: string | undefined) => {
     if (!activeFile || value === undefined) return;
     setActiveFile((prev) => prev ? { ...prev, content: value, isDirty: true } : null);
-
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
-      if (!projectId) return;
+      if (!projectId || !sessionToken) return;
       await fetch(`${API}/projects/${projectId}/file`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: activeFile.path, content: value }),
+        body: JSON.stringify({ path: activeFile.path, content: value, sessionToken }),
       });
       setActiveFile((prev) => prev ? { ...prev, isDirty: false } : null);
     }, 1000);
-  }, [projectId, activeFile]);
+  }, [projectId, sessionToken, activeFile]);
 
-  /* ── File upload (zip or individual files) ─────────────── */
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
-    if (!files || !projectId) return;
+    if (!files || !projectId || !sessionToken) return;
     setUploading(true);
     try {
       const form = new FormData();
       Array.from(files).forEach((f) => form.append("files", f));
+      form.append("sessionToken", sessionToken);
       const r = await fetch(`${API}/projects/${projectId}/upload`, { method: "POST", body: form });
-      const d = await r.json() as { tree: FileNode[]; results: string[] };
+      const d = await r.json() as { tree: FileNode[] };
       setFileTree(d.tree ?? []);
       if (files.length === 1) setProjectName(files[0].name.replace(/\.zip$/, ""));
-    } catch (err) {
-      console.error(err);
-    } finally {
+    } catch (err) { console.error(err); }
+    finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
-  /* ── Git clone ─────────────────────────────────────────── */
   async function handleClone() {
-    if (!cloneUrl.trim() || !projectId) return;
+    if (!cloneUrl.trim() || !projectId || !sessionToken) return;
     setCloning(true);
     try {
       const r = await fetch(`${API}/projects/${projectId}/git-clone`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl: cloneUrl.trim() }),
+        body: JSON.stringify({ repoUrl: cloneUrl.trim(), sessionToken }),
       });
       const d = await r.json() as { tree?: FileNode[]; error?: string };
       if (d.tree) {
         setFileTree(d.tree);
-        const repoName = cloneUrl.split("/").pop()?.replace(/\.git$/, "") ?? "Repo";
-        setProjectName(repoName);
+        setProjectName(cloneUrl.split("/").pop()?.replace(/\.git$/, "") ?? "Repo");
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setCloning(false);
-      setCloneUrl("");
-      setShowClone(false);
-    }
+    } catch (err) { console.error(err); }
+    finally { setCloning(false); setCloneUrl(""); setShowClone(false); }
   }
 
-  /* ── Delete a file or directory from the tree ──────────── */
   async function deleteNode(node: FileNode) {
-    if (!projectId) return;
+    if (!projectId || !sessionToken) return;
     const label = node.type === "dir" ? `directory "${node.name}" and all its contents` : `file "${node.name}"`;
     if (!window.confirm(`Delete ${label}?`)) return;
-
     const r = await fetch(
-      `${API}/projects/${projectId}/file?path=${encodeURIComponent(node.path)}`,
+      withToken(`${API}/projects/${projectId}/file?path=${encodeURIComponent(node.path)}`, sessionToken),
       { method: "DELETE" },
     );
     const d = await r.json() as { ok?: boolean; tree?: FileNode[]; error?: string };
     if (d.error) { alert(d.error); return; }
     if (d.tree) setFileTree(d.tree);
-    /* close editor if the active file was deleted */
     if (activeFile && (activeFile.path === node.path || activeFile.path.startsWith(node.path + "/"))) {
       setActiveFile(null);
     }
   }
 
-  /* ── Refresh file tree (after Claude may have written files) */
   async function refreshTree(reloadActive = false) {
-    if (!projectId) return;
-    const r = await fetch(`${API}/projects/${projectId}/files`);
+    if (!projectId || !sessionToken) return;
+    const r = await fetch(withToken(`${API}/projects/${projectId}/files`, sessionToken));
     if (r.ok) setFileTree(await r.json());
     if (reloadActive && activeFile) await openFile(activeFile.path);
   }
 
-  /* ── New session ────────────────────────────────────────── */
   async function newSession() {
     const old = sessionId.current;
     sessionId.current = `cs-${Date.now()}`;
     setMessages([]);
-    if (projectId) {
-      await fetch(`${API}/sessions/${old}`, { method: "DELETE" }).catch(() => {});
-    }
+    if (projectId) await fetch(`${API}/sessions/${old}`, { method: "DELETE" }).catch(() => {});
   }
 
-  /* ── Send chat message ─────────────────────────────────── */
+  /* ── Send chat message ───────────────────────────────────── */
   async function sendMessage() {
     const text = chatInput.trim();
-    if (!text || !projectId || streaming) return;
+    if (!text || !projectId || !sessionToken || streaming) return;
 
     setChatInput("");
     setStreaming(true);
     mutatedThisTurn.current = false;
 
     setMessages((prev) => [...prev, { role: "user", blocks: [{ kind: "text", text }] }]);
-
     const assistantIdx = messages.length + 1;
     setMessages((prev) => [...prev, { role: "assistant", blocks: [] }]);
 
@@ -389,7 +566,7 @@ export default function CodeStudio() {
       const res = await fetch(`${API}/projects/${projectId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, sessionId: sessionId.current }),
+        body: JSON.stringify({ message: text, sessionId: sessionId.current, sessionToken }),
       });
 
       const reader  = res.body!.getReader();
@@ -429,7 +606,6 @@ export default function CodeStudio() {
                 }
               } else if (event.type === "tool" && event.name) {
                 if (event.result !== undefined) {
-                  /* match by unique tool call id */
                   const tb = msg.blocks.find(
                     (b) => b.kind === "tool" && (b as ToolBlock).id === event.id,
                   ) as ToolBlock | undefined;
@@ -448,40 +624,39 @@ export default function CodeStudio() {
               next[assistantIdx] = msg;
               return next;
             });
-          } catch {
-            /* ignore parse errors */
-          }
+          } catch { /* ignore parse errors */ }
         }
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
+    } catch (err) { console.error(err); }
+    finally {
       setStreaming(false);
-      /* auto-refresh tree if Claude created/edited/deleted files */
-      if (mutatedThisTurn.current) {
-        await refreshTree(true);
-      }
+      if (mutatedThisTurn.current) await refreshTree(true);
     }
   }
 
-  /* ── Monaco setup callback ──────────────────────────────── */
+  /* ── Monaco theme setup ──────────────────────────────────── */
   function handleEditorMount(_editor: unknown, monaco: Monaco) {
     monaco.editor.defineTheme("atreyu-dark", {
-      base: "vs-dark",
-      inherit: true,
-      rules: [],
+      base: "vs-dark", inherit: true, rules: [],
       colors: { "editor.background": "#0f1117" },
     });
     monaco.editor.defineTheme("atreyu-light", {
-      base: "vs",
-      inherit: true,
-      rules: [],
+      base: "vs", inherit: true, rules: [],
       colors: { "editor.background": "#eef0f6" },
     });
     monaco.editor.setTheme(theme === "dark" ? "atreyu-dark" : "atreyu-light");
   }
 
-  /* ─── Render ──────────────────────────────────────────── */
+  /* ── Render ──────────────────────────────────────────────── */
+
+  /* Still checking auth state — blank to avoid flash */
+  if (!authChecked) return null;
+
+  /* Not connected → show key entry screen */
+  if (!sessionToken) {
+    return <ConnectScreen onConnected={handleConnected} />;
+  }
+
   const panelStyle: React.CSSProperties = {
     background: "var(--app-surface)",
     boxShadow: "var(--neu-inset)",
@@ -513,13 +688,7 @@ export default function CodeStudio() {
         >
           <Upload size={12} />
           {uploading ? "Uploading…" : "Upload / Zip"}
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            style={{ display: "none" }}
-            onChange={handleUpload}
-          />
+          <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={handleUpload} />
         </label>
 
         {showClone ? (
@@ -531,10 +700,7 @@ export default function CodeStudio() {
               placeholder="https://github.com/owner/repo.git"
               autoFocus
               className="neu-inset-sm"
-              style={{
-                flex: 1, borderRadius: 8, padding: "6px 10px", fontSize: 11,
-                border: "none", background: "transparent", color: "var(--app-fg)", outline: "none",
-              }}
+              style={{ flex: 1, borderRadius: 8, padding: "6px 10px", fontSize: 11, border: "none", background: "transparent", color: "var(--app-fg)", outline: "none" }}
             />
             <button
               onClick={handleClone}
@@ -563,6 +729,7 @@ export default function CodeStudio() {
           </button>
         )}
 
+        {/* Refresh */}
         <button
           onClick={() => refreshTree(true)}
           title="Refresh file tree"
@@ -571,6 +738,22 @@ export default function CodeStudio() {
         >
           <RefreshCw size={12} />
         </button>
+
+        {/* Key hint + disconnect */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <span style={{ fontSize: 10, fontFamily: "monospace", color: "var(--app-muted)", opacity: 0.7 }}>
+            {keyHint}
+          </span>
+          <button
+            onClick={handleDisconnect}
+            title="Disconnect API key"
+            className="neu-raised-sm"
+            style={{ borderRadius: 8, padding: "6px 8px", cursor: "pointer", border: "none", background: "transparent", color: "var(--app-muted)", display: "flex", alignItems: "center", gap: 4 }}
+          >
+            <LogOut size={11} />
+            <span style={{ fontSize: 10 }}>Disconnect</span>
+          </button>
+        </div>
       </div>
 
       {/* ── Three panels ── */}
@@ -582,21 +765,16 @@ export default function CodeStudio() {
             Files
           </div>
           <div style={{ flex: 1, overflowY: "auto" }}>
-            <FileTree
-              nodes={fileTree}
-              onOpen={openFile}
-              onDelete={deleteNode}
-              activePath={activeFile?.path ?? null}
-            />
+            <FileTree nodes={fileTree} onOpen={openFile} onDelete={deleteNode} activePath={activeFile?.path ?? null} />
           </div>
         </div>
 
-        {/* CENTER: Monaco editor */}
+        {/* CENTER: Monaco */}
         <div style={{ ...panelStyle, flex: 1, minWidth: 0 }}>
           {activeFile ? (
             <>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderBottom: "1px solid rgba(128,128,128,0.12)", flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--app-fg)", fontFamily: "var(--app-font-mono,'SF Mono',monospace)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span style={{ fontSize: 11, color: "var(--app-fg)", fontFamily: "monospace", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {activeFile.path}
                 </span>
                 {activeFile.isDirty && (
@@ -612,15 +790,14 @@ export default function CodeStudio() {
                   onChange={handleEditorChange}
                   onMount={handleEditorMount}
                   options={{
-                    fontSize: 12,
-                    lineHeight: 20,
+                    fontSize: 12, lineHeight: 20,
                     minimap: { enabled: false },
                     scrollBeyondLastLine: false,
                     wordWrap: "on",
                     padding: { top: 12 },
                     smoothScrolling: true,
                     cursorBlinking: "phase",
-                    fontFamily: "var(--app-font-mono,'SF Mono',Menlo,monospace)",
+                    fontFamily: "monospace",
                   }}
                 />
               </div>
@@ -633,7 +810,7 @@ export default function CodeStudio() {
           )}
         </div>
 
-        {/* RIGHT: Claude chat */}
+        {/* RIGHT: Chat */}
         <div style={{ ...panelStyle, width: 340, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px 6px", borderBottom: "1px solid rgba(128,128,128,0.12)", flexShrink: 0 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", letterSpacing: "0.06em" }}>ATREYU CODE STUDIO</span>
@@ -653,7 +830,7 @@ export default function CodeStudio() {
                   Ask Claude to read, write, or build in your project.
                 </p>
                 <p style={{ fontSize: 11, color: "var(--app-muted)", marginTop: 8 }}>
-                  Claude can edit files precisely, create directories, and run commands.
+                  Usage is billed to your Anthropic account.
                 </p>
               </div>
             )}
@@ -665,8 +842,7 @@ export default function CodeStudio() {
                     key={i}
                     style={{
                       width: 5, height: 5, borderRadius: "50%", background: "#a78bfa",
-                      animation: `blink 1.2s ${i * 0.2}s infinite`,
-                      opacity: 0.5,
+                      animation: `blink 1.2s ${i * 0.2}s infinite`, opacity: 0.5,
                     }}
                   />
                 ))}
@@ -679,13 +855,8 @@ export default function CodeStudio() {
             <textarea
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  sendMessage();
-                }
-              }}
-              placeholder="Ask Claude… (Enter to send, Shift+Enter for newline)"
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+              placeholder="Ask Claude… (Enter to send)"
               rows={3}
               disabled={streaming}
               className="neu-inset-sm"
@@ -701,8 +872,8 @@ export default function CodeStudio() {
               className="neu-raised-sm"
               style={{
                 borderRadius: 8, padding: "0 12px", border: "none", background: "transparent",
-                cursor: streaming || !chatInput.trim() ? "not-allowed" : "pointer",
-                color: streaming || !chatInput.trim() ? "var(--app-muted)" : "#a78bfa",
+                cursor: (streaming || !chatInput.trim()) ? "not-allowed" : "pointer",
+                color: (streaming || !chatInput.trim()) ? "var(--app-muted)" : "#a78bfa",
                 flexShrink: 0, display: "flex", alignItems: "center",
               }}
             >

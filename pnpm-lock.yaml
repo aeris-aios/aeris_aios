@@ -81,6 +81,9 @@ importers:
 
   artifacts/api-server:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.78.0
+        version: 0.78.0(zod@4.3.6)
       '@google-cloud/storage':
         specifier: ^7.19.0
         version: 7.19.0
