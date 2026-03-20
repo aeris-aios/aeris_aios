@@ -7,6 +7,7 @@ import campaignsRouter from "./campaigns";
 import knowledgeRouter from "./knowledge";
 import automationsRouter from "./automations";
 import projectsRouter from "./projects";
+import agentsRouter from "./agents/index";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(campaignsRouter);
 router.use(knowledgeRouter);
 router.use(automationsRouter);
 router.use(projectsRouter);
+router.use("/agents", agentsRouter);
 
 export default router;

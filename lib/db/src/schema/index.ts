@@ -6,3 +6,4 @@ export * from "./research";
 export * from "./content";
 export * from "./knowledge";
 export * from "./automations";
+export * from "./agents";

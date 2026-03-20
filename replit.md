@@ -34,6 +34,7 @@ artifacts/
 ├── api-server/           # Express 5 API server
 │   └── src/routes/
 │       ├── anthropic/    # AI chat conversations (SSE streaming)
+│       ├── agents/       # Agent Studio: repo ingestion + parallel job execution (SSE streaming)
 │       ├── research.ts   # Research jobs + Apify scaffold + AI summarize
 │       ├── content.ts    # Content generation (SSE streaming)
 │       ├── campaigns.ts  # Campaign management
@@ -42,8 +43,8 @@ artifacts/
 │       └── projects.ts   # Projects + dashboard stats
 ├── atreyu/               # React + Vite frontend (previewPath: /)
 │   └── src/
-│       ├── pages/        # landing, dashboard, assistant, research, content, campaigns, knowledge, automations, settings
-│       ├── components/   # layout.tsx (sidebar + topbar)
+│       ├── pages/        # landing, dashboard, claude (Agent Studio), research, content, campaigns, knowledge, automations, settings
+│       ├── components/   # layout.tsx (neumorphic OS shell + dock)
 │       └── hooks/        # use-sse.ts (SSE streaming hook)
 └── mockup-sandbox/       # Design prototyping sandbox
 
