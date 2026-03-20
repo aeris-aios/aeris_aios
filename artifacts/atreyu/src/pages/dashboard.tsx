@@ -83,9 +83,9 @@ function StatCard({
       {/* Label */}
       <div className="hud-label">{a.label}</div>
 
-      {/* Thick left accent tab — clipped to card's rounded corners by overflow:hidden */}
-      <div className="absolute left-0 top-0 bottom-0 w-[5px]"
-        style={{ background: a.grad, opacity: 0.75 }} />
+      {/* Accent tab — left clipped to card corner, right fully rounded */}
+      <div className="absolute left-0 top-0 bottom-0 w-[6px]"
+        style={{ background: a.grad, borderRadius: "0 99px 99px 0", opacity: 0.8 }} />
     </div>
   );
 }
