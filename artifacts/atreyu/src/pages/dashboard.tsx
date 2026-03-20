@@ -25,17 +25,16 @@ function StatCard({
 }) {
   const { theme } = useTheme();
   const colors = {
-    blue:   { bg: "rgba(37,99,235,0.10)",   text: "hsl(var(--primary))",  glow: "rgba(37,99,235,0.15)"  },
-    cyan:   { bg: "rgba(6,182,212,0.10)",   text: "hsl(var(--accent))",   glow: "rgba(6,182,212,0.15)"  },
-    violet: { bg: "rgba(124,58,237,0.10)",  text: "#7c3aed",              glow: "rgba(124,58,237,0.15)" },
-    green:  { bg: "rgba(16,185,129,0.10)",  text: "#10b981",              glow: "rgba(16,185,129,0.15)" },
+    blue:   { bg: "rgba(37,99,235,0.12)",   text: "hsl(var(--primary))",  stripe: "glass-card-blue"   },
+    cyan:   { bg: "rgba(6,182,212,0.12)",   text: "hsl(var(--accent))",   stripe: "glass-card-cyan"   },
+    violet: { bg: "rgba(124,58,237,0.12)",  text: "#7c3aed",              stripe: "glass-card-violet" },
+    green:  { bg: "rgba(16,185,129,0.12)",  text: "#10b981",              stripe: "glass-card-green"  },
   };
   const c = colors[accent];
 
   return (
     <div
-      className="relative rounded-2xl p-5 overflow-hidden fut-clip-tr transition-all duration-300 hover:scale-[1.01] group cursor-default"
-      style={{ boxShadow: `var(--neu-raised), 0 0 0 1px ${c.glow}`, background: "var(--neu-bg)" }}
+      className={`relative rounded-2xl p-5 overflow-hidden fut-clip-tr transition-all duration-300 hover:scale-[1.01] group cursor-default glass-card ${c.stripe}`}
     >
       {/* Corner notch accent */}
       <div
@@ -111,7 +110,7 @@ export default function Dashboard() {
           <p className="hud-label text-foreground/35 mb-1">COMMAND CENTER</p>
           <h1 className="text-3xl font-black tracking-tight text-foreground">Marketing Universe</h1>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl" style={{ boxShadow: "var(--neu-inset-sm)", background: "var(--neu-bg)" }}>
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl glass-card">
           <div className="status-active" />
           <span className="hud-label text-foreground/40">ALL SYSTEMS NOMINAL</span>
         </div>
@@ -133,8 +132,7 @@ export default function Dashboard() {
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Execution velocity */}
-        <div className="lg:col-span-2 rounded-2xl p-5 fut-clip-tr fut-grid"
-          style={{ boxShadow: "var(--neu-raised)", background: "var(--neu-bg)" }}>
+        <div className="lg:col-span-2 rounded-2xl p-5 fut-clip-tr fut-grid glass-card">
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="hud-label text-foreground/35 mb-0.5">EXECUTION VELOCITY</p>
@@ -173,15 +171,15 @@ export default function Dashboard() {
         </div>
 
         {/* Recent activity */}
-        <div className="rounded-2xl p-5" style={{ boxShadow: "var(--neu-raised)", background: "var(--neu-bg)" }}>
+        <div className="rounded-2xl p-5 glass-card">
           <p className="hud-label text-foreground/35 mb-0.5">SIGNAL FEED</p>
           <h3 className="text-base font-bold text-foreground mb-4">Recent Activity</h3>
           <div className="space-y-3">
             {stats.recentActivity && stats.recentActivity.length > 0 ? (
               stats.recentActivity.map((activity, i) => (
                 <div key={i}
-                  className="flex items-start gap-3 p-3 rounded-xl transition-all cursor-default"
-                  style={{ boxShadow: "var(--neu-inset-sm)", background: "var(--neu-bg)" }}>
+                  className="flex items-start gap-3 p-3 rounded-xl transition-all cursor-default glass-card"
+                  style={{ boxShadow: "none" }}>
                   <div className="mt-0.5 h-2 w-2 rounded-full shrink-0 bg-primary"
                     style={{ boxShadow: "0 0 8px rgba(37,99,235,0.5)" }} />
                   <div className="min-w-0">
@@ -209,8 +207,7 @@ export default function Dashboard() {
           { label: "AUTOMATIONS",   val: "ARMED",  ok: true  },
         ].map((item) => (
           <div key={item.label}
-            className="flex items-center justify-between px-4 py-3 rounded-xl"
-            style={{ boxShadow: "var(--neu-inset-sm)", background: "var(--neu-bg)" }}>
+            className="flex items-center justify-between px-4 py-3 rounded-xl glass-card">
             <span className="hud-label text-foreground/35">{item.label}</span>
             <div className="flex items-center gap-1.5">
               <div className={item.ok ? "status-active" : "h-1.5 w-1.5 rounded-full bg-destructive"} />

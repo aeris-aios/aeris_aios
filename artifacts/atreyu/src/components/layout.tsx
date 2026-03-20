@@ -146,15 +146,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             overflow: "visible",
           }}
         >
-          {/* Traffic lights sit in the left corner of the tab row */}
-          <div className="flex items-center gap-1.5 self-center mr-3 shrink-0">
-            <div className="h-3 w-3 rounded-full bg-[#ff5f57] cursor-pointer"
-              style={{ boxShadow: "inset 0 1px 1px rgba(255,255,255,0.35)" }} />
-            <div className="h-3 w-3 rounded-full bg-[#febc2e] cursor-pointer"
-              style={{ boxShadow: "inset 0 1px 1px rgba(255,255,255,0.35)" }} />
-            <div className="h-3 w-3 rounded-full bg-[#28c840] cursor-pointer"
-              style={{ boxShadow: "inset 0 1px 1px rgba(255,255,255,0.35)" }} />
-          </div>
 
           {/* Tab items */}
           {navItems.map((item) => {
