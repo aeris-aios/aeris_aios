@@ -53,26 +53,22 @@ function StatCard({
 
   return (
     <div
-      className="relative rounded-2xl p-5 overflow-hidden fut-clip-tr cursor-default"
-      style={{ background: n.bg, boxShadow: n.raised }}
+      className="relative rounded-2xl p-5 cursor-default"
+      style={{ background: n.bg, boxShadow: n.inset }}
     >
-      {/* Angled corner notch filled with accent */}
-      <div className="absolute top-0 right-0 w-[14px] h-[14px]"
-        style={{ background: a.text, clipPath: "polygon(100% 0, 0 0, 100% 100%)", opacity: 0.65 }} />
-
       {/* Icon + delta row */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4">
+        {/* Raised icon floats out of the inset card */}
         <div
-          className="h-10 w-10 rounded-xl flex items-center justify-center"
+          className="h-9 w-9 rounded-xl flex items-center justify-center"
           style={{ background: n.bg, boxShadow: n.raisedSm }}
         >
-          {/* Colored icon glow */}
-          <Icon style={{ width: 18, height: 18, color: a.text, filter: `drop-shadow(0 0 3px ${a.text}80)` }} />
+          <Icon style={{ width: 17, height: 17, color: a.text, filter: `drop-shadow(0 0 3px ${a.text}70)` }} />
         </div>
 
         {delta && (
           <div className="flex items-center gap-1 px-2 py-0.5 rounded-lg"
-            style={{ background: n.bg, boxShadow: n.insetSm }}>
+            style={{ background: n.bg, boxShadow: n.raisedSm }}>
             <ArrowUpRight className="h-3 w-3 text-emerald-500" />
             <span className="hud-label text-emerald-500">{delta}</span>
           </div>
@@ -80,16 +76,16 @@ function StatCard({
       </div>
 
       {/* Value */}
-      <div className="data-value text-4xl font-black text-foreground mb-2">
+      <div className="data-value text-4xl font-black text-foreground mb-1.5">
         {value}
       </div>
 
       {/* Label */}
       <div className="hud-label text-foreground/38">{a.label}</div>
 
-      {/* Bottom gradient stripe */}
-      <div className="absolute bottom-0 left-0 right-0 h-[2px] opacity-50"
-        style={{ background: `linear-gradient(90deg, transparent, ${a.text}, transparent)` }} />
+      {/* Subtle left accent bar */}
+      <div className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full opacity-40"
+        style={{ background: a.text }} />
     </div>
   );
 }
