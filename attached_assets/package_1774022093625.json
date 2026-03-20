@@ -1,0 +1,17 @@
+{
+  "name": "atreyu-aios",
+  "version": "1.0.0",
+  "description": "ATREYU AIOS - AI-powered IDE with Claude Code",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.0"
+  }
+}
