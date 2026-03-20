@@ -25,10 +25,7 @@ const CONTENT_TYPE_PROMPTS: Record<string, string> = {
   linkedin_post:  "Write a high-performing LinkedIn post",
 };
 
-/* ────────────────────────────────────────────────────────────
-   Adam Robinson writing style — injected when writingStyle
-   is "adam_robinson" or method is viral/trend/pain
-──────────────────────────────────────────────────────────── */
+/* ─── Adam Robinson writing style ─────────────────────────── */
 const ADAM_ROBINSON_STYLE = `
 ## WRITING STYLE: Adam Robinson (LinkedIn voice)
 
@@ -64,9 +61,7 @@ CTAs that work:
 - "Follow for more"
 `;
 
-/* ────────────────────────────────────────────────────────────
-   Method-specific instructions
-──────────────────────────────────────────────────────────── */
+/* ─── Method prompts ─────────────────────────────────────── */
 const METHOD_PROMPTS: Record<string, string> = {
   viral_replication: `
 ## METHOD: Viral Replication
@@ -110,9 +105,25 @@ RULES:
   standard: "",
 };
 
-/* ────────────────────────────────────────────────────────────
-   Content asset CRUD
-──────────────────────────────────────────────────────────── */
+/* ─── Helpers ─────────────────────────────────────────────── */
+async function imageUrlToBase64(url: string): Promise<{ data: string; mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif" } | null> {
+  try {
+    const resp = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; ATREYU/1.0)" },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!resp.ok) return null;
+    const buf = await resp.arrayBuffer();
+    const ct  = resp.headers.get("content-type") ?? "image/jpeg";
+    const mt: "image/jpeg" | "image/png" | "image/webp" | "image/gif" =
+      ct.includes("png")  ? "image/png"  :
+      ct.includes("webp") ? "image/webp" :
+      ct.includes("gif")  ? "image/gif"  : "image/jpeg";
+    return { data: Buffer.from(buf).toString("base64"), mediaType: mt };
+  } catch { return null; }
+}
+
+/* ─── Content asset CRUD ──────────────────────────────────── */
 router.get("/content/assets", async (_req, res) => {
   const assets = await db.select().from(contentAssetsTable).where(eq(contentAssetsTable.deletedAt, null as any)).orderBy(contentAssetsTable.createdAt);
   res.json(assets);
@@ -121,8 +132,7 @@ router.get("/content/assets", async (_req, res) => {
 router.post("/content/assets", async (req, res) => {
   const { title, type, content, platform, tone } = req.body;
   if (!title || !type || !content) {
-    res.status(400).json({ error: "title, type, and content are required" });
-    return;
+    res.status(400).json({ error: "title, type, and content are required" }); return;
   }
   const [asset] = await db.insert(contentAssetsTable).values({ title, type, content, platform, tone }).returning();
   res.status(201).json(asset);
@@ -141,23 +151,219 @@ router.delete("/content/assets/:id", async (req, res) => {
   res.status(204).end();
 });
 
-/* ────────────────────────────────────────────────────────────
-   Main content generation (SSE stream)
-──────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   SCRAPE SOCIAL PROFILE
+   Uses Apify to pull a competitor's latest posts
+═══════════════════════════════════════════════════════════ */
+router.post("/content/scrape-profile", async (req, res) => {
+  const { url } = req.body;
+  const APIFY_KEY = process.env.APIFY_API_KEY;
+
+  if (!APIFY_KEY) {
+    res.status(500).json({ error: "Apify API key not configured" }); return;
+  }
+  if (!url) {
+    res.status(400).json({ error: "url is required" }); return;
+  }
+
+  /* Detect platform & extract handle */
+  const igMatch  = url.match(/instagram\.com\/([^\/\?#@]+)/i);
+  const liMatch  = url.match(/linkedin\.com\/(?:in|company)\/([^\/\?#]+)/i);
+  const ttMatch  = url.match(/tiktok\.com\/@([^\/\?#]+)/i);
+  const ytMatch  = url.match(/youtube\.com\/@([^\/\?#]+)/i);
+
+  let actorId: string;
+  let inputBody: object;
+  let platform: string;
+  let handle: string;
+
+  if (igMatch) {
+    handle   = igMatch[1].replace("@","");
+    platform = "instagram";
+    actorId  = "apify~instagram-profile-scraper";
+    inputBody = { usernames: [handle], resultsLimit: 12 };
+  } else if (liMatch) {
+    handle   = liMatch[1];
+    platform = "linkedin";
+    actorId  = "2SyF0bMFpUje24Gqt";
+    inputBody = { profileUrls: [url] };
+  } else if (ttMatch) {
+    handle   = ttMatch[1];
+    platform = "tiktok";
+    actorId  = "clockworks~free-tiktok-scraper";
+    inputBody = { profiles: [handle], resultsPerPage: 12 };
+  } else if (ytMatch) {
+    handle   = ytMatch[1];
+    platform = "youtube";
+    actorId  = "streamers~youtube-scraper";
+    inputBody = { startUrls: [{ url }], maxResults: 12 };
+  } else {
+    res.status(400).json({ error: "Unsupported platform. Paste an Instagram, LinkedIn, TikTok, or YouTube URL." }); return;
+  }
+
+  try {
+    const apifyRes = await fetch(
+      `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?timeout=60`,
+      {
+        method:  "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${APIFY_KEY}` },
+        body:    JSON.stringify(inputBody),
+        signal:  AbortSignal.timeout(70000),
+      }
+    );
+
+    if (!apifyRes.ok) {
+      const txt = await apifyRes.text();
+      throw new Error(`Apify ${apifyRes.status}: ${txt.slice(0,300)}`);
+    }
+
+    const data = await apifyRes.json();
+    const raw  = Array.isArray(data) ? data[0] : data;
+
+    if (!raw) {
+      res.status(404).json({ error: "Profile not found or is private." }); return;
+    }
+
+    /* Normalise across platforms */
+    let posts: Array<{ imageUrl: string; caption: string; likes: number }> = [];
+
+    if (platform === "instagram") {
+      posts = (raw.latestPosts ?? [])
+        .filter((p: any) => p.displayUrl)
+        .slice(0, 9)
+        .map((p: any) => ({
+          imageUrl: p.displayUrl ?? "",
+          caption:  (p.caption ?? "").slice(0, 300),
+          likes:    p.likesCount ?? 0,
+        }));
+    } else {
+      /* Fallback for other platforms — pick whatever image/text fields exist */
+      const rawPosts = raw.posts ?? raw.videos ?? raw.items ?? [];
+      posts = rawPosts.slice(0, 9).map((p: any) => ({
+        imageUrl: p.displayUrl ?? p.thumbnailUrl ?? p.image ?? "",
+        caption:  (p.caption ?? p.text ?? p.title ?? "").slice(0, 300),
+        likes:    p.likesCount ?? p.viewCount ?? 0,
+      })).filter((p: any) => p.imageUrl);
+    }
+
+    res.json({
+      platform,
+      handle,
+      username:    raw.username    ?? raw.handle ?? handle,
+      fullName:    raw.fullName    ?? raw.displayName ?? raw.name ?? "",
+      bio:         raw.biography   ?? raw.description ?? "",
+      followers:   raw.followersCount ?? raw.followers ?? 0,
+      postsCount:  raw.postsCount  ?? raw.videosCount ?? posts.length,
+      profilePicUrl: raw.profilePicUrl ?? raw.profilePicUrlHD ?? raw.avatar ?? "",
+      posts,
+    });
+  } catch (err: any) {
+    console.error("[scrape-profile]", err.message);
+    res.status(500).json({ error: err.message ?? "Failed to scrape profile" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   ANALYZE VISUAL STYLE
+   Uses Claude Vision to extract a design style profile
+   from the competitor's top posts
+═══════════════════════════════════════════════════════════ */
+router.post("/content/analyze-style", async (req, res) => {
+  const { posts, username, platform } = req.body;
+
+  if (!posts?.length) {
+    res.status(400).json({ error: "No posts provided" }); return;
+  }
+
+  /* Fetch and base64-encode images (parallel, max 5) */
+  const imageResults = await Promise.allSettled(
+    (posts as Array<{ imageUrl: string }>)
+      .slice(0, 5)
+      .map(p => imageUrlToBase64(p.imageUrl))
+  );
+
+  const validImages = imageResults
+    .filter((r): r is PromiseFulfilledResult<NonNullable<Awaited<ReturnType<typeof imageUrlToBase64>>>> =>
+      r.status === "fulfilled" && r.value !== null)
+    .map(r => r.value);
+
+  if (!validImages.length) {
+    res.status(400).json({ error: "Could not retrieve post images for analysis." }); return;
+  }
+
+  try {
+    const imageBlocks = validImages.map(img => ({
+      type: "image" as const,
+      source: {
+        type:       "base64" as const,
+        media_type: img.mediaType,
+        data:       img.data,
+      },
+    }));
+
+    const response = await anthropic.messages.create({
+      model:      "claude-opus-4-6",
+      max_tokens: 1024,
+      messages: [{
+        role: "user",
+        content: [
+          ...imageBlocks,
+          {
+            type: "text",
+            text: `You are an elite visual brand analyst. Analyze these ${validImages.length} posts from @${username} on ${platform}.
+
+Return ONLY valid JSON — no markdown wrapper, no explanation, no code block. Just the raw JSON object:
+{
+  "colorPalette": {
+    "primary":   "#hexcode",
+    "secondary": "#hexcode",
+    "accent":    "#hexcode",
+    "text":      "#hexcode"
+  },
+  "mood": "2-4 word description (e.g. warm and aspirational)",
+  "backgroundStyle": "one of: solid | gradient | dark | light | textured",
+  "typographyStyle": "one of: serif | sans-serif | bold | minimal | script",
+  "layoutStyle": "one of: centered | left-aligned | editorial | fullbleed | split",
+  "contentStyle": "1-2 sentences describing the overall aesthetic that a designer would follow to replicate this look",
+  "designNotes": "bullet-point list of specific recurring visual elements: overlay styles, shapes, borders, patterns, spacing philosophy",
+  "copyTone": "2-3 word description of the written voice (e.g. aspirational and direct, casual and relatable, premium and minimal)"
+}
+
+For colorPalette: pick actual hex colors from the dominant visual palette. If photos are lifestyle/product with no text overlays, sample the dominant tones of those photos. Ensure text color is readable against primary.`,
+          },
+        ],
+      }],
+    });
+
+    const raw = response.content[0].type === "text" ? response.content[0].text.trim() : "";
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Style analysis returned invalid format");
+
+    const styleProfile = JSON.parse(jsonMatch[0]);
+    res.json({ styleProfile, username, platform, imagesAnalyzed: validImages.length });
+  } catch (err: any) {
+    console.error("[analyze-style]", err.message);
+    res.status(500).json({ error: err.message ?? "Style analysis failed" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════
+   MAIN CONTENT GENERATION (SSE stream)
+═══════════════════════════════════════════════════════════ */
 router.post("/content/generate", async (req, res) => {
   const {
     type, platform, tone, audience, context, model, variants = 1,
-    // LinkedIn-specific
-    method = "standard",
-    writingStyle = "brand_voice",
-    customStyle = "",
-    originalPost = "",
-    format = "text_only",
+    method        = "standard",
+    writingStyle  = "brand_voice",
+    customStyle   = "",
+    originalPost  = "",
+    format        = "text_only",
+    styleProfile,        /* NEW: extracted competitor style profile */
+    socialProfileUrl,    /* NEW: competitor profile URL (informational) */
   } = req.body;
 
   if (!type || !context) {
-    res.status(400).json({ error: "type and context are required" });
-    return;
+    res.status(400).json({ error: "type and context are required" }); return;
   }
 
   /* ── Load brand context ── */
@@ -166,10 +372,8 @@ router.post("/content/generate", async (req, res) => {
     .from(styleExamplesTable)
     .where(isNull(styleExamplesTable.deletedAt))
     .limit(3);
-
   const analyzedExamples = styleExamples.filter(e => e.analysisResult);
 
-  /* ── Build brand context block ── */
   let brandContext = "";
   if (brand) {
     brandContext = `
@@ -186,12 +390,26 @@ ${analyzedExamples.map((e, i) => `### Example ${i + 1}: ${e.name}\n${e.analysisR
 `;
   }
 
-  const selectedModel = MODEL_MAP[model ?? "sonnet"] ?? MODEL_MAP["sonnet"];
-  const basePrompt = CONTENT_TYPE_PROMPTS[type] ?? "Create marketing content";
+  /* ── Competitor style block (NEW) ── */
+  let competitorBlock = "";
+  if (styleProfile) {
+    competitorBlock = `
+## COMPETITOR CONTENT STYLE (Replicate this aesthetic in your copy tone)
+Visual Mood: ${styleProfile.mood ?? ""}
+Copy Tone: ${styleProfile.copyTone ?? ""}
+Content Style: ${styleProfile.contentStyle ?? ""}
+Design Notes: ${styleProfile.designNotes ?? ""}
 
-  /* ── LinkedIn post: specialized system prompt ── */
+Adopt this competitor's energy, pacing, and copywriting confidence in your output. Write copy that would feel at home on their profile but is unmistakably about this brand's message.
+${socialProfileUrl ? `Competitor profile: ${socialProfileUrl}` : ""}
+`;
+  }
+
+  const selectedModel = MODEL_MAP[model ?? "sonnet"] ?? MODEL_MAP["sonnet"];
+  const basePrompt    = CONTENT_TYPE_PROMPTS[type] ?? "Create marketing content";
+
   let systemPrompt: string;
-  let userPrompt: string;
+  let userPrompt:   string;
 
   if (type === "linkedin_post") {
     const styleBlock =
@@ -201,11 +419,11 @@ ${analyzedExamples.map((e, i) => `### Example ${i + 1}: ${e.name}\n${e.analysisR
       ADAM_ROBINSON_STYLE;
 
     const methodBlock = METHOD_PROMPTS[method] ?? "";
-    const formatNote = format === "text_carousel"
-      ? "\n\nIMPORTANT: Write ONLY the LinkedIn post caption text here. The carousel slides will be generated separately. The post text should tease/preview the carousel content without duplicating it word-for-word.\n"
+    const formatNote  = format === "text_carousel"
+      ? "\n\nIMPORTANT: Write ONLY the LinkedIn post caption text here. The carousel slides will be generated separately.\n"
       : "";
 
-    systemPrompt = `You are an expert LinkedIn content strategist and ghostwriter.${brandContext ? `\n${brandContext}` : ""}${styleBlock}${styleContext ? `\n${styleContext}` : ""}${brand ? "" : "\n\nNo brand profile set — write for a generic professional brand based on the brief."}`;
+    systemPrompt = `You are an expert LinkedIn content strategist and ghostwriter.${brandContext ? `\n${brandContext}` : ""}${styleBlock}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}${brand ? "" : "\n\nNo brand profile set — write for a generic professional brand based on the brief."}`;
 
     userPrompt = `${methodBlock}${originalPost && method === "viral_replication" ? originalPost + "\n\n---\n\nNow write the adapted version:\n" : ""}
 
@@ -215,20 +433,22 @@ ${audience ? `\nTarget Audience: ${audience}` : ""}
 ${platform && platform !== "LinkedIn" ? `\nOptimize for: ${platform}` : ""}
 ${tone ? `\nTone modifier: ${tone}` : ""}
 ${formatNote}
-${variants > 1 ? `\nGenerate ${variants} distinct variants, clearly labeled Variant 1, Variant 2, etc.` : ""}
+${variants > 1 ? `\nGenerate ${variants} distinct variants, clearly labeled as Variant 1, Variant 2, etc.` : ""}
 
 Write the LinkedIn post now.`;
 
   } else {
-    /* ── Standard content types ── */
-    systemPrompt = `You are ATREYU, an elite marketing copywriter and strategist.${brandContext ? `\n${brandContext}` : ""}${styleContext ? `\n${styleContext}` : ""}
+    systemPrompt = `You are ATREYU, an elite marketing copywriter and strategist.${brandContext ? `\n${brandContext}` : ""}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}
 
 Create high-converting, professional marketing content that is unmistakably ON-BRAND.${brand ? "" : "\n\nNo brand profile set — write professional content based on the brief provided."}`;
 
-    userPrompt = `${basePrompt}${platform ? ` for ${platform}` : ""}${tone ? ` with a ${tone} tone` : ""}${audience ? ` targeting ${audience}` : ""}.
+    userPrompt = `${basePrompt}:
 
 ## CONTENT BRIEF
 ${context}
+${audience ? `\nTarget Audience: ${audience}` : ""}
+${platform ? `\nPlatform: ${platform}` : ""}
+${tone ? `\nTone: ${tone}` : ""}
 ${variants > 1 ? `\nGenerate ${variants} distinct variants, clearly labeled as Variant 1, Variant 2, etc.` : ""}
 
 Be specific, compelling, and optimized for conversion.`;
@@ -240,10 +460,10 @@ Be specific, compelling, and optimized for conversion.`;
 
   try {
     const stream = anthropic.messages.stream({
-      model: selectedModel,
+      model:     selectedModel,
       max_tokens: 8192,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      system:    systemPrompt,
+      messages:  [{ role: "user", content: userPrompt }],
     });
 
     for await (const event of stream) {
@@ -252,7 +472,7 @@ Be specific, compelling, and optimized for conversion.`;
       }
     }
 
-    res.write(`data: ${JSON.stringify({ done: true, model: selectedModel, brandActive: !!brand, styleExamplesUsed: analyzedExamples.length })}\n\n`);
+    res.write(`data: ${JSON.stringify({ done: true, model: selectedModel, brandActive: !!brand, styleExamplesUsed: analyzedExamples.length, competitorStyleUsed: !!styleProfile })}\n\n`);
     res.end();
   } catch (err) {
     res.write(`data: ${JSON.stringify({ error: "AI request failed" })}\n\n`);
@@ -260,23 +480,20 @@ Be specific, compelling, and optimized for conversion.`;
   }
 });
 
-/* ────────────────────────────────────────────────────────────
-   Carousel structure generation
-   Returns a JSON object with slide content ready to render
-──────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   CAROUSEL STRUCTURE GENERATION
+═══════════════════════════════════════════════════════════ */
 router.post("/content/carousel/structure", async (req, res) => {
   const { topic, slideCount = 7, audience, model, postText = "" } = req.body;
 
   if (!topic) {
-    res.status(400).json({ error: "topic is required" });
-    return;
+    res.status(400).json({ error: "topic is required" }); return;
   }
 
   const [brand] = await db.select().from(brandProfilesTable).limit(1);
   const selectedModel = MODEL_MAP[model ?? "sonnet"] ?? MODEL_MAP["sonnet"];
-
-  const brandName = brand?.name ?? "YOUR BRAND";
-  const brandVoice = brand?.voiceDescription ?? "";
+  const brandName   = brand?.name ?? "YOUR BRAND";
+  const brandVoice  = brand?.voiceDescription ?? "";
   const accentColor = brand?.colorPalette?.accent ?? "#6366f1";
 
   const systemPrompt = `You are a LinkedIn carousel content strategist. You create concise, high-impact carousel slides that deliver one clear insight per slide. Each slide must be self-contained and memorable.
@@ -315,30 +532,24 @@ Rules:
 
   try {
     const response = await anthropic.messages.create({
-      model: selectedModel,
+      model:      selectedModel,
       max_tokens: 2048,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      system:     systemPrompt,
+      messages:   [{ role: "user", content: userPrompt }],
     });
 
-    const rawText = response.content[0].type === "text" ? response.content[0].text : "";
-
+    const rawText   = response.content[0].type === "text" ? response.content[0].text : "";
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      res.status(500).json({ error: "Failed to parse carousel structure", raw: rawText });
-      return;
+      res.status(500).json({ error: "Failed to parse carousel structure", raw: rawText }); return;
     }
 
     const structure = JSON.parse(jsonMatch[0]);
-    // Ensure slides array contains only numbered content slides
-    // Assign sequential numbers if Claude omitted them
     if (Array.isArray(structure.slides)) {
       let contentSlides = structure.slides.filter((s: any) => s.number !== undefined && s.number !== null);
       if (contentSlides.length === 0) {
-        // Claude omitted numbers — assign them sequentially
         contentSlides = structure.slides.map((s: any, i: number) => ({ ...s, number: i + 1 }));
       }
-      // Cap to requested slide count minus cover + CTA
       structure.slides = contentSlides.slice(0, slideCount - 2);
     }
     res.json(structure);
