@@ -318,7 +318,12 @@ router.delete("/projects/:id/file", async (req, res) => {
 
   try {
     const resolved = guardPath(projectDir, filePath);
-    await fs.unlink(resolved);
+    const stat = await fs.stat(resolved);
+    if (stat.isDirectory()) {
+      await fs.rm(resolved, { recursive: true, force: true });
+    } else {
+      await fs.unlink(resolved);
+    }
     const tree = await buildTree(projectDir);
     res.json({ ok: true, tree });
   } catch (err: unknown) {

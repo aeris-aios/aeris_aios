@@ -16,12 +16,15 @@ type FileNode = {
   children?: FileNode[];
 };
 
-type TextBlock  = { kind: "text"; text: string };
-type ToolBlock  = { kind: "tool"; name: string; input: string; result?: string; open: boolean };
-type MsgBlock   = TextBlock | ToolBlock;
-type Message    = { role: "user" | "assistant"; blocks: MsgBlock[] };
+type TextBlock = { kind: "text"; text: string };
+type ToolBlock = { kind: "tool"; id: string; name: string; input: string; result?: string; open: boolean };
+type MsgBlock  = TextBlock | ToolBlock;
+type Message   = { role: "user" | "assistant"; blocks: MsgBlock[] };
 
 type ActiveFile = { path: string; content: string; isDirty: boolean };
+
+/* ─── File-mutating tools — trigger auto tree refresh ──────── */
+const MUTATING_TOOLS = new Set(["write_file", "edit_file", "delete_file", "create_directory"]);
 
 /* ─── Language map for Monaco ─────────────────────────────── */
 const LANG: Record<string, string> = {
@@ -39,17 +42,32 @@ function getLang(filePath: string): string {
   return LANG[ext] ?? "plaintext";
 }
 
+/* ─── Tool icon map ─────────────────────────────────────────── */
+const TOOL_ICON: Record<string, string> = {
+  read_file:        "📖",
+  write_file:       "✏️",
+  edit_file:        "🔧",
+  list_files:       "📂",
+  create_directory: "📁",
+  delete_file:      "🗑️",
+  search_files:     "🔍",
+  run_command:      "⚡",
+};
+
 /* ─── File Tree component ───────────────────────────────────── */
 function FileTree({
   nodes,
   onOpen,
+  onDelete,
   activePath,
 }: {
   nodes: FileNode[];
   onOpen: (path: string) => void;
+  onDelete: (node: FileNode) => void;
   activePath: string | null;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [hoveredPath, setHoveredPath] = useState<string | null>(null);
 
   function toggle(path: string) {
     setCollapsed((prev) => {
@@ -62,15 +80,18 @@ function FileTree({
   function renderNode(node: FileNode, depth: number): React.ReactNode {
     const isActive = node.path === activePath;
     const isOpen   = !collapsed.has(node.path);
+    const isHovered = hoveredPath === node.path;
     const indent   = depth * 12;
 
     if (node.type === "dir") {
       return (
         <div key={node.path}>
-          <button
+          <div
+            className="w-full text-left flex items-center gap-1 px-2 py-[3px] rounded hover:bg-white/10 transition-colors group"
+            style={{ paddingLeft: 8 + indent, cursor: "pointer" }}
+            onMouseEnter={() => setHoveredPath(node.path)}
+            onMouseLeave={() => setHoveredPath(null)}
             onClick={() => toggle(node.path)}
-            className="w-full text-left flex items-center gap-1 px-2 py-[3px] rounded hover:bg-white/10 transition-colors"
-            style={{ paddingLeft: 8 + indent }}
           >
             <span style={{ flexShrink: 0, opacity: 0.6 }}>
               {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
@@ -78,29 +99,56 @@ function FileTree({
             <span style={{ flexShrink: 0, opacity: 0.7 }}>
               {isOpen ? <FolderOpen size={12} /> : <Folder size={12} />}
             </span>
-            <span className="truncate text-[11px]" style={{ color: "var(--app-fg)", opacity: 0.8 }}>
+            <span className="truncate text-[11px] flex-1" style={{ color: "var(--app-fg)", opacity: 0.8 }}>
               {node.name}
             </span>
-          </button>
+            {isHovered && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(node); }}
+                title="Delete directory"
+                style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", color: "var(--app-muted)", flexShrink: 0 }}
+                className="hover:text-red-400 transition-colors"
+              >
+                <X size={10} />
+              </button>
+            )}
+          </div>
           {isOpen && node.children?.map((child) => renderNode(child, depth + 1))}
         </div>
       );
     }
 
     return (
-      <button
+      <div
         key={node.path}
-        onClick={() => onOpen(node.path)}
-        className="w-full text-left flex items-center gap-1 px-2 py-[3px] rounded transition-colors"
+        className="flex items-center gap-1 rounded transition-colors"
         style={{
           paddingLeft: 8 + indent,
+          paddingRight: 4,
           background: isActive ? "rgba(124,58,237,0.18)" : "transparent",
-          color: isActive ? "#a78bfa" : "var(--app-fg)",
         }}
+        onMouseEnter={() => setHoveredPath(node.path)}
+        onMouseLeave={() => setHoveredPath(null)}
       >
-        <FileText size={11} style={{ flexShrink: 0, opacity: 0.5 }} />
-        <span className="truncate text-[11px]">{node.name}</span>
-      </button>
+        <button
+          onClick={() => onOpen(node.path)}
+          className="flex items-center gap-1 py-[3px] flex-1 min-w-0 text-left"
+          style={{ color: isActive ? "#a78bfa" : "var(--app-fg)", background: "transparent", border: "none", cursor: "pointer" }}
+        >
+          <FileText size={11} style={{ flexShrink: 0, opacity: 0.5 }} />
+          <span className="truncate text-[11px]">{node.name}</span>
+        </button>
+        {(isHovered || isActive) && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(node); }}
+            title="Delete file"
+            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", color: "var(--app-muted)", flexShrink: 0 }}
+            className="hover:text-red-400 transition-colors"
+          >
+            <X size={10} />
+          </button>
+        )}
+      </div>
     );
   }
 
@@ -140,17 +188,18 @@ function ChatMessage({ msg }: { msg: Message }) {
           );
         }
 
-        /* tool block */
+        /* tool block — keyed by unique tool call id */
         const tb = block as ToolBlock;
+        const icon = TOOL_ICON[tb.name] ?? "⚙️";
         return (
-          <details key={i} className="max-w-[90%] text-[11px]" open={tb.open}>
+          <details key={tb.id || i} className="max-w-[90%] text-[11px]" open={tb.open}>
             <summary
               className="cursor-pointer px-2 py-1 rounded flex items-center gap-1 select-none"
               style={{ color: "#a78bfa", listStyle: "none" }}
             >
-              <span>⚙️</span>
+              <span>{icon}</span>
               <span className="font-mono">{tb.name}</span>
-              <span className="opacity-50 truncate max-w-[160px]">({tb.input})</span>
+              <span className="opacity-40 truncate max-w-[160px]">({tb.input})</span>
             </summary>
             {tb.result && (
               <pre
@@ -176,17 +225,20 @@ export default function CodeStudio() {
   const { theme } = useTheme();
 
   /* project state */
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [fileTree,  setFileTree]  = useState<FileNode[]>([]);
-  const [activeFile, setActiveFile] = useState<ActiveFile | null>(null);
+  const [projectId,   setProjectId]   = useState<string | null>(null);
+  const [fileTree,    setFileTree]    = useState<FileNode[]>([]);
+  const [activeFile,  setActiveFile]  = useState<ActiveFile | null>(null);
   const [projectName, setProjectName] = useState("New Project");
 
   /* chat state */
-  const sessionId   = useRef(`cs-${Date.now()}`);
+  const sessionId  = useRef(`cs-${Date.now()}`);
   const [messages,  setMessages]  = useState<Message[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  const chatBottom  = useRef<HTMLDivElement>(null);
+  const chatBottom = useRef<HTMLDivElement>(null);
+
+  /* track whether any mutating tools fired this turn */
+  const mutatedThisTurn = useRef(false);
 
   /* ui state */
   const [uploading, setUploading] = useState(false);
@@ -282,6 +334,33 @@ export default function CodeStudio() {
     }
   }
 
+  /* ── Delete a file or directory from the tree ──────────── */
+  async function deleteNode(node: FileNode) {
+    if (!projectId) return;
+    const label = node.type === "dir" ? `directory "${node.name}" and all its contents` : `file "${node.name}"`;
+    if (!window.confirm(`Delete ${label}?`)) return;
+
+    const r = await fetch(
+      `${API}/projects/${projectId}/file?path=${encodeURIComponent(node.path)}`,
+      { method: "DELETE" },
+    );
+    const d = await r.json() as { ok?: boolean; tree?: FileNode[]; error?: string };
+    if (d.error) { alert(d.error); return; }
+    if (d.tree) setFileTree(d.tree);
+    /* close editor if the active file was deleted */
+    if (activeFile && (activeFile.path === node.path || activeFile.path.startsWith(node.path + "/"))) {
+      setActiveFile(null);
+    }
+  }
+
+  /* ── Refresh file tree (after Claude may have written files) */
+  async function refreshTree(reloadActive = false) {
+    if (!projectId) return;
+    const r = await fetch(`${API}/projects/${projectId}/files`);
+    if (r.ok) setFileTree(await r.json());
+    if (reloadActive && activeFile) await openFile(activeFile.path);
+  }
+
   /* ── New session ────────────────────────────────────────── */
   async function newSession() {
     const old = sessionId.current;
@@ -299,11 +378,10 @@ export default function CodeStudio() {
 
     setChatInput("");
     setStreaming(true);
+    mutatedThisTurn.current = false;
 
-    /* add user message */
     setMessages((prev) => [...prev, { role: "user", blocks: [{ kind: "text", text }] }]);
 
-    /* add empty assistant message to fill */
     const assistantIdx = messages.length + 1;
     setMessages((prev) => [...prev, { role: "assistant", blocks: [] }]);
 
@@ -314,7 +392,7 @@ export default function CodeStudio() {
         body: JSON.stringify({ message: text, sessionId: sessionId.current }),
       });
 
-      const reader = res.body!.getReader();
+      const reader  = res.body!.getReader();
       const decoder = new TextDecoder();
       let buf = "";
 
@@ -330,27 +408,40 @@ export default function CodeStudio() {
           if (!line.startsWith("data: ")) continue;
           try {
             const event = JSON.parse(line.slice(6)) as {
-              type: string; text?: string; name?: string; input?: string; result?: string;
+              type: string; text?: string;
+              id?: string; name?: string; input?: string; result?: string;
             };
+
+            if (event.type === "tool" && event.name && MUTATING_TOOLS.has(event.name)) {
+              mutatedThisTurn.current = true;
+            }
 
             setMessages((prev) => {
               const next = [...prev];
               const msg  = { ...next[assistantIdx], blocks: [...(next[assistantIdx]?.blocks ?? [])] };
 
               if (event.type === "text" && event.text) {
-                const lastBlock = msg.blocks[msg.blocks.length - 1];
-                if (lastBlock?.kind === "text") {
-                  msg.blocks[msg.blocks.length - 1] = { kind: "text", text: lastBlock.text + event.text };
+                const last = msg.blocks[msg.blocks.length - 1];
+                if (last?.kind === "text") {
+                  msg.blocks[msg.blocks.length - 1] = { kind: "text", text: last.text + event.text };
                 } else {
                   msg.blocks.push({ kind: "text", text: event.text });
                 }
               } else if (event.type === "tool" && event.name) {
                 if (event.result !== undefined) {
-                  /* update last tool block with result */
-                  const lastTool = [...msg.blocks].reverse().find((b) => b.kind === "tool" && (b as ToolBlock).name === event.name) as ToolBlock | undefined;
-                  if (lastTool) lastTool.result = event.result;
+                  /* match by unique tool call id */
+                  const tb = msg.blocks.find(
+                    (b) => b.kind === "tool" && (b as ToolBlock).id === event.id,
+                  ) as ToolBlock | undefined;
+                  if (tb) tb.result = event.result;
                 } else {
-                  msg.blocks.push({ kind: "tool", name: event.name!, input: event.input ?? "", open: false });
+                  msg.blocks.push({
+                    kind: "tool",
+                    id: event.id ?? `${event.name}-${Date.now()}`,
+                    name: event.name,
+                    input: event.input ?? "",
+                    open: false,
+                  });
                 }
               }
 
@@ -366,16 +457,11 @@ export default function CodeStudio() {
       console.error(err);
     } finally {
       setStreaming(false);
+      /* auto-refresh tree if Claude created/edited/deleted files */
+      if (mutatedThisTurn.current) {
+        await refreshTree(true);
+      }
     }
-  }
-
-  /* ── Refresh file tree (after Claude may have written files) */
-  async function refreshTree() {
-    if (!projectId) return;
-    const r = await fetch(`${API}/projects/${projectId}/files`);
-    if (r.ok) setFileTree(await r.json());
-    /* if active file was modified by Claude, reload it */
-    if (activeFile) await openFile(activeFile.path);
   }
 
   /* ── Monaco setup callback ──────────────────────────────── */
@@ -410,7 +496,6 @@ export default function CodeStudio() {
 
       {/* ── Topbar ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-        {/* Project name */}
         <div
           className="neu-raised-sm"
           style={{ borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 600, color: "var(--app-fg)", flexShrink: 0 }}
@@ -418,7 +503,6 @@ export default function CodeStudio() {
           {projectName}
         </div>
 
-        {/* Upload button */}
         <label
           className="neu-raised-sm"
           style={{
@@ -438,7 +522,6 @@ export default function CodeStudio() {
           />
         </label>
 
-        {/* Git clone */}
         {showClone ? (
           <div style={{ display: "flex", gap: 6, flex: 1, maxWidth: 440 }}>
             <input
@@ -480,9 +563,8 @@ export default function CodeStudio() {
           </button>
         )}
 
-        {/* Refresh tree */}
         <button
-          onClick={refreshTree}
+          onClick={() => refreshTree(true)}
           title="Refresh file tree"
           className="neu-raised-sm"
           style={{ borderRadius: 8, padding: "6px 8px", cursor: "pointer", border: "none", background: "transparent", color: "var(--app-muted)", marginLeft: "auto", flexShrink: 0 }}
@@ -500,7 +582,12 @@ export default function CodeStudio() {
             Files
           </div>
           <div style={{ flex: 1, overflowY: "auto" }}>
-            <FileTree nodes={fileTree} onOpen={openFile} activePath={activeFile?.path ?? null} />
+            <FileTree
+              nodes={fileTree}
+              onOpen={openFile}
+              onDelete={deleteNode}
+              activePath={activeFile?.path ?? null}
+            />
           </div>
         </div>
 
@@ -508,9 +595,8 @@ export default function CodeStudio() {
         <div style={{ ...panelStyle, flex: 1, minWidth: 0 }}>
           {activeFile ? (
             <>
-              {/* tab bar */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderBottom: "1px solid rgba(128,128,128,0.12)", flexShrink: 0 }}>
-                <span style={{ fontSize: 11, color: "var(--app-fg)", fontFamily: "var(--app-font-mono,'SF Mono',monospace)" }}>
+                <span style={{ fontSize: 11, color: "var(--app-fg)", fontFamily: "var(--app-font-mono,'SF Mono',monospace)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {activeFile.path}
                 </span>
                 {activeFile.isDirty && (
@@ -549,7 +635,6 @@ export default function CodeStudio() {
 
         {/* RIGHT: Claude chat */}
         <div style={{ ...panelStyle, width: 340, flexShrink: 0 }}>
-          {/* header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px 6px", borderBottom: "1px solid rgba(128,128,128,0.12)", flexShrink: 0 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", letterSpacing: "0.06em" }}>ATREYU CODE STUDIO</span>
             <button
@@ -561,18 +646,35 @@ export default function CodeStudio() {
             </button>
           </div>
 
-          {/* messages */}
           <div style={{ flex: 1, overflowY: "auto", padding: 10, display: "flex", flexDirection: "column", gap: 10 }}>
             {messages.length === 0 && (
               <div style={{ textAlign: "center", opacity: 0.35, marginTop: 40 }}>
-                <p style={{ fontSize: 12, color: "var(--app-muted)" }}>Ask Claude to read, write, or explain your code.</p>
+                <p style={{ fontSize: 12, color: "var(--app-muted)" }}>
+                  Ask Claude to read, write, or build in your project.
+                </p>
+                <p style={{ fontSize: 11, color: "var(--app-muted)", marginTop: 8 }}>
+                  Claude can edit files precisely, create directories, and run commands.
+                </p>
               </div>
             )}
             {messages.map((msg, i) => <ChatMessage key={i} msg={msg} />)}
+            {streaming && (
+              <div style={{ display: "flex", gap: 4, padding: "4px 0" }}>
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    style={{
+                      width: 5, height: 5, borderRadius: "50%", background: "#a78bfa",
+                      animation: `blink 1.2s ${i * 0.2}s infinite`,
+                      opacity: 0.5,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
             <div ref={chatBottom} />
           </div>
 
-          {/* input */}
           <div style={{ padding: 10, borderTop: "1px solid rgba(128,128,128,0.12)", display: "flex", gap: 6, flexShrink: 0 }}>
             <textarea
               value={chatInput}
@@ -583,35 +685,39 @@ export default function CodeStudio() {
                   sendMessage();
                 }
               }}
-              placeholder="Ask Claude…"
-              rows={2}
-              disabled={streaming || !projectId}
+              placeholder="Ask Claude… (Enter to send, Shift+Enter for newline)"
+              rows={3}
+              disabled={streaming}
               className="neu-inset-sm"
               style={{
-                flex: 1, borderRadius: 8, padding: "7px 10px", fontSize: 11,
-                resize: "none", border: "none", background: "transparent",
-                color: "var(--app-fg)", outline: "none", lineHeight: 1.5,
-                fontFamily: "inherit",
+                flex: 1, borderRadius: 8, padding: "8px 10px", fontSize: 11,
+                border: "none", background: "transparent", color: "var(--app-fg)",
+                outline: "none", resize: "none", lineHeight: 1.5, opacity: streaming ? 0.5 : 1,
               }}
             />
             <button
               onClick={sendMessage}
-              disabled={streaming || !chatInput.trim() || !projectId}
+              disabled={streaming || !chatInput.trim()}
+              className="neu-raised-sm"
               style={{
-                borderRadius: 8, padding: "0 10px", border: "none", cursor: "pointer",
-                background: streaming ? "rgba(124,58,237,0.3)" : "linear-gradient(135deg,#7c3aed,#5b21b6)",
-                color: "#fff", flexShrink: 0, alignSelf: "stretch",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                opacity: (!chatInput.trim() || !projectId) ? 0.4 : 1,
-                boxShadow: "var(--neu-raised-sm)",
+                borderRadius: 8, padding: "0 12px", border: "none", background: "transparent",
+                cursor: streaming || !chatInput.trim() ? "not-allowed" : "pointer",
+                color: streaming || !chatInput.trim() ? "var(--app-muted)" : "#a78bfa",
+                flexShrink: 0, display: "flex", alignItems: "center",
               }}
             >
-              <Send size={13} />
+              <Send size={14} />
             </button>
           </div>
         </div>
-
       </div>
+
+      <style>{`
+        @keyframes blink {
+          0%, 80%, 100% { opacity: 0.2; }
+          40% { opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }

@@ -4,11 +4,24 @@ import fs from "fs/promises";
 import path from "path";
 import { execSync, execFileSync } from "child_process";
 
+/* ─── Safety limits ────────────────────────────────────────── */
+const MAX_ITERATIONS = 25;
+
+const BLOCKED_COMMANDS: RegExp[] = [
+  /rm\s+-rf\s+[/~]/,
+  /:\(\)\s*\{\s*:\|:&\s*\};:/,   // fork bomb
+  /mkfs\./,
+  /dd\s+if=/,
+  />\s*\/dev\/sd/,
+  /curl[^|]*\|\s*(bash|sh)/,
+  /wget[^|]*\|\s*(bash|sh)/,
+];
+
 /* ─── Tool definitions ─────────────────────────────────────── */
 const tools: Anthropic.Tool[] = [
   {
     name: "read_file",
-    description: "Read the contents of a file in the user's project. Returns the file as a string.",
+    description: "Read the full contents of a file in the user's project.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -19,19 +32,32 @@ const tools: Anthropic.Tool[] = [
   },
   {
     name: "write_file",
-    description: "Write or overwrite a file in the user's project. Creates parent directories as needed.",
+    description: "Create or overwrite a file with the given content. Use for new files or complete rewrites.",
     input_schema: {
       type: "object" as const,
       properties: {
-        path: { type: "string", description: "Relative file path inside the project" },
-        content: { type: "string", description: "Full content to write to the file" },
+        path:    { type: "string", description: "Relative file path inside the project" },
+        content: { type: "string", description: "Full content to write" },
       },
       required: ["path", "content"],
     },
   },
   {
+    name: "edit_file",
+    description: "Replace a specific string in a file. Prefer this over write_file for targeted edits — avoids rewriting the whole file.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path:     { type: "string", description: "Relative file path inside the project" },
+        old_text: { type: "string", description: "Exact text to find and replace (must be unique in the file)" },
+        new_text: { type: "string", description: "Replacement text" },
+      },
+      required: ["path", "old_text", "new_text"],
+    },
+  },
+  {
     name: "list_files",
-    description: "List files and directories inside the project. Returns a tree-style listing.",
+    description: "List files and directories recursively inside the project.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -41,20 +67,43 @@ const tools: Anthropic.Tool[] = [
     },
   },
   {
-    name: "search_files",
-    description: "Search for a regex pattern across project files. Returns file paths that contain matches.",
+    name: "create_directory",
+    description: "Create a directory and any missing parent directories.",
     input_schema: {
       type: "object" as const,
       properties: {
-        pattern: { type: "string", description: "Regex or plain-text search pattern" },
+        path: { type: "string", description: "Relative directory path to create" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "delete_file",
+    description: "Delete a file from the project.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        path: { type: "string", description: "Relative file path to delete" },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "search_files",
+    description: "Search for a regex pattern across project files using grep. Returns matching file paths.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        pattern:   { type: "string", description: "Regex or plain-text search pattern" },
         directory: { type: "string", description: "Directory to search in (default: '.')" },
+        file_glob: { type: "string", description: "Optional file-glob filter, e.g. '*.ts' or '*.py'" },
       },
       required: ["pattern"],
     },
   },
   {
     name: "run_command",
-    description: "Run a shell command inside the project directory. Useful for npm install, tests, builds. Returns stdout.",
+    description: "Run a shell command inside the project directory. Useful for npm install, tests, builds. Returns stdout/stderr.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -70,7 +119,6 @@ function safePath(projectDir: string, relativePath: string): string {
   const root     = path.resolve(projectDir);
   const resolved = path.resolve(root, relativePath);
   const rel      = path.relative(root, resolved);
-  /* reject if relative path escapes root or is absolute */
   if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error(`Path traversal blocked: ${relativePath}`);
   }
@@ -84,6 +132,7 @@ async function executeTool(
   projectDir: string,
 ): Promise<string> {
   switch (toolName) {
+
     case "read_file": {
       const fp = safePath(projectDir, input.path);
       const content = await fs.readFile(fp, "utf-8");
@@ -95,6 +144,18 @@ async function executeTool(
       await fs.mkdir(path.dirname(fp), { recursive: true });
       await fs.writeFile(fp, input.content, "utf-8");
       return `Wrote ${input.path} (${Buffer.byteLength(input.content, "utf-8")} bytes)`;
+    }
+
+    case "edit_file": {
+      const fp = safePath(projectDir, input.path);
+      const content = await fs.readFile(fp, "utf-8");
+      if (!content.includes(input.old_text)) {
+        return `Error: could not find the specified text in ${input.path} — check the exact match`;
+      }
+      /* replace only the first occurrence */
+      const updated = content.replace(input.old_text, input.new_text);
+      await fs.writeFile(fp, updated, "utf-8");
+      return `Edited ${input.path}`;
     }
 
     case "list_files": {
@@ -119,20 +180,35 @@ async function executeTool(
       return lines.slice(0, 500).join("\n") || "(empty directory)";
     }
 
+    case "create_directory": {
+      const fp = safePath(projectDir, input.path);
+      await fs.mkdir(fp, { recursive: true });
+      return `Created directory: ${input.path}`;
+    }
+
+    case "delete_file": {
+      const fp = safePath(projectDir, input.path);
+      await fs.unlink(fp);
+      return `Deleted: ${input.path}`;
+    }
+
     case "search_files": {
       const searchDir = safePath(projectDir, input.directory || ".");
+      /* Build grep argv — execFileSync prevents shell injection */
+      const args: string[] = ["-rn", "-l"];
+      if (input.file_glob) {
+        args.push(`--include=${input.file_glob}`);
+      }
+      args.push(input.pattern, ".");
       try {
-        /* Use execFile (not execSync shell) to prevent command injection.
-           Arguments are passed as an array — no shell expansion occurs.   */
-        const result = execFileSync(
-          "grep",
-          ["-rn", "--include=*", "-l", input.pattern, "."],
-          { cwd: searchDir, encoding: "utf-8", timeout: 10_000 },
-        );
+        const result = execFileSync("grep", args, {
+          cwd: searchDir,
+          encoding: "utf-8",
+          timeout: 10_000,
+        });
         return result.trim() || "No matches found";
       } catch (err: unknown) {
-        const e = err as { status?: number; stdout?: string };
-        /* grep exits with status 1 when no matches — not an error */
+        const e = err as { status?: number };
         if (e.status === 1) return "No matches found";
         return "Search failed";
       }
@@ -140,18 +216,27 @@ async function executeTool(
 
     case "run_command": {
       if (process.env.NODE_ENV === "production") {
-        return "run_command is disabled in production for security reasons.";
+        return "run_command is disabled in production.";
+      }
+      for (const blocked of BLOCKED_COMMANDS) {
+        if (blocked.test(input.command)) {
+          return "Error: that command is blocked for security reasons.";
+        }
       }
       try {
         const output = execSync(input.command, {
           cwd: projectDir,
           encoding: "utf-8",
-          timeout: 30_000,
+          timeout: 60_000,
+          maxBuffer: 2 * 1024 * 1024,
+          env: { ...process.env, HOME: projectDir },
         });
-        return output.slice(0, 10_000);
+        return (output || "(no output)").slice(0, 15_000);
       } catch (err: unknown) {
         const e = err as { stdout?: string; stderr?: string; message?: string };
-        return `Error: ${(e.stderr || e.stdout || e.message || "unknown error").slice(0, 5_000)}`;
+        const out = (e.stdout ?? "").slice(0, 5_000);
+        const err2 = (e.stderr ?? e.message ?? "unknown error").slice(0, 5_000);
+        return `Command failed:\n${out}\n${err2}`.trim();
       }
     }
 
@@ -170,7 +255,7 @@ export function clearSession(sessionId: string): void {
 
 export type SseEvent =
   | { type: "text"; text: string }
-  | { type: "tool"; name: string; input: string; result?: string }
+  | { type: "tool"; id: string; name: string; input: string; result?: string }
   | { type: "done" };
 
 /* ─── Main agent loop ──────────────────────────────────────── */
@@ -189,12 +274,21 @@ export async function runCodeStudioAgent(opts: {
   const systemPrompt = `You are ATREYU Code Studio — an expert AI coding assistant embedded in a browser-based IDE.
 You have direct access to the user's project files via tools. Use them proactively to understand context before answering.
 Project ID: ${projectId}
-Project directory is loaded and you can read, write, search files, and run commands.
-Always be concise and direct. When editing files, show what changed and why.
-Do not use markdown headers (##) or bold text (**) in your responses — plain text only.`;
 
-  /* agentic loop: keep going until Claude stops using tools */
-  while (true) {
+Tool guidance:
+- Use read_file before editing to understand existing code.
+- Use edit_file for targeted changes; write_file only for new files or complete rewrites.
+- Use create_directory before writing files in new directories.
+- Run commands (tests, linters, builds) to verify your work when helpful.
+- When asked to build something, write the actual code.
+
+Response style: Be direct and concise. Lead with the solution. Plain text only — no ## headers or **bold**.`;
+
+  let iterations = 0;
+
+  while (iterations < MAX_ITERATIONS) {
+    iterations++;
+
     const response = await anthropic.messages.create({
       model: "claude-opus-4-5",
       max_tokens: 8096,
@@ -222,7 +316,8 @@ Do not use markdown headers (##) or bold text (**) in your responses — plain t
       if (block.type !== "tool_use") continue;
 
       const inputStr = JSON.stringify(block.input).slice(0, 120);
-      onEvent({ type: "tool", name: block.name, input: inputStr });
+      /* emit with tool call id so frontend can match result to call */
+      onEvent({ type: "tool", id: block.id, name: block.name, input: inputStr });
 
       let result: string;
       try {
@@ -235,12 +330,12 @@ Do not use markdown headers (##) or bold text (**) in your responses — plain t
         result = `Error: ${(err as Error).message}`;
       }
 
-      onEvent({ type: "tool", name: block.name, input: inputStr, result: result.slice(0, 300) });
+      onEvent({ type: "tool", id: block.id, name: block.name, input: inputStr, result: result.slice(0, 400) });
 
       toolResults.push({
         type: "tool_result",
         tool_use_id: block.id,
-        content: result.slice(0, 10_000),
+        content: result.slice(0, 12_000),
       });
     }
 
@@ -251,6 +346,7 @@ Do not use markdown headers (##) or bold text (**) in your responses — plain t
     }
   }
 
-  sessions.set(sessionId, history);
+  /* keep last 60 messages to avoid unbounded memory growth */
+  sessions.set(sessionId, history.slice(-60));
   onEvent({ type: "done" });
 }
