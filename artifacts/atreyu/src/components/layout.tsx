@@ -203,42 +203,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </svg>
 
 
-          {/* Center logo — debossed letters, no boxes, letter shapes pressed into surface */}
+          {/* Center logo */}
           <div style={{
             position: "absolute", top: 0, left: 0, right: 0,
             height: BAR_H,
             display: "flex", alignItems: "center", justifyContent: "center",
             pointerEvents: "none",
-            gap: 1,
           }}>
-            {["A","T","R","E","Y","U"].map((letter) => (
-              <span
-                key={letter}
-                style={{
-                  fontFamily: "'Raleway', sans-serif",
-                  fontWeight: 200,
-                  fontSize: 34,
-                  letterSpacing: "0.12em",
-                  lineHeight: 1,
-                  userSelect: "none",
-                  /* Debossed / carved-in effect:
-                     text color = near-surface tone (the "floor" of the carving)
-                     shadow top-left = dark (surface casting shadow into the groove)
-                     shadow bottom-right = white (light bouncing off the carved lower edge) */
-                  color: isLight
-                    ? "rgba(165,173,196,1)"
-                    : "rgba(22,28,46,1)",
-                  textShadow: isLight
-                    ? `-1px -1px 1px rgba(110,120,150,0.75),
-                        1px  1px 1px rgba(255,255,255,0.95),
-                        0px  0px 3px rgba(110,120,150,0.25)`
-                    : `-1px -1px 1px rgba(0,0,0,0.9),
-                        1px  1px 1px rgba(60,75,115,0.35)`,
-                }}
-              >
-                {letter}
-              </span>
-            ))}
+            <img
+              src="/atreyu-logo.png"
+              alt="ATREYU"
+              style={{
+                height: 30,
+                width: "auto",
+                opacity: isLight ? 0.75 : 0.5,
+                filter: isLight ? "none" : "brightness(3) saturate(0.3)",
+                userSelect: "none",
+                display: "block",
+              }}
+            />
           </div>
 
           {/* Right wing — transparent, controls only */}
