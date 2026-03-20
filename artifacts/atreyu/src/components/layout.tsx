@@ -193,19 +193,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               width: "100%", height: TOTAL_H,
               overflow: "visible",
               filter: isLight
-                ? `drop-shadow(0 6px 18px ${fsdark}99) drop-shadow(0 -1px 0 ${fslite})`
-                : `drop-shadow(0 6px 18px ${fsdark}) drop-shadow(0 -1px 0 ${fslite}33)`,
+                ? `drop-shadow(0 10px 28px ${fsdark}cc) drop-shadow(0 4px 10px ${fsdark}88)`
+                : `drop-shadow(0 10px 28px ${fsdark}) drop-shadow(0 4px 10px rgba(0,0,0,0.9))`,
             }}
             viewBox={`0 0 1000 ${TOTAL_H}`}
             preserveAspectRatio="none"
           >
             <path d={svgPocket} fill={frameBg} />
-            {/* Top edge highlight — full width of the bar */}
-            <line
-              x1="0" y1="0.5" x2="1000" y2="0.5"
-              stroke={fslite} strokeWidth="1.2"
-              strokeOpacity={isLight ? 0.9 : 0.18}
-            />
           </svg>
 
 
