@@ -1,0 +1,97 @@
+TOP HEADER / DOCK DESIGN REQUIREMENT (EXTREMELY IMPORTANT)
+
+Recreate the top header area so it matches the reference image composition very closely.
+
+This top section must NOT look like:
+- a separate floating pill
+- a dock pasted on top of the frame
+- a disconnected navbar
+
+Instead, it must look like:
+- one continuous sculpted top header surface
+- a seamless extension of the outer frame
+- a molded header where the center dock dips downward naturally from the top edge
+
+DESIGN BEHAVIOR
+
+The top header should span across the upper edge of the main outer frame.
+
+At the center of this top edge, create a dock shape that extends downward from the header itself, as if the header has been carved or molded into a recessed curved docking area.
+
+This means:
+- the left and right portions of the header continue straight across the top
+- the center section curves downward into a rounded dock pocket
+- the dock is visually part of the same surface as the header
+- the transition between the header and dock must be seamless
+
+VISUAL GOAL
+
+The result should feel like:
+- a single premium sculpted surface
+- the dock is integrated into the frame
+- the center dip is part of the architecture
+- the form is smooth, refined, and intentional
+
+It should NOT feel like:
+- two separate layers
+- a pill sitting on top
+- a floating menu element with random spacing above it
+
+SHAPE REQUIREMENTS
+
+Build the top header so that:
+- the main frame has a top edge/header band
+- the center of that top edge contains a smooth downward extension
+- this extension forms the app icon dock area
+- the dock pocket has rounded lower curves and blends directly into the header
+
+Think of it like:
+- a soft notch
+- a molded dock recess
+- a sculpted center tray extending from the top bar
+
+The silhouette should feel very close to the reference:
+- flat across the left
+- flat across the right
+- dipped downward in the center
+- fully symmetrical
+- soft large-radius curves
+
+DOCK CONTENT
+
+Inside that integrated dock area:
+- place a row of small colorful rounded icons
+- keep them evenly spaced
+- keep them centered
+- do not oversized them
+- the icons should sit naturally inside the dock recess
+
+SURFACE STYLE
+
+Because this UI is neumorphic:
+- the top header and dock must share the same material
+- same surface color
+- same soft highlights
+- same depth language
+- same sculpted feel
+
+Use subtle neumorphic shaping so the center dock feels like part of the same soft body.
+
+TECHNICAL IMPLEMENTATION DIRECTION
+
+Implement the header and dock as one unified shape, not two unrelated divs.
+
+Recommended approach:
+- create one parent top frame/header container
+- use either border-radius shaping, pseudo-elements, masking, clip-path, or layered curved containers to sculpt the center downward dock area
+- make sure the seam between header and dock is invisible
+- preserve symmetry and smooth curves
+
+IMPORTANT
+
+The top dock must extend BELOW the top header section seamlessly.
+It should feel fused to the header, as if it naturally grows out of the frame.
+This is one of the most important visual identity elements of the interface.
+
+Do not simplify this into a standard navbar plus floating pill.
+It must feel custom-designed and architectural.
