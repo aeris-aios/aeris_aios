@@ -23,30 +23,38 @@ const navItems = [
 /* ─────────────────────────────────────────────────────────────
    DOCK GEOMETRY
 ───────────────────────────────────────────────────────────── */
-const BAR_H    = 42;
-const POCKET_H = 68;
-const TOTAL_H  = BAR_H + POCKET_H;
-const DOCK_W   = 440;   /* real px */
-const OUTER_R  = 40;    /* concave join radius */
-const INNER_R  = 22;    /* dock bottom corner radius */
-const ICON_SZ  = 42;
+const BAR_H      = 42;
+const POCKET_H   = 64;
+const TOTAL_H    = BAR_H + POCKET_H;
+const DOCK_W     = 440;   /* real px */
+/* Separate x and y extents for the concave curve:
+   XR = how far the curve sweeps horizontally (wide = gradual slope)
+   YR = how deep the curve drops vertically before the straight wall */
+const XR         = 82;    /* SVG units — wide horizontal sweep */
+const YR         = 34;    /* px — modest vertical drop (keeps ~45° feel) */
+const INNER_R    = 20;    /* dock bottom convex corner radius */
+const ICON_SZ    = 42;
 
 function buildPath(dockHalf: number) {
   const cx = 500;
-  const or = OUTER_R;
   const ir = INNER_R;
   return [
     `M 0 0`,
     `L 1000 0`,
     `L 1000 ${BAR_H}`,
-    `L ${cx + dockHalf + or} ${BAR_H}`,
-    `Q ${cx + dockHalf} ${BAR_H} ${cx + dockHalf} ${BAR_H + or}`,
+    /* Right side: flat → gentle concave curve into dock wall */
+    `L ${cx + dockHalf + XR} ${BAR_H}`,
+    `Q ${cx + dockHalf} ${BAR_H} ${cx + dockHalf} ${BAR_H + YR}`,
+    /* Straight dock wall then convex bottom-right corner */
     `L ${cx + dockHalf} ${TOTAL_H - ir}`,
     `Q ${cx + dockHalf} ${TOTAL_H} ${cx + dockHalf - ir} ${TOTAL_H}`,
+    /* Dock bottom */
     `L ${cx - dockHalf + ir} ${TOTAL_H}`,
+    /* Convex bottom-left corner */
     `Q ${cx - dockHalf} ${TOTAL_H} ${cx - dockHalf} ${TOTAL_H - ir}`,
-    `L ${cx - dockHalf} ${BAR_H + or}`,
-    `Q ${cx - dockHalf} ${BAR_H} ${cx - dockHalf - or} ${BAR_H}`,
+    /* Straight dock wall then gentle concave curve back to flat */
+    `L ${cx - dockHalf} ${BAR_H + YR}`,
+    `Q ${cx - dockHalf} ${BAR_H} ${cx - dockHalf - XR} ${BAR_H}`,
     `L 0 ${BAR_H}`,
     `Z`,
   ].join(" ");
