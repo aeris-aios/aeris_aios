@@ -25,10 +25,14 @@ const navItems = [
 const BAR_H    = 72;
 const POCKET_H = 68;
 const TOTAL_H  = BAR_H + POCKET_H;
-const DOCK_W   = 554;
 const OUTER_R  = 40;   /* concave join radius */
 const INNER_R  = 22;   /* dock bottom corner radius */
 const ICON_SZ  = 42;
+const ICON_GAP = 14;   /* gap between dock icons */
+const DOCK_PAD = 28;   /* padding on each side inside the pocket */
+
+/* DOCK_W is derived from icon count so it always expands when icons are added */
+const DOCK_W = navItems.length * ICON_SZ + (navItems.length - 1) * ICON_GAP + DOCK_PAD * 2;
 
 /* ── Bottom command bar geometry (mirror of top, pocket goes UP) */
 const BOT_BAR_H        = 16;   /* thin full-width strip at very bottom */
@@ -342,7 +346,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             position: "absolute",
             top: BAR_H, left: "50%", transform: "translateX(-50%)",
             width: DOCK_W, height: POCKET_H,
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 14,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: ICON_GAP,
             pointerEvents: "auto", zIndex: 2,
           }}>
             {navItems.map((item, idx) => {
