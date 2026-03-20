@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import fs from "fs/promises";
 import path from "path";
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 
 /* ─── Tool definitions ─────────────────────────────────────── */
 const tools: Anthropic.Tool[] = [
@@ -121,15 +121,20 @@ async function executeTool(
 
     case "search_files": {
       const searchDir = safePath(projectDir, input.directory || ".");
-      const safePattern = input.pattern.replace(/"/g, '\\"');
       try {
-        const result = execSync(
-          `grep -rn "${safePattern}" . --include="*" -l 2>/dev/null || true`,
+        /* Use execFile (not execSync shell) to prevent command injection.
+           Arguments are passed as an array — no shell expansion occurs.   */
+        const result = execFileSync(
+          "grep",
+          ["-rn", "--include=*", "-l", input.pattern, "."],
           { cwd: searchDir, encoding: "utf-8", timeout: 10_000 },
         );
         return result.trim() || "No matches found";
-      } catch {
-        return "Search failed or no matches";
+      } catch (err: unknown) {
+        const e = err as { status?: number; stdout?: string };
+        /* grep exits with status 1 when no matches — not an error */
+        if (e.status === 1) return "No matches found";
+        return "Search failed";
       }
     }
 

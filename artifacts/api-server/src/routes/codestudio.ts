@@ -3,6 +3,7 @@ import multer from "multer";
 import fs from "fs/promises";
 import path from "path";
 import { randomUUID } from "crypto";
+import { execFileSync } from "child_process";
 import simpleGit from "simple-git";
 import AdmZip from "adm-zip";
 import { runCodeStudioAgent, clearSession } from "../lib/codestudioAgent";
@@ -10,10 +11,30 @@ import { runCodeStudioAgent, clearSession } from "../lib/codestudioAgent";
 const router = Router();
 
 /* ─── Project root dir ─────────────────────────────────────── */
-const PROJECTS_DIR = path.join(process.cwd(), "codestudio-projects");
+const PROJECTS_ROOT = path.resolve(process.cwd(), "codestudio-projects");
 
 async function ensureProjectsDir() {
-  await fs.mkdir(PROJECTS_DIR, { recursive: true });
+  await fs.mkdir(PROJECTS_ROOT, { recursive: true });
+}
+
+/* ─── UUID v4 regex ─────────────────────────────────────────── */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates the project :id param, derives the project directory, and
+ * enforces that the directory stays inside PROJECTS_ROOT.
+ * Returns the resolved project directory or throws.
+ */
+function resolveProjectDir(id: string): string {
+  if (!UUID_RE.test(id)) {
+    throw new Error(`Invalid project ID: ${id}`);
+  }
+  const dir = path.resolve(PROJECTS_ROOT, id);
+  /* secondary boundary check: dir must be a direct child of PROJECTS_ROOT */
+  if (!dir.startsWith(PROJECTS_ROOT + path.sep)) {
+    throw new Error(`Project directory escape blocked: ${id}`);
+  }
+  return dir;
 }
 
 /* ─── Path-traversal guard ─────────────────────────────────── */
@@ -33,7 +54,7 @@ const SKIP = new Set(["node_modules", ".git", ".DS_Store", "dist", ".next", "__p
 
 interface FileNode {
   name: string;
-  path: string; /* relative to project root */
+  path: string;
   type: "file" | "dir";
   children?: FileNode[];
 }
@@ -56,7 +77,6 @@ async function buildTree(dir: string, rel = ""): Promise<FileNode[]> {
     }
   }
   return nodes.sort((a, b) => {
-    /* dirs first, then alpha */
     if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
     return a.name.localeCompare(b.name);
   });
@@ -66,13 +86,13 @@ async function buildTree(dir: string, rel = ""): Promise<FileNode[]> {
 const upload = multer({
   storage: multer.diskStorage({
     destination: async (_req, _file, cb) => {
-      const tmpDir = path.join(PROJECTS_DIR, ".tmp-uploads");
+      const tmpDir = path.join(PROJECTS_ROOT, ".tmp-uploads");
       await fs.mkdir(tmpDir, { recursive: true });
       cb(null, tmpDir);
     },
     filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
   }),
-  limits: { fileSize: 200 * 1024 * 1024 }, /* 200 MB per file */
+  limits: { fileSize: 200 * 1024 * 1024 },
 });
 
 /* ────────────────────────────────────────────────────────────
@@ -82,24 +102,21 @@ const upload = multer({
 router.post("/projects", async (_req, res) => {
   await ensureProjectsDir();
   const projectId = randomUUID();
-  const projectDir = path.join(PROJECTS_DIR, projectId);
+  const projectDir = path.resolve(PROJECTS_ROOT, projectId);
   await fs.mkdir(projectDir, { recursive: true });
   res.json({ projectId });
 });
 
 /* ────────────────────────────────────────────────────────────
    POST /api/codestudio/projects/:id/upload
-   Multipart file upload. Handles both individual files and zip archives.
-   For zips: extracts server-side with safety limits.
-   Field name: "files"
 ──────────────────────────────────────────────────────────── */
 router.post("/projects/:id/upload", upload.array("files"), async (req, res) => {
-  const projectDir = path.join(PROJECTS_DIR, req.params.id);
-
+  let projectDir: string;
   try {
+    projectDir = resolveProjectDir(req.params.id);
     await fs.access(projectDir);
-  } catch {
-    res.status(404).json({ error: "Project not found" });
+  } catch (err: unknown) {
+    res.status(404).json({ error: (err as Error).message });
     return;
   }
 
@@ -115,13 +132,12 @@ router.post("/projects/:id/upload", upload.array("files"), async (req, res) => {
     const isZip = file.originalname.toLowerCase().endsWith(".zip") || file.mimetype === "application/zip";
 
     if (isZip) {
-      /* ── server-side zip extraction ─ */
       const zip = new AdmZip(file.path);
       const entries = zip.getEntries();
 
       const MAX_ENTRIES = 1000;
-      const MAX_TOTAL = 500 * 1024 * 1024;   /* 500 MB */
-      const MAX_ENTRY = 50 * 1024 * 1024;    /* 50 MB  */
+      const MAX_TOTAL   = 500 * 1024 * 1024;
+      const MAX_ENTRY   = 50  * 1024 * 1024;
 
       if (entries.length > MAX_ENTRIES) {
         await fs.unlink(file.path);
@@ -133,38 +149,39 @@ router.post("/projects/:id/upload", upload.array("files"), async (req, res) => {
       for (const entry of entries) {
         if (entry.isDirectory) continue;
 
-        /* strip top-level folder if all entries share one */
-        let entryPath = entry.entryName;
-        const parts = entryPath.split("/");
-        if (parts.length > 1) {
-          /* keep path as-is; common prefix stripping is optional */
-        }
-
         const entrySize = entry.header.size;
         if (entrySize > MAX_ENTRY) {
-          results.push(`SKIPPED (too large) ${entryPath}`);
+          results.push(`SKIPPED (too large) ${entry.entryName}`);
           continue;
         }
         totalBytes += entrySize;
         if (totalBytes > MAX_TOTAL) {
-          results.push(`STOPPED: total extracted size limit (${MAX_TOTAL / 1024 / 1024} MB) reached`);
+          results.push(`STOPPED: total extracted size limit reached`);
           break;
         }
 
-        const destPath = guardPath(projectDir, entryPath);
-        await fs.mkdir(path.dirname(destPath), { recursive: true });
-        zip.extractEntryTo(entry, path.dirname(destPath), false, true);
-        results.push(`extracted: ${entryPath}`);
+        try {
+          const destPath = guardPath(projectDir, entry.entryName);
+          await fs.mkdir(path.dirname(destPath), { recursive: true });
+          zip.extractEntryTo(entry, path.dirname(destPath), false, true);
+          results.push(`extracted: ${entry.entryName}`);
+        } catch (e: unknown) {
+          results.push(`BLOCKED: ${(e as Error).message}`);
+        }
       }
       await fs.unlink(file.path);
     } else {
-      /* ── plain file upload ─ */
       const relativePath = (req.body as Record<string, string>)[`path_${file.fieldname}`]
         || file.originalname;
-      const destPath = guardPath(projectDir, relativePath);
-      await fs.mkdir(path.dirname(destPath), { recursive: true });
-      await fs.rename(file.path, destPath);
-      results.push(`uploaded: ${relativePath}`);
+      try {
+        const destPath = guardPath(projectDir, relativePath);
+        await fs.mkdir(path.dirname(destPath), { recursive: true });
+        await fs.rename(file.path, destPath);
+        results.push(`uploaded: ${relativePath}`);
+      } catch (e: unknown) {
+        await fs.unlink(file.path).catch(() => {});
+        results.push(`BLOCKED: ${(e as Error).message}`);
+      }
     }
   }
 
@@ -174,25 +191,22 @@ router.post("/projects/:id/upload", upload.array("files"), async (req, res) => {
 
 /* ────────────────────────────────────────────────────────────
    POST /api/codestudio/projects/:id/git-clone
-   Body: { repoUrl: string }
 ──────────────────────────────────────────────────────────── */
 router.post("/projects/:id/git-clone", async (req, res) => {
-  const { repoUrl } = req.body as { repoUrl: string };
-  const projectDir = path.join(PROJECTS_DIR, req.params.id);
-
+  let projectDir: string;
   try {
+    projectDir = resolveProjectDir(req.params.id);
     await fs.access(projectDir);
-  } catch {
-    res.status(404).json({ error: "Project not found" });
+  } catch (err: unknown) {
+    res.status(404).json({ error: (err as Error).message });
     return;
   }
 
+  const { repoUrl } = req.body as { repoUrl: string };
   if (!repoUrl || typeof repoUrl !== "string") {
     res.status(400).json({ error: "repoUrl is required" });
     return;
   }
-
-  /* basic URL validation — allow only http/https git URLs */
   if (!/^https?:\/\//i.test(repoUrl)) {
     res.status(400).json({ error: "Only https:// Git URLs are allowed" });
     return;
@@ -210,11 +224,11 @@ router.post("/projects/:id/git-clone", async (req, res) => {
 
 /* ────────────────────────────────────────────────────────────
    GET /api/codestudio/projects/:id/files
-   Returns recursive file tree
 ──────────────────────────────────────────────────────────── */
 router.get("/projects/:id/files", async (req, res) => {
-  const projectDir = path.join(PROJECTS_DIR, req.params.id);
+  let projectDir: string;
   try {
+    projectDir = resolveProjectDir(req.params.id);
     await fs.access(projectDir);
   } catch {
     res.status(404).json({ error: "Project not found" });
@@ -226,12 +240,17 @@ router.get("/projects/:id/files", async (req, res) => {
 
 /* ────────────────────────────────────────────────────────────
    GET /api/codestudio/projects/:id/file?path=src/foo.ts
-   Returns raw text content of a file
 ──────────────────────────────────────────────────────────── */
 router.get("/projects/:id/file", async (req, res) => {
-  const projectDir = path.join(PROJECTS_DIR, req.params.id);
-  const filePath = req.query.path as string;
+  let projectDir: string;
+  try {
+    projectDir = resolveProjectDir(req.params.id);
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err as Error).message });
+    return;
+  }
 
+  const filePath = req.query.path as string;
   if (!filePath) {
     res.status(400).json({ error: "path query param required" });
     return;
@@ -239,7 +258,7 @@ router.get("/projects/:id/file", async (req, res) => {
 
   try {
     const resolved = guardPath(projectDir, filePath);
-    const content = await fs.readFile(resolved, "utf-8");
+    const content  = await fs.readFile(resolved, "utf-8");
     res.type("text/plain").send(content);
   } catch (err: unknown) {
     const e = err as NodeJS.ErrnoException;
@@ -253,12 +272,17 @@ router.get("/projects/:id/file", async (req, res) => {
 
 /* ────────────────────────────────────────────────────────────
    PUT /api/codestudio/projects/:id/file
-   Body: { path: string, content: string }
 ──────────────────────────────────────────────────────────── */
 router.put("/projects/:id/file", async (req, res) => {
-  const projectDir = path.join(PROJECTS_DIR, req.params.id);
-  const { path: filePath, content } = req.body as { path: string; content: string };
+  let projectDir: string;
+  try {
+    projectDir = resolveProjectDir(req.params.id);
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err as Error).message });
+    return;
+  }
 
+  const { path: filePath, content } = req.body as { path: string; content: string };
   if (!filePath || content === undefined) {
     res.status(400).json({ error: "path and content are required" });
     return;
@@ -278,9 +302,15 @@ router.put("/projects/:id/file", async (req, res) => {
    DELETE /api/codestudio/projects/:id/file?path=src/foo.ts
 ──────────────────────────────────────────────────────────── */
 router.delete("/projects/:id/file", async (req, res) => {
-  const projectDir = path.join(PROJECTS_DIR, req.params.id);
-  const filePath = req.query.path as string;
+  let projectDir: string;
+  try {
+    projectDir = resolveProjectDir(req.params.id);
+  } catch (err: unknown) {
+    res.status(400).json({ error: (err as Error).message });
+    return;
+  }
 
+  const filePath = req.query.path as string;
   if (!filePath) {
     res.status(400).json({ error: "path query param required" });
     return;
@@ -303,13 +333,11 @@ router.delete("/projects/:id/file", async (req, res) => {
 
 /* ────────────────────────────────────────────────────────────
    POST /api/codestudio/projects/:id/chat
-   Body: { message: string, sessionId: string }
-   SSE stream: data: { type, text?, name?, input?, result? }
 ──────────────────────────────────────────────────────────── */
 router.post("/projects/:id/chat", async (req, res) => {
-  const projectDir = path.join(PROJECTS_DIR, req.params.id);
-
+  let projectDir: string;
   try {
+    projectDir = resolveProjectDir(req.params.id);
     await fs.access(projectDir);
   } catch {
     res.status(404).json({ error: "Project not found" });
@@ -317,7 +345,6 @@ router.post("/projects/:id/chat", async (req, res) => {
   }
 
   const { message, sessionId } = req.body as { message: string; sessionId: string };
-
   if (!message?.trim()) {
     res.status(400).json({ error: "message is required" });
     return;
@@ -328,14 +355,12 @@ router.post("/projects/:id/chat", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  const send = (event: object) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  };
+  const send = (event: object) => res.write(`data: ${JSON.stringify(event)}\n\n`);
 
   try {
     await runCodeStudioAgent({
       sessionId: sessionId || `anon-${req.params.id}`,
-      projectId: req.params.id,
+      projectId:  req.params.id,
       projectDir,
       message,
       onEvent: send,
@@ -349,7 +374,6 @@ router.post("/projects/:id/chat", async (req, res) => {
 
 /* ────────────────────────────────────────────────────────────
    DELETE /api/codestudio/sessions/:sessionId
-   Clears conversation history for a session
 ──────────────────────────────────────────────────────────── */
 router.delete("/sessions/:sessionId", (req, res) => {
   clearSession(req.params.sessionId);
