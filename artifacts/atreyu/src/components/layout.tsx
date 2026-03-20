@@ -209,35 +209,40 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </svg>
 
 
-          {/* Center logo — full-width bar, inset recessed pill */}
+          {/* Center logo — each letter in its own inset tile */}
           <div style={{
             position: "absolute", top: 0, left: 0, right: 0,
             height: BAR_H,
             display: "flex", alignItems: "center", justifyContent: "center",
             pointerEvents: "none",
+            gap: 5,
           }}>
-            <div style={{
-              padding: "6px 28px",
-              borderRadius: 14,
-              background: frameBg,
-              boxShadow: isLight
-                ? "inset 4px 4px 10px rgba(140,150,175,0.55), inset -3px -3px 8px rgba(255,255,255,0.85)"
-                : "inset 4px 4px 10px rgba(0,0,0,0.55), inset -3px -3px 8px rgba(255,255,255,0.05)",
-              display: "flex", alignItems: "center",
-            }}>
-              <img
-                src="/atreyu-logo.png"
-                alt="ATREYU"
+            {["A","T","R","E","Y","U"].map((letter) => (
+              <div
+                key={letter}
                 style={{
-                  height: 28,
-                  width: "auto",
-                  opacity: isLight ? 0.72 : 0.55,
-                  filter: isLight ? "none" : "brightness(2.5) saturate(0.4)",
+                  width: 38, height: 42,
+                  borderRadius: 10,
+                  background: frameBg,
+                  boxShadow: isLight
+                    ? "inset 3px 3px 8px rgba(130,140,168,0.60), inset -2px -2px 6px rgba(255,255,255,0.90)"
+                    : "inset 3px 3px 8px rgba(0,0,0,0.60), inset -2px -2px 6px rgba(255,255,255,0.06)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
                   userSelect: "none",
-                  display: "block",
                 }}
-              />
-            </div>
+              >
+                <span style={{
+                  fontFamily: "'Raleway', sans-serif",
+                  fontWeight: 200,
+                  fontSize: 20,
+                  letterSpacing: "0.02em",
+                  color: isLight ? "rgba(58,66,102,0.70)" : "rgba(180,192,220,0.55)",
+                  lineHeight: 1,
+                }}>
+                  {letter}
+                </span>
+              </div>
+            ))}
           </div>
 
           {/* Right wing — transparent, controls only */}
