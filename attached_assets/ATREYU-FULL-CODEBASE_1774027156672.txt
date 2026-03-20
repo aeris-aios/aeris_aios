@@ -1,0 +1,3311 @@
+===========================================================
+ATREYU AIOS — COMPLETE CODEBASE FOR REPLIT
+===========================================================
+
+This is the full codebase for ATREYU AIOS. It includes:
+- A web-based IDE with file upload, Monaco editor, and Claude-powered chat
+- An Agent Studio where users paste GitHub links to train ATREYU on skills
+- Persistent skill storage with filterable skill cards
+- Anthropic API key authentication
+
+INSTRUCTIONS FOR REPLIT:
+1. Create a new Node.js Repl
+2. Create each file below at the exact path shown
+3. Click Run (it will auto-install dependencies and start)
+4. Users connect their Anthropic API key on the main page
+5. Navigate to /agent-studio.html to train skills from GitHub repos
+
+===========================================================
+FILE: .replit
+===========================================================
+
+run = "npm install && npm start"
+entrypoint = "server/index.js"
+
+[nix]
+channel = "stable-24_05"
+
+[deployment]
+run = ["sh", "-c", "npm start"]
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+===========================================================
+FILE: replit.nix
+===========================================================
+
+{ pkgs }: {
+  deps = [
+    pkgs.nodejs-20_x
+    pkgs.nodePackages.npm
+    pkgs.git
+  ];
+}
+
+===========================================================
+FILE: package.json
+===========================================================
+
+{
+  "name": "atreyu-aios",
+  "version": "1.0.0",
+  "description": "ATREYU AIOS - AI-powered IDE with Claude Code",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "multer": "^1.4.5-lts.1",
+    "uuid": "^9.0.0"
+  }
+}
+
+===========================================================
+FILE: .gitignore
+===========================================================
+
+node_modules/
+user-projects/
+uploads/
+data/repos/
+.env
+
+===========================================================
+FILE: server/index.js
+===========================================================
+
+const express = require("express");
+const session = require("express-session");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs/promises");
+const { v4: uuidv4 } = require("uuid");
+const { runAgent } = require("./claude-agent");
+const { cloneRepo, analyzeRepo, cleanupRepo } = require("./trainer");
+const skillsStore = require("./skills-store");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const PROJECTS_DIR = path.join(process.cwd(), "user-projects");
+
+// Ensure projects directory exists
+fs.mkdir(PROJECTS_DIR, { recursive: true }).catch(() => {});
+
+// --- Middleware ---
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "atreyu-aios-secret-" + uuidv4(),
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 24 * 60 * 60 * 1000 },
+  })
+);
+app.use(express.static(path.join(__dirname, "../public")));
+
+// File upload config
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dest = path.join(PROJECTS_DIR, req.session.userId || "tmp", "uploads");
+    fs.mkdir(dest, { recursive: true }).then(() => cb(null, dest));
+  },
+  filename: (req, file, cb) => cb(null, file.originalname),
+});
+const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
+
+// --- Auth Middleware ---
+function requireAuth(req, res, next) {
+  if (!req.session.apiKey) {
+    return res.status(401).json({ error: "Not authenticated. Please connect your Anthropic API key." });
+  }
+  next();
+}
+
+// ======================
+// AUTH ROUTES
+// ======================
+
+app.post("/api/auth/connect", async (req, res) => {
+  const { apiKey } = req.body;
+  if (!apiKey || !apiKey.startsWith("sk-ant-")) {
+    return res.status(400).json({ error: "Invalid API key. Anthropic keys start with sk-ant-" });
+  }
+
+  try {
+    const Anthropic = require("@anthropic-ai/sdk");
+    const client = new Anthropic({ apiKey });
+    await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 10,
+      messages: [{ role: "user", content: "hi" }],
+    });
+
+    req.session.apiKey = apiKey;
+    req.session.userId = "user-" + uuidv4();
+    req.session.chatSessions = {};
+
+    const userDir = path.join(PROJECTS_DIR, req.session.userId);
+    await fs.mkdir(userDir, { recursive: true });
+
+    res.json({ success: true, userId: req.session.userId });
+  } catch (err) {
+    if (err.status === 401) {
+      return res.status(401).json({ error: "Invalid API key. Please check and try again." });
+    }
+    return res.status(500).json({ error: "Failed to validate key: " + err.message });
+  }
+});
+
+app.get("/api/auth/status", (req, res) => {
+  res.json({
+    authenticated: !!req.session.apiKey,
+    userId: req.session.userId || null,
+    keyHint: req.session.apiKey
+      ? "sk-ant-..." + req.session.apiKey.slice(-6)
+      : null,
+  });
+});
+
+app.post("/api/auth/disconnect", (req, res) => {
+  req.session.destroy(() => {
+    res.json({ success: true });
+  });
+});
+
+// ======================
+// PROJECT ROUTES
+// ======================
+
+app.get("/api/projects", requireAuth, async (req, res) => {
+  const userDir = path.join(PROJECTS_DIR, req.session.userId);
+  try {
+    await fs.mkdir(userDir, { recursive: true });
+    const entries = await fs.readdir(userDir, { withFileTypes: true });
+    const projects = entries
+      .filter((e) => e.isDirectory() && e.name !== "uploads")
+      .map((e) => ({ id: e.name, name: e.name }));
+    res.json(projects);
+  } catch {
+    res.json([]);
+  }
+});
+
+app.post("/api/projects", requireAuth, async (req, res) => {
+  const { name } = req.body;
+  const projectId = (name || "project").replace(/[^a-zA-Z0-9_-]/g, "-") + "-" + Date.now();
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, projectId);
+  await fs.mkdir(projectDir, { recursive: true });
+  res.json({ id: projectId, name: projectId });
+});
+
+app.post("/api/projects/:projectId/upload", requireAuth, upload.array("files", 100), async (req, res) => {
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId);
+  await fs.mkdir(projectDir, { recursive: true });
+
+  const files = req.files || [];
+  for (const file of files) {
+    const relativePath = req.body[`path_${file.originalname}`] || file.originalname;
+    const safePath = path.normalize(relativePath).replace(/^(\.\.[/\\])+/, "");
+    const dest = path.join(projectDir, safePath);
+    await fs.mkdir(path.dirname(dest), { recursive: true });
+    await fs.rename(file.path, dest);
+  }
+
+  res.json({ uploaded: files.length });
+});
+
+app.post("/api/projects/clone", requireAuth, async (req, res) => {
+  const { repoUrl } = req.body;
+  if (!repoUrl) return res.status(400).json({ error: "repoUrl required" });
+
+  if (!/^https?:\/\/.+/.test(repoUrl) && !repoUrl.match(/^git@/)) {
+    return res.status(400).json({ error: "Invalid repository URL" });
+  }
+
+  const repoName = path.basename(repoUrl, ".git") + "-" + Date.now();
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, repoName);
+
+  try {
+    const { execSync } = require("child_process");
+    execSync(`git clone --depth 50 "${repoUrl}" "${projectDir}"`, {
+      timeout: 120000,
+      stdio: "pipe",
+    });
+    res.json({ id: repoName, name: repoName });
+  } catch (err) {
+    res.status(500).json({ error: "Clone failed: " + err.stderr?.toString().slice(0, 200) });
+  }
+});
+
+app.delete("/api/projects/:projectId", requireAuth, async (req, res) => {
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId);
+  const resolved = path.resolve(projectDir);
+  const allowed = path.resolve(path.join(PROJECTS_DIR, req.session.userId));
+  if (!resolved.startsWith(allowed)) return res.status(403).json({ error: "Forbidden" });
+
+  await fs.rm(projectDir, { recursive: true, force: true });
+  res.json({ success: true });
+});
+
+// ======================
+// FILE ROUTES
+// ======================
+
+app.get("/api/files/:projectId", requireAuth, async (req, res) => {
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId);
+
+  async function buildTree(dir, prefix = "") {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    const result = [];
+    const skip = new Set([".git", "node_modules", "__pycache__", ".next", "dist", ".venv"]);
+    for (const e of entries.sort((a, b) => {
+      if (a.isDirectory() && !b.isDirectory()) return -1;
+      if (!a.isDirectory() && b.isDirectory()) return 1;
+      return a.name.localeCompare(b.name);
+    })) {
+      if (skip.has(e.name) || e.name.startsWith(".")) continue;
+      const rel = path.join(prefix, e.name);
+      if (e.isDirectory()) {
+        result.push({
+          name: e.name,
+          path: rel,
+          type: "dir",
+          children: await buildTree(path.join(dir, e.name), rel),
+        });
+      } else {
+        result.push({ name: e.name, path: rel, type: "file" });
+      }
+    }
+    return result;
+  }
+
+  res.json(await buildTree(projectDir));
+});
+
+app.get("/api/files/:projectId/*", requireAuth, async (req, res) => {
+  const filePath = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId, req.params[0]);
+  const resolved = path.resolve(filePath);
+  const allowed = path.resolve(path.join(PROJECTS_DIR, req.session.userId));
+  if (!resolved.startsWith(allowed)) return res.status(403).json({ error: "Forbidden" });
+
+  try {
+    const content = await fs.readFile(filePath, "utf-8");
+    res.type("text/plain").send(content);
+  } catch {
+    res.status(404).json({ error: "File not found" });
+  }
+});
+
+app.put("/api/files/:projectId/*", requireAuth, async (req, res) => {
+  const filePath = path.join(PROJECTS_DIR, req.session.userId, req.params.projectId, req.params[0]);
+  const resolved = path.resolve(filePath);
+  const allowed = path.resolve(path.join(PROJECTS_DIR, req.session.userId));
+  if (!resolved.startsWith(allowed)) return res.status(403).json({ error: "Forbidden" });
+
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, req.body.content);
+  res.json({ success: true });
+});
+
+// ======================
+// CHAT / CLAUDE AGENT
+// ======================
+
+app.post("/api/chat", requireAuth, async (req, res) => {
+  const { projectId, message, sessionId } = req.body;
+  if (!projectId || !message) return res.status(400).json({ error: "projectId and message required" });
+
+  const projectDir = path.join(PROJECTS_DIR, req.session.userId, projectId);
+  const chatId = sessionId || "default";
+
+  if (!req.session.chatSessions) req.session.chatSessions = {};
+  const history = req.session.chatSessions[chatId] || [];
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  try {
+    const updatedHistory = await runAgent(
+      req.session.apiKey,
+      message,
+      projectDir,
+      history,
+      (event) => {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+    );
+
+    req.session.chatSessions[chatId] = updatedHistory.slice(-40);
+    req.session.save();
+
+    res.write(`data: ${JSON.stringify({ type: "done" })}\n\n`);
+  } catch (err) {
+    res.write(`data: ${JSON.stringify({ type: "error", text: err.message })}\n\n`);
+  }
+
+  res.end();
+});
+
+app.delete("/api/chat/:sessionId", requireAuth, (req, res) => {
+  if (req.session.chatSessions) {
+    delete req.session.chatSessions[req.params.sessionId];
+  }
+  res.json({ success: true });
+});
+
+// ======================
+// SKILLS / AGENT STUDIO
+// ======================
+
+app.get("/api/skills", async (req, res) => {
+  const skills = await skillsStore.getAllSkills();
+  res.json(skills);
+});
+
+app.get("/api/skills/:id", async (req, res) => {
+  const skill = await skillsStore.getSkillById(req.params.id);
+  if (!skill) return res.status(404).json({ error: "Skill not found" });
+  res.json(skill);
+});
+
+app.post("/api/skills/train", requireAuth, async (req, res) => {
+  const { repoUrl } = req.body;
+  if (!repoUrl) return res.status(400).json({ error: "repoUrl is required" });
+
+  if (!/^https?:\/\/.+/.test(repoUrl)) {
+    return res.status(400).json({ error: "Invalid repository URL. Use an HTTPS GitHub link." });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders();
+
+  const send = (event) => res.write(`data: ${JSON.stringify(event)}\n\n`);
+
+  let repoDir = null;
+  try {
+    send({ stage: "cloning", message: "Cloning repository..." });
+    repoDir = await cloneRepo(repoUrl);
+
+    const newSkills = await analyzeRepo(req.session.apiKey, repoDir, repoUrl, send);
+
+    send({ stage: "saving", message: `Saving ${newSkills.length} skills...` });
+    const allSkills = await skillsStore.addSkills(newSkills);
+
+    send({ stage: "done", message: `Training complete! Learned ${newSkills.length} new skills.`, skills: newSkills });
+  } catch (err) {
+    send({ stage: "error", message: err.message });
+  } finally {
+    if (repoDir) await cleanupRepo(repoDir);
+    res.end();
+  }
+});
+
+app.delete("/api/skills/:id", async (req, res) => {
+  const remaining = await skillsStore.deleteSkill(req.params.id);
+  res.json({ success: true, remaining: remaining.length });
+});
+
+app.delete("/api/skills", async (req, res) => {
+  await skillsStore.clearAllSkills();
+  res.json({ success: true });
+});
+
+// ======================
+// START
+// ======================
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`ATREYU AIOS running on port ${PORT}`);
+});
+
+===========================================================
+FILE: server/claude-agent.js
+===========================================================
+
+const Anthropic = require("@anthropic-ai/sdk");
+const fs = require("fs/promises");
+const path = require("path");
+const { execSync } = require("child_process");
+
+const TOOLS = [
+  {
+    name: "read_file",
+    description: "Read a file from the project. Returns the full file contents.",
+    input_schema: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Relative path to the file" },
+      },
+      required: ["file_path"],
+    },
+  },
+  {
+    name: "write_file",
+    description: "Create or overwrite a file in the project.",
+    input_schema: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Relative path to the file" },
+        content: { type: "string", description: "Full file content to write" },
+      },
+      required: ["file_path", "content"],
+    },
+  },
+  {
+    name: "edit_file",
+    description: "Replace a specific string in a file. Use for targeted edits instead of rewriting the whole file.",
+    input_schema: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Relative path to the file" },
+        old_text: { type: "string", description: "Exact text to find and replace" },
+        new_text: { type: "string", description: "Replacement text" },
+      },
+      required: ["file_path", "old_text", "new_text"],
+    },
+  },
+  {
+    name: "list_directory",
+    description: "List files and folders in a directory.",
+    input_schema: {
+      type: "object",
+      properties: {
+        directory: { type: "string", description: "Relative directory path. Use '.' for project root." },
+      },
+      required: ["directory"],
+    },
+  },
+  {
+    name: "search_files",
+    description: "Search for a text pattern across all project files using grep.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pattern: { type: "string", description: "Search pattern (basic regex)" },
+        file_glob: { type: "string", description: "Optional file glob filter, e.g. '*.py' or '*.js'" },
+      },
+      required: ["pattern"],
+    },
+  },
+  {
+    name: "run_command",
+    description: "Run a shell command in the project directory. Use for: installing packages, running tests, build scripts, git commands, etc.",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "Shell command to run" },
+      },
+      required: ["command"],
+    },
+  },
+  {
+    name: "create_directory",
+    description: "Create a directory (and any parent directories).",
+    input_schema: {
+      type: "object",
+      properties: {
+        directory: { type: "string", description: "Relative directory path to create" },
+      },
+      required: ["directory"],
+    },
+  },
+  {
+    name: "delete_file",
+    description: "Delete a file from the project.",
+    input_schema: {
+      type: "object",
+      properties: {
+        file_path: { type: "string", description: "Relative path to the file to delete" },
+      },
+      required: ["file_path"],
+    },
+  },
+];
+
+const BLOCKED_COMMANDS = [
+  /rm\s+-rf\s+[/~]/,
+  /:(){ :\|:& };:/,
+  /mkfs\./,
+  /dd\s+if=/,
+  />\s*\/dev\/sd/,
+  /curl.*\|\s*(bash|sh)/,
+  /wget.*\|\s*(bash|sh)/,
+];
+
+function safePath(projectDir, relativePath) {
+  const normalized = path.normalize(relativePath).replace(/^(\.\.[/\\])+/, "");
+  const resolved = path.resolve(projectDir, normalized);
+  if (!resolved.startsWith(path.resolve(projectDir))) {
+    throw new Error("Access denied: path outside project directory");
+  }
+  return resolved;
+}
+
+async function executeTool(toolName, input, projectDir) {
+  switch (toolName) {
+    case "read_file": {
+      const p = safePath(projectDir, input.file_path);
+      return await fs.readFile(p, "utf-8");
+    }
+    case "write_file": {
+      const p = safePath(projectDir, input.file_path);
+      await fs.mkdir(path.dirname(p), { recursive: true });
+      await fs.writeFile(p, input.content);
+      return `File written: ${input.file_path}`;
+    }
+    case "edit_file": {
+      const p = safePath(projectDir, input.file_path);
+      const content = await fs.readFile(p, "utf-8");
+      if (!content.includes(input.old_text)) {
+        return `Error: Could not find the specified text in ${input.file_path}`;
+      }
+      const updated = content.replace(input.old_text, input.new_text);
+      await fs.writeFile(p, updated);
+      return `File edited: ${input.file_path}`;
+    }
+    case "list_directory": {
+      const p = safePath(projectDir, input.directory);
+      const entries = await fs.readdir(p, { withFileTypes: true });
+      return entries.map((e) => `${e.isDirectory() ? "[dir]  " : "[file] "}${e.name}`).join("\n");
+    }
+    case "search_files": {
+      const glob = input.file_glob ? `--include='${input.file_glob}'` : "";
+      const escaped = input.pattern.replace(/'/g, "'\\''");
+      try {
+        const result = execSync(
+          `grep -rn '${escaped}' . ${glob} --include='*' -l 2>/dev/null | head -50`,
+          { cwd: projectDir, encoding: "utf-8", timeout: 15000 }
+        );
+        return result || "No matches found.";
+      } catch {
+        return "No matches found.";
+      }
+    }
+    case "run_command": {
+      for (const blocked of BLOCKED_COMMANDS) {
+        if (blocked.test(input.command)) {
+          return "Error: This command is blocked for security reasons.";
+        }
+      }
+      try {
+        const result = execSync(input.command, {
+          cwd: projectDir,
+          encoding: "utf-8",
+          timeout: 60000,
+          maxBuffer: 1024 * 1024,
+          env: { ...process.env, HOME: projectDir },
+        });
+        return result.slice(0, 15000) || "(no output)";
+      } catch (err) {
+        return `Command failed:\n${(err.stdout || "").slice(0, 5000)}\n${(err.stderr || "").slice(0, 5000)}`;
+      }
+    }
+    case "create_directory": {
+      const p = safePath(projectDir, input.directory);
+      await fs.mkdir(p, { recursive: true });
+      return `Directory created: ${input.directory}`;
+    }
+    case "delete_file": {
+      const p = safePath(projectDir, input.file_path);
+      await fs.unlink(p);
+      return `Deleted: ${input.file_path}`;
+    }
+    default:
+      return `Unknown tool: ${toolName}`;
+  }
+}
+
+const SYSTEM_PROMPT = `You are ATREYU, an elite AI coding assistant embedded in the ATREYU AIOS IDE.
+
+You have full access to the user's project through tools: you can read, write, edit, search files, list directories, and run shell commands.
+
+Guidelines:
+- Be direct and concise. Lead with the solution, not the explanation.
+- When you modify files, briefly describe what you changed and why.
+- Use read_file before editing to understand existing code.
+- Use edit_file for targeted changes; write_file for new files or complete rewrites.
+- When asked to build something, write the actual code — don't just describe it.
+- Run commands (tests, linters, builds) proactively to verify your work.
+- If a task requires multiple steps, work through them methodically using tools.
+- Format responses with markdown for readability.`;
+
+async function runAgent(apiKey, userMessage, projectDir, conversationHistory, onEvent) {
+  const client = new Anthropic({ apiKey });
+
+  conversationHistory.push({ role: "user", content: userMessage });
+
+  let iterations = 0;
+  const MAX_ITERATIONS = 25;
+
+  while (iterations < MAX_ITERATIONS) {
+    iterations++;
+
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 8192,
+      system: SYSTEM_PROMPT,
+      tools: TOOLS,
+      messages: conversationHistory,
+    });
+
+    conversationHistory.push({ role: "assistant", content: response.content });
+
+    for (const block of response.content) {
+      if (block.type === "text") {
+        onEvent({ type: "text", text: block.text });
+      }
+    }
+
+    if (response.stop_reason === "end_turn") break;
+
+    const toolResults = [];
+    for (const block of response.content) {
+      if (block.type === "tool_use") {
+        onEvent({ type: "tool_use", tool: block.name, input: block.input });
+
+        try {
+          const result = await executeTool(block.name, block.input, projectDir);
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: result,
+          });
+          onEvent({
+            type: "tool_result",
+            tool: block.name,
+            result: result.slice(0, 500) + (result.length > 500 ? "..." : ""),
+          });
+        } catch (err) {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: `Error: ${err.message}`,
+            is_error: true,
+          });
+          onEvent({ type: "tool_error", tool: block.name, error: err.message });
+        }
+      }
+    }
+
+    if (toolResults.length > 0) {
+      conversationHistory.push({ role: "user", content: toolResults });
+    } else {
+      break;
+    }
+  }
+
+  return conversationHistory;
+}
+
+module.exports = { runAgent };
+
+===========================================================
+FILE: server/trainer.js
+===========================================================
+
+const Anthropic = require("@anthropic-ai/sdk");
+const { execSync } = require("child_process");
+const fs = require("fs/promises");
+const path = require("path");
+const { v4: uuidv4 } = require("uuid");
+
+const CLONE_DIR = path.join(process.cwd(), "data", "repos");
+
+const CODE_EXTENSIONS = new Set([
+  ".js", ".ts", ".jsx", ".tsx", ".py", ".rb", ".go", ".rs", ".java",
+  ".c", ".cpp", ".h", ".cs", ".php", ".swift", ".kt", ".scala",
+  ".vue", ".svelte", ".html", ".css", ".scss", ".sql",
+  ".sh", ".bash", ".zsh", ".yaml", ".yml", ".toml", ".json",
+  ".md", ".mdx", ".txt", ".dockerfile", ".makefile",
+]);
+
+const SKIP_DIRS = new Set([
+  "node_modules", ".git", "__pycache__", ".next", "dist", "build",
+  "vendor", ".venv", "venv", "target", "bin", "obj", ".cache",
+  "coverage", ".nyc_output", ".pytest_cache",
+]);
+
+async function cloneRepo(repoUrl) {
+  await fs.mkdir(CLONE_DIR, { recursive: true });
+  const repoName = path.basename(repoUrl, ".git").replace(/[^a-zA-Z0-9_-]/g, "-");
+  const dest = path.join(CLONE_DIR, `${repoName}-${Date.now()}`);
+
+  execSync(`git clone --depth 20 "${repoUrl}" "${dest}"`, {
+    timeout: 120000,
+    stdio: "pipe",
+  });
+
+  return dest;
+}
+
+async function collectSourceFiles(dir, maxFiles = 60, maxSizePerFile = 8000) {
+  const files = [];
+
+  async function walk(currentDir, prefix = "") {
+    if (files.length >= maxFiles) return;
+    let entries;
+    try {
+      entries = await fs.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    entries.sort((a, b) => {
+      const priority = (name) => {
+        const lower = name.toLowerCase();
+        if (lower.startsWith("readme")) return 0;
+        if (lower === "package.json" || lower === "pyproject.toml" || lower === "cargo.toml") return 1;
+        if (lower === "requirements.txt" || lower === "go.mod") return 2;
+        if (lower.includes("main") || lower.includes("index") || lower.includes("app")) return 3;
+        return 10;
+      };
+      return priority(a.name) - priority(b.name);
+    });
+
+    for (const entry of entries) {
+      if (files.length >= maxFiles) break;
+      const fullPath = path.join(currentDir, entry.name);
+      const relPath = path.join(prefix, entry.name);
+
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
+          await walk(fullPath, relPath);
+        }
+      } else {
+        const ext = path.extname(entry.name).toLowerCase();
+        const nameLC = entry.name.toLowerCase();
+        if (CODE_EXTENSIONS.has(ext) || nameLC === "makefile" || nameLC === "dockerfile") {
+          try {
+            const stat = await fs.stat(fullPath);
+            if (stat.size > 100000) continue;
+            let content = await fs.readFile(fullPath, "utf-8");
+            if (content.length > maxSizePerFile) {
+              content = content.slice(0, maxSizePerFile) + "\n... (truncated)";
+            }
+            files.push({ path: relPath, content });
+          } catch {}
+        }
+      }
+    }
+  }
+
+  await walk(dir);
+  return files;
+}
+
+async function buildTreeSummary(dir, depth = 0, maxDepth = 4) {
+  if (depth > maxDepth) return "";
+  let result = "";
+  let entries;
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return result;
+  }
+
+  for (const entry of entries) {
+    if (SKIP_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
+    const indent = "  ".repeat(depth);
+    if (entry.isDirectory()) {
+      result += `${indent}${entry.name}/\n`;
+      result += await buildTreeSummary(path.join(dir, entry.name), depth + 1, maxDepth);
+    } else {
+      result += `${indent}${entry.name}\n`;
+    }
+  }
+  return result;
+}
+
+async function analyzeRepo(apiKey, repoDir, repoUrl, onProgress) {
+  const client = new Anthropic({ apiKey });
+
+  onProgress({ stage: "reading", message: "Reading repository files..." });
+
+  const [files, treeSummary] = await Promise.all([
+    collectSourceFiles(repoDir),
+    buildTreeSummary(repoDir),
+  ]);
+
+  onProgress({
+    stage: "analyzing",
+    message: `Analyzing ${files.length} files with Claude...`,
+  });
+
+  const fileContext = files
+    .map((f) => `--- FILE: ${f.path} ---\n${f.content}\n`)
+    .join("\n");
+
+  const prompt = `You are ATREYU, an AI that learns skills from codebases. Analyze this repository and extract distinct, reusable SKILLS that you have learned.
+
+A "skill" is a specific capability, pattern, technique, or piece of domain knowledge demonstrated in this codebase. For example: "JWT Authentication with Refresh Tokens", "React Server Components with Streaming", "PostgreSQL Full-Text Search", "Rate Limiting with Token Bucket Algorithm", etc.
+
+## Repository: ${repoUrl}
+
+## Directory Structure:
+${treeSummary.slice(0, 3000)}
+
+## Source Files:
+${fileContext}
+
+## Instructions:
+Extract 5-15 distinct skills from this codebase. For each skill, provide:
+
+1. **name**: A clear, specific skill name (3-8 words)
+2. **category**: One of: "Frontend", "Backend", "Database", "DevOps", "API", "Auth", "Testing", "AI/ML", "Architecture", "Tooling", "Data Processing", "Security"
+3. **summary**: One sentence describing the skill (under 120 chars)
+4. **description**: A detailed 3-5 sentence explanation of what this skill does, how it works, and when to use it
+5. **key_concepts**: Array of 3-6 key concepts/technologies involved
+6. **code_example**: A short representative code snippet from the repo (or synthesized from the patterns seen) that demonstrates this skill
+7. **use_cases**: Array of 2-4 practical use cases for this skill
+8. **complexity**: One of "beginner", "intermediate", "advanced"
+
+Respond with ONLY a JSON array of skill objects. No markdown fences, no explanation, just the raw JSON array.`;
+
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 8000,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const text = response.content[0].text.trim();
+
+  onProgress({ stage: "processing", message: "Processing extracted skills..." });
+
+  let skills;
+  try {
+    const jsonStr = text.replace(/^```json?\s*/, "").replace(/\s*```$/, "");
+    skills = JSON.parse(jsonStr);
+  } catch (err) {
+    throw new Error("Failed to parse skill data from Claude: " + err.message);
+  }
+
+  if (!Array.isArray(skills)) {
+    throw new Error("Expected an array of skills from analysis");
+  }
+
+  const now = new Date().toISOString();
+  skills = skills.map((skill) => ({
+    id: uuidv4(),
+    name: skill.name || "Unnamed Skill",
+    category: skill.category || "Architecture",
+    summary: skill.summary || "",
+    description: skill.description || "",
+    key_concepts: skill.key_concepts || [],
+    code_example: skill.code_example || "",
+    use_cases: skill.use_cases || [],
+    complexity: skill.complexity || "intermediate",
+    source_repo: repoUrl,
+    trained_at: now,
+  }));
+
+  return skills;
+}
+
+async function cleanupRepo(repoDir) {
+  try {
+    await fs.rm(repoDir, { recursive: true, force: true });
+  } catch {}
+}
+
+module.exports = { cloneRepo, analyzeRepo, cleanupRepo };
+
+===========================================================
+FILE: server/skills-store.js
+===========================================================
+
+const fs = require("fs/promises");
+const path = require("path");
+
+const SKILLS_FILE = path.join(process.cwd(), "data", "skills.json");
+
+async function ensureFile() {
+  try {
+    await fs.access(SKILLS_FILE);
+  } catch {
+    await fs.mkdir(path.dirname(SKILLS_FILE), { recursive: true });
+    await fs.writeFile(SKILLS_FILE, "[]", "utf-8");
+  }
+}
+
+async function getAllSkills() {
+  await ensureFile();
+  const raw = await fs.readFile(SKILLS_FILE, "utf-8");
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+async function saveAllSkills(skills) {
+  await ensureFile();
+  await fs.writeFile(SKILLS_FILE, JSON.stringify(skills, null, 2), "utf-8");
+}
+
+async function addSkills(newSkills) {
+  const existing = await getAllSkills();
+  const existingNames = new Set(existing.map((s) => s.name.toLowerCase()));
+  const toAdd = newSkills.filter((s) => !existingNames.has(s.name.toLowerCase()));
+  const merged = [...existing, ...toAdd];
+  await saveAllSkills(merged);
+  return merged;
+}
+
+async function getSkillById(id) {
+  const skills = await getAllSkills();
+  return skills.find((s) => s.id === id) || null;
+}
+
+async function deleteSkill(id) {
+  const skills = await getAllSkills();
+  const filtered = skills.filter((s) => s.id !== id);
+  await saveAllSkills(filtered);
+  return filtered;
+}
+
+async function clearAllSkills() {
+  await saveAllSkills([]);
+}
+
+module.exports = {
+  getAllSkills,
+  addSkills,
+  getSkillById,
+  deleteSkill,
+  clearAllSkills,
+};
+
+===========================================================
+FILE: public/index.html
+===========================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATREYU AIOS</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/editor/editor.main.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <!-- LOGIN SCREEN -->
+  <div id="login-screen" class="screen">
+    <div class="login-container">
+      <div class="login-logo">
+        <h1>ATREYU</h1>
+        <p class="subtitle">AI Operating System</p>
+      </div>
+      <div class="login-card">
+        <h2>Connect Your Anthropic Account</h2>
+        <p class="login-info">
+          Enter your Anthropic API key to power ATREYU with Claude.
+          Your key is stored only in your session and never shared.
+        </p>
+        <div class="input-group">
+          <label for="api-key-input">Anthropic API Key</label>
+          <input
+            type="password"
+            id="api-key-input"
+            placeholder="sk-ant-api03-..."
+            autocomplete="off"
+          />
+        </div>
+        <button id="connect-btn" class="btn-primary" onclick="connectApiKey()">
+          Connect & Launch ATREYU
+        </button>
+        <div id="login-error" class="error-msg" style="display: none"></div>
+        <p class="login-help">
+          Don't have a key?
+          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">
+            Get one from Anthropic Console
+          </a>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN IDE -->
+  <div id="ide-screen" class="screen" style="display: none">
+    <!-- Top Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="logo-small">ATREYU</span>
+        <span class="separator">|</span>
+        <select id="project-select" onchange="switchProject()">
+          <option value="">-- Select Project --</option>
+        </select>
+        <button class="btn-sm" onclick="showNewProjectModal()">+ New</button>
+        <button class="btn-sm" onclick="showCloneModal()">Git Clone</button>
+        <button class="btn-sm" onclick="showUploadModal()">Upload Files</button>
+      </div>
+      <div class="topbar-right">
+        <a href="/agent-studio.html" class="btn-sm" style="text-decoration:none">Agent Studio</a>
+        <span id="key-hint" class="key-hint"></span>
+        <button class="btn-sm btn-disconnect" onclick="disconnect()">Disconnect</button>
+      </div>
+    </header>
+
+    <!-- Main Layout -->
+    <div class="ide-layout">
+      <!-- File Explorer -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <span>Explorer</span>
+          <button class="btn-icon" onclick="refreshFileTree()" title="Refresh">&#x21bb;</button>
+        </div>
+        <div id="file-tree" class="file-tree">
+          <p class="empty-state">Select or create a project to get started</p>
+        </div>
+      </aside>
+
+      <!-- Resize handle -->
+      <div class="resize-handle" id="sidebar-resize"></div>
+
+      <!-- Editor + Chat -->
+      <main class="main-area">
+        <!-- Editor Panel -->
+        <div class="editor-panel" id="editor-panel">
+          <div class="editor-tabs" id="editor-tabs">
+            <div class="tab-placeholder">No file open</div>
+          </div>
+          <div id="monaco-container" class="monaco-container"></div>
+        </div>
+
+        <!-- Resize handle -->
+        <div class="resize-handle-h" id="chat-resize"></div>
+
+        <!-- Chat Panel -->
+        <div class="chat-panel" id="chat-panel">
+          <div class="chat-header">
+            <span>ATREYU Assistant</span>
+            <button class="btn-sm" onclick="clearChat()">Clear Chat</button>
+          </div>
+          <div id="chat-messages" class="chat-messages"></div>
+          <div class="chat-input-area">
+            <textarea
+              id="chat-input"
+              placeholder="Ask ATREYU to help with your code..."
+              rows="3"
+              onkeydown="handleChatKeydown(event)"
+            ></textarea>
+            <button id="send-btn" class="btn-primary btn-send" onclick="sendMessage()">
+              Send
+            </button>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- MODALS -->
+  <div id="modal-overlay" class="modal-overlay" style="display: none" onclick="closeModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
+
+===========================================================
+FILE: public/agent-studio.html
+===========================================================
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATREYU - Agent Studio</title>
+  <link rel="stylesheet" href="/css/agent-studio.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+
+  <!-- NAV BAR -->
+  <nav class="navbar">
+    <div class="nav-left">
+      <a href="/" class="nav-logo">ATREYU</a>
+      <span class="nav-divider"></span>
+      <span class="nav-page">Agent Studio</span>
+    </div>
+    <div class="nav-right">
+      <a href="/" class="nav-link">IDE</a>
+      <a href="/agent-studio.html" class="nav-link active">Agent Studio</a>
+      <span id="auth-status" class="auth-badge"></span>
+    </div>
+  </nav>
+
+  <!-- HERO / TRAINING SECTION -->
+  <section class="hero">
+    <div class="hero-content">
+      <h1>Train ATREYU with New Skills</h1>
+      <p>Paste a GitHub repository link below. ATREYU will analyze the codebase and learn reusable skills, patterns, and techniques from it.</p>
+
+      <div class="train-form">
+        <div class="input-row">
+          <div class="input-icon">
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          </div>
+          <input
+            type="text"
+            id="repo-url"
+            placeholder="https://github.com/username/repository"
+            autocomplete="off"
+          />
+          <button id="train-btn" onclick="startTraining()">
+            <span class="btn-text">Train ATREYU</span>
+            <span class="btn-loading" style="display:none">
+              <span class="spinner"></span> Training...
+            </span>
+          </button>
+        </div>
+        <div id="train-error" class="train-error" style="display:none"></div>
+      </div>
+
+      <!-- Training Progress -->
+      <div id="training-progress" class="training-progress" style="display:none">
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progress-fill"></div>
+        </div>
+        <div class="progress-steps" id="progress-steps"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SKILLS GRID -->
+  <section class="skills-section">
+    <div class="skills-header">
+      <div class="skills-title-row">
+        <h2>Trained Skills</h2>
+        <span id="skills-count" class="skills-count">0 skills</span>
+      </div>
+      <div class="skills-filters">
+        <button class="filter-btn active" data-filter="all" onclick="filterSkills('all', this)">All</button>
+        <button class="filter-btn" data-filter="Frontend" onclick="filterSkills('Frontend', this)">Frontend</button>
+        <button class="filter-btn" data-filter="Backend" onclick="filterSkills('Backend', this)">Backend</button>
+        <button class="filter-btn" data-filter="Database" onclick="filterSkills('Database', this)">Database</button>
+        <button class="filter-btn" data-filter="API" onclick="filterSkills('API', this)">API</button>
+        <button class="filter-btn" data-filter="Auth" onclick="filterSkills('Auth', this)">Auth</button>
+        <button class="filter-btn" data-filter="DevOps" onclick="filterSkills('DevOps', this)">DevOps</button>
+        <button class="filter-btn" data-filter="Testing" onclick="filterSkills('Testing', this)">Testing</button>
+        <button class="filter-btn" data-filter="AI/ML" onclick="filterSkills('AI/ML', this)">AI/ML</button>
+        <button class="filter-btn" data-filter="Architecture" onclick="filterSkills('Architecture', this)">Architecture</button>
+        <button class="filter-btn" data-filter="Security" onclick="filterSkills('Security', this)">Security</button>
+      </div>
+    </div>
+
+    <div id="skills-grid" class="skills-grid"></div>
+
+    <div id="empty-state" class="empty-state">
+      <div class="empty-icon">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg>
+      </div>
+      <h3>No skills trained yet</h3>
+      <p>Paste a GitHub link above to teach ATREYU new skills from real codebases.</p>
+    </div>
+  </section>
+
+  <!-- SKILL DETAIL MODAL -->
+  <div id="skill-modal" class="modal-overlay" style="display:none" onclick="closeSkillModal(event)">
+    <div class="skill-modal" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeSkillModal()">&times;</button>
+      <div id="skill-modal-content"></div>
+    </div>
+  </div>
+
+  <script src="/js/agent-studio.js"></script>
+</body>
+</html>
+
+===========================================================
+FILE: public/css/style.css
+===========================================================
+
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #1c2333;
+  --bg-input: #0d1117;
+  --border: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #484f58;
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --accent-bg: rgba(56, 139, 253, 0.15);
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --radius: 6px;
+  --font-mono: "SF Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --sidebar-width: 260px;
+  --topbar-height: 44px;
+  --chat-height: 40%;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { cursor: pointer; font-family: inherit; font-size: inherit; }
+input, textarea, select { font-family: inherit; font-size: inherit; }
+.screen { width: 100%; height: 100%; }
+
+/* LOGIN */
+#login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #0d1117 0%, #161b22 50%, #1a1e2e 100%);
+}
+.login-container { text-align: center; max-width: 440px; width: 100%; padding: 20px; }
+.login-logo h1 {
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.login-logo .subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 40px;
+}
+.login-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  text-align: left;
+}
+.login-card h2 { font-size: 18px; margin-bottom: 8px; }
+.login-info { color: var(--text-secondary); font-size: 13px; margin-bottom: 24px; line-height: 1.5; }
+.input-group { margin-bottom: 20px; }
+.input-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.input-group input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.input-group input:focus { border-color: var(--accent); }
+.btn-primary {
+  width: 100%;
+  padding: 10px 20px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.error-msg {
+  margin-top: 12px;
+  padding: 10px;
+  background: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.3);
+  border-radius: var(--radius);
+  color: var(--red);
+  font-size: 13px;
+}
+.login-help {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* TOP BAR */
+.topbar {
+  height: var(--topbar-height);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  gap: 8px;
+}
+.topbar-left, .topbar-right { display: flex; align-items: center; gap: 8px; }
+.logo-small { font-weight: 700; letter-spacing: 3px; color: var(--accent); font-size: 14px; }
+.separator { color: var(--text-muted); }
+.key-hint { color: var(--text-muted); font-family: var(--font-mono); font-size: 11px; }
+
+select {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  outline: none;
+  max-width: 200px;
+}
+.btn-sm {
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.btn-sm:hover { background: var(--border); }
+.btn-disconnect { color: var(--red); border-color: rgba(248,81,73,0.3); }
+.btn-disconnect:hover { background: rgba(248,81,73,0.15); }
+.btn-icon {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.btn-icon:hover { background: var(--border); color: var(--text-primary); }
+
+/* IDE LAYOUT */
+.ide-layout {
+  display: flex;
+  height: calc(100vh - var(--topbar-height));
+}
+.sidebar {
+  width: var(--sidebar-width);
+  min-width: 180px;
+  max-width: 500px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.file-tree { flex: 1; overflow-y: auto; padding: 4px 0; }
+.file-tree .empty-state {
+  padding: 20px 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.tree-item {
+  display: flex;
+  align-items: center;
+  padding: 3px 8px 3px calc(var(--depth, 0) * 16px + 8px);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  gap: 6px;
+  user-select: none;
+}
+.tree-item:hover { background: rgba(177, 186, 196, 0.08); color: var(--text-primary); }
+.tree-item.active { background: var(--accent-bg); color: var(--accent); }
+.tree-icon { font-size: 14px; flex-shrink: 0; width: 16px; text-align: center; }
+.tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-toggle { width: 16px; text-align: center; font-size: 10px; flex-shrink: 0; }
+.tree-children { display: none; }
+.tree-children.open { display: block; }
+
+.resize-handle {
+  width: 3px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+}
+.resize-handle:hover, .resize-handle.active { background: var(--accent); }
+.resize-handle-h {
+  height: 3px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 0.15s;
+}
+.resize-handle-h:hover, .resize-handle-h.active { background: var(--accent); }
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Editor */
+.editor-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100px;
+  overflow: hidden;
+}
+.editor-tabs {
+  display: flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  height: 36px;
+  overflow-x: auto;
+  gap: 0;
+}
+.editor-tabs::-webkit-scrollbar { height: 0; }
+.tab-placeholder { padding: 0 16px; color: var(--text-muted); font-size: 12px; }
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 100%;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.tab:hover { background: rgba(177,186,196,0.08); }
+.tab.active { color: var(--text-primary); background: var(--bg-primary); border-bottom: 2px solid var(--accent); }
+.tab .close-tab {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-muted);
+  border-radius: 3px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.tab .close-tab:hover { background: var(--border); color: var(--text-primary); }
+.monaco-container { flex: 1; min-height: 0; }
+
+/* Chat panel */
+.chat-panel {
+  height: var(--chat-height);
+  min-height: 120px;
+  max-height: 80%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+}
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat-msg { max-width: 100%; line-height: 1.55; font-size: 13px; }
+.chat-msg.user-msg {
+  align-self: flex-end;
+  background: var(--accent-bg);
+  border: 1px solid rgba(56,139,253,0.2);
+  border-radius: 10px 10px 2px 10px;
+  padding: 8px 14px;
+  max-width: 80%;
+}
+.chat-msg.assistant-msg { align-self: flex-start; padding: 4px 0; width: 100%; }
+.chat-msg.assistant-msg pre {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin: 8px 0;
+}
+.chat-msg.assistant-msg code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: rgba(110,118,129,0.2);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.chat-msg.assistant-msg pre code { background: none; padding: 0; }
+.chat-msg.assistant-msg p { margin: 6px 0; }
+.chat-msg.assistant-msg ul, .chat-msg.assistant-msg ol { padding-left: 20px; margin: 6px 0; }
+
+.tool-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: rgba(110,118,129,0.08);
+  border-radius: var(--radius);
+  margin: 4px 0;
+}
+.tool-indicator .tool-icon { color: var(--yellow); }
+.tool-indicator.tool-done .tool-icon { color: var(--green); }
+.tool-indicator.tool-error .tool-icon { color: var(--red); }
+
+.typing-indicator { display: flex; gap: 4px; padding: 8px 0; }
+.typing-indicator span {
+  width: 6px; height: 6px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  animation: blink 1.4s infinite both;
+}
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0.3; }
+  40% { opacity: 1; }
+}
+
+.chat-input-area {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.chat-input-area textarea {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  padding: 8px 10px;
+  resize: none;
+  outline: none;
+  line-height: 1.4;
+  transition: border-color 0.2s;
+}
+.chat-input-area textarea:focus { border-color: var(--accent); }
+.btn-send { width: 70px; padding: 0; border-radius: var(--radius); font-size: 13px; }
+.btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* MODAL */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  width: 420px;
+  max-width: 90vw;
+}
+.modal h3 { margin-bottom: 16px; font-size: 16px; }
+.modal .input-group { margin-bottom: 16px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+.btn-cancel {
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+===========================================================
+FILE: public/css/agent-studio.css
+===========================================================
+
+:root {
+  --bg-primary: #0a0e17;
+  --bg-secondary: #111827;
+  --bg-card: #151c2c;
+  --bg-card-hover: #1a2236;
+  --bg-input: #0d1321;
+  --border: #1e293b;
+  --border-light: #2a3a52;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #475569;
+  --accent: #3b82f6;
+  --accent-glow: rgba(59, 130, 246, 0.25);
+  --accent-hover: #60a5fa;
+  --green: #22c55e;
+  --green-bg: rgba(34, 197, 94, 0.12);
+  --red: #ef4444;
+  --red-bg: rgba(239, 68, 68, 0.12);
+  --yellow: #eab308;
+  --yellow-bg: rgba(234, 179, 8, 0.1);
+  --purple: #a855f7;
+  --purple-bg: rgba(168, 85, 247, 0.12);
+  --cyan: #06b6d4;
+  --cyan-bg: rgba(6, 182, 212, 0.1);
+  --radius: 8px;
+  --radius-lg: 14px;
+  --font-mono: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  min-height: 100vh;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); }
+
+/* NAVBAR */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  height: 56px;
+  background: rgba(10, 14, 23, 0.85);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-left, .nav-right { display: flex; align-items: center; gap: 12px; }
+.nav-logo {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--accent);
+}
+.nav-divider { width: 1px; height: 20px; background: var(--border); }
+.nav-page { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+.nav-link {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+.nav-link:hover { color: var(--text-primary); background: rgba(255,255,255,0.05); text-decoration: none; }
+.nav-link.active { color: var(--accent); background: var(--accent-glow); }
+.auth-badge {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  padding: 4px 8px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+}
+
+/* HERO */
+.hero {
+  padding: 60px 24px 40px;
+  max-width: 800px;
+  margin: 0 auto;
+  text-align: center;
+}
+.hero h1 {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #e2e8f0, #3b82f6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero p {
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.6;
+  max-width: 560px;
+  margin: 0 auto 32px;
+}
+
+.train-form { max-width: 640px; margin: 0 auto; }
+.input-row {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.input-row:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.input-icon { display: flex; align-items: center; padding: 0 14px; color: var(--text-muted); }
+.input-row input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  padding: 14px 0;
+  outline: none;
+}
+.input-row input::placeholder { color: var(--text-muted); }
+.input-row button {
+  padding: 0 24px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+.input-row button:hover { background: var(--accent-hover); }
+.input-row button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.train-error {
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: var(--red-bg);
+  border: 1px solid rgba(239,68,68,0.25);
+  border-radius: var(--radius);
+  color: var(--red);
+  font-size: 13px;
+  text-align: left;
+}
+
+.training-progress { max-width: 640px; margin: 24px auto 0; text-align: left; }
+.progress-bar-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--cyan));
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.5s ease;
+}
+.progress-steps { display: flex; flex-direction: column; gap: 8px; }
+.progress-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.02);
+  border-radius: var(--radius);
+}
+.progress-step .step-icon {
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; font-size: 12px;
+}
+.progress-step.active { color: var(--accent); }
+.progress-step.done { color: var(--green); }
+.progress-step.error { color: var(--red); }
+
+/* SKILLS SECTION */
+.skills-section { max-width: 1200px; margin: 0 auto; padding: 0 24px 60px; }
+.skills-header { margin-bottom: 24px; }
+.skills-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.skills-title-row h2 { font-size: 22px; font-weight: 600; }
+.skills-count { font-size: 13px; color: var(--text-muted); font-weight: 400; }
+
+.skills-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.filter-btn:hover { color: var(--text-primary); border-color: var(--border-light); background: rgba(255,255,255,0.06); }
+.filter-btn.active { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
+
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.skill-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.25s;
+  position: relative;
+  overflow: hidden;
+}
+.skill-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--card-accent, var(--accent)), transparent);
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.skill-card:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-light);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+.skill-card:hover::before { opacity: 1; }
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  gap: 12px;
+}
+.card-title { font-size: 15px; font-weight: 600; color: var(--text-primary); line-height: 1.3; }
+.card-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.badge-Frontend { color: var(--cyan); background: var(--cyan-bg); }
+.badge-Backend { color: var(--green); background: var(--green-bg); }
+.badge-Database { color: var(--yellow); background: var(--yellow-bg); }
+.badge-API { color: var(--accent); background: var(--accent-glow); }
+.badge-Auth { color: var(--red); background: var(--red-bg); }
+.badge-DevOps { color: var(--purple); background: var(--purple-bg); }
+.badge-Testing { color: var(--green); background: var(--green-bg); }
+.badge-AIML { color: var(--purple); background: var(--purple-bg); }
+.badge-Architecture { color: var(--cyan); background: var(--cyan-bg); }
+.badge-Tooling { color: var(--yellow); background: var(--yellow-bg); }
+.badge-Security { color: var(--red); background: var(--red-bg); }
+[class*="badge-Data"] { color: var(--yellow); background: var(--yellow-bg); }
+
+.card-summary { font-size: 13px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 14px; }
+.card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.05);
+}
+.card-complexity { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+.complexity-beginner { color: var(--green); }
+.complexity-intermediate { color: var(--yellow); }
+.complexity-advanced { color: var(--red); }
+.card-source {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+.empty-icon { margin-bottom: 16px; opacity: 0.4; }
+.empty-state h3 { font-size: 18px; color: var(--text-secondary); margin-bottom: 8px; }
+.empty-state p { font-size: 14px; }
+
+/* SKILL DETAIL MODAL */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+.skill-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  max-width: 720px;
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  position: relative;
+  padding: 32px;
+  animation: modalIn 0.2s ease;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-close {
+  position: absolute;
+  top: 16px; right: 16px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.modal-close:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); }
+
+.modal-skill-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-right: 40px;
+}
+.modal-skill-title { font-size: 22px; font-weight: 700; line-height: 1.3; }
+.modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.modal-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.03);
+  border-radius: 6px;
+}
+
+.modal-section { margin-bottom: 24px; }
+.modal-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.modal-description { font-size: 14px; line-height: 1.7; color: var(--text-secondary); }
+
+.modal-code-block {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text-primary);
+}
+
+.modal-use-cases { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.modal-use-cases li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.02);
+  border-radius: var(--radius);
+  line-height: 1.5;
+}
+.use-case-arrow { color: var(--accent); flex-shrink: 0; }
+
+.modal-concepts { display: flex; flex-wrap: wrap; gap: 8px; }
+.modal-concept-tag {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent);
+  padding: 4px 12px;
+  background: var(--accent-glow);
+  border: 1px solid rgba(59,130,246,0.2);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+}
+
+.modal-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--accent);
+  padding: 6px 12px;
+  background: var(--accent-glow);
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+.modal-source-link:hover { background: rgba(59,130,246,0.2); text-decoration: none; }
+
+.modal-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--red);
+  padding: 6px 14px;
+  background: var(--red-bg);
+  border: 1px solid rgba(239,68,68,0.2);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-top: 8px;
+}
+.modal-delete-btn:hover { background: rgba(239,68,68,0.2); }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+@media (max-width: 640px) {
+  .hero { padding: 40px 16px 24px; }
+  .hero h1 { font-size: 24px; }
+  .skills-grid { grid-template-columns: 1fr; }
+  .skill-modal { padding: 20px; }
+  .input-row { flex-direction: column; }
+  .input-row button { padding: 14px; }
+}
+
+===========================================================
+FILE: public/js/app.js
+===========================================================
+
+let currentProject = null;
+let openTabs = [];
+let activeTabPath = null;
+let editor = null;
+let chatSessionId = "chat-" + Date.now();
+let isStreaming = false;
+
+document.addEventListener("DOMContentLoaded", () => {
+  initMonaco();
+  checkAuthStatus();
+  initResizeHandles();
+});
+
+function initMonaco() {
+  require.config({
+    paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs" },
+  });
+  require(["vs/editor/editor.main"], () => {
+    monaco.editor.defineTheme("atreyu-dark", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [],
+      colors: {
+        "editor.background": "#0d1117",
+        "editorGutter.background": "#0d1117",
+        "editor.lineHighlightBackground": "#161b22",
+      },
+    });
+    editor = monaco.editor.create(document.getElementById("monaco-container"), {
+      value: "// Welcome to ATREYU AIOS\n// Select or create a project, then open a file to start editing.",
+      language: "javascript",
+      theme: "atreyu-dark",
+      fontSize: 13,
+      fontFamily: "'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace",
+      minimap: { enabled: false },
+      scrollBeyondLastLine: false,
+      padding: { top: 10 },
+      automaticLayout: true,
+      wordWrap: "on",
+    });
+
+    editor.onDidChangeModelContent(() => {
+      if (activeTabPath) {
+        const tab = openTabs.find((t) => t.path === activeTabPath);
+        if (tab) tab.content = editor.getValue();
+      }
+    });
+
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      saveCurrentFile();
+    });
+  });
+}
+
+// AUTH
+async function checkAuthStatus() {
+  try {
+    const res = await fetch("/api/auth/status");
+    const data = await res.json();
+    if (data.authenticated) {
+      showIDE();
+      document.getElementById("key-hint").textContent = data.keyHint;
+      loadProjects();
+    } else {
+      showLogin();
+    }
+  } catch {
+    showLogin();
+  }
+}
+
+async function connectApiKey() {
+  const key = document.getElementById("api-key-input").value.trim();
+  const btn = document.getElementById("connect-btn");
+  const errEl = document.getElementById("login-error");
+  errEl.style.display = "none";
+
+  if (!key) {
+    errEl.textContent = "Please enter your API key.";
+    errEl.style.display = "block";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "Validating...";
+
+  try {
+    const res = await fetch("/api/auth/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: key }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showIDE();
+      checkAuthStatus();
+    } else {
+      errEl.textContent = data.error;
+      errEl.style.display = "block";
+    }
+  } catch (err) {
+    errEl.textContent = "Connection failed. Check your network.";
+    errEl.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Connect & Launch ATREYU";
+  }
+}
+
+async function disconnect() {
+  if (!confirm("Disconnect your API key and return to login?")) return;
+  await fetch("/api/auth/disconnect", { method: "POST" });
+  currentProject = null;
+  openTabs = [];
+  activeTabPath = null;
+  showLogin();
+}
+
+function showLogin() {
+  document.getElementById("login-screen").style.display = "flex";
+  document.getElementById("ide-screen").style.display = "none";
+}
+
+function showIDE() {
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("ide-screen").style.display = "flex";
+  document.getElementById("ide-screen").style.flexDirection = "column";
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && document.getElementById("login-screen").style.display !== "none") {
+    if (document.activeElement.id === "api-key-input") connectApiKey();
+  }
+});
+
+// PROJECTS
+async function loadProjects() {
+  const res = await fetch("/api/projects");
+  const projects = await res.json();
+  const sel = document.getElementById("project-select");
+  sel.innerHTML = '<option value="">-- Select Project --</option>';
+  for (const p of projects) {
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    sel.appendChild(opt);
+  }
+  if (currentProject) sel.value = currentProject;
+}
+
+function switchProject() {
+  const sel = document.getElementById("project-select");
+  currentProject = sel.value || null;
+  openTabs = [];
+  activeTabPath = null;
+  renderTabs();
+  if (currentProject) {
+    refreshFileTree();
+  } else {
+    document.getElementById("file-tree").innerHTML =
+      '<p class="empty-state">Select or create a project to get started</p>';
+  }
+}
+
+function showNewProjectModal() {
+  document.getElementById("modal-content").innerHTML = `
+    <h3>Create New Project</h3>
+    <div class="input-group">
+      <label>Project Name</label>
+      <input type="text" id="new-project-name" placeholder="my-project" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" style="width:auto;padding:8px 20px" onclick="createProject()">Create</button>
+    </div>
+  `;
+  openModal();
+  setTimeout(() => document.getElementById("new-project-name").focus(), 100);
+}
+
+async function createProject() {
+  const name = document.getElementById("new-project-name").value.trim();
+  if (!name) return;
+  const res = await fetch("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  const data = await res.json();
+  currentProject = data.id;
+  closeModal();
+  await loadProjects();
+  document.getElementById("project-select").value = currentProject;
+  refreshFileTree();
+}
+
+function showCloneModal() {
+  document.getElementById("modal-content").innerHTML = `
+    <h3>Clone Git Repository</h3>
+    <div class="input-group">
+      <label>Repository URL</label>
+      <input type="text" id="clone-url" placeholder="https://github.com/user/repo.git" />
+    </div>
+    <div id="clone-status" style="display:none;margin-bottom:12px;color:var(--text-secondary);font-size:12px"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" style="width:auto;padding:8px 20px" id="clone-btn" onclick="cloneRepo()">Clone</button>
+    </div>
+  `;
+  openModal();
+  setTimeout(() => document.getElementById("clone-url").focus(), 100);
+}
+
+async function cloneRepo() {
+  const url = document.getElementById("clone-url").value.trim();
+  if (!url) return;
+  const btn = document.getElementById("clone-btn");
+  const status = document.getElementById("clone-status");
+  btn.disabled = true;
+  btn.textContent = "Cloning...";
+  status.style.display = "block";
+  status.textContent = "Cloning repository, this may take a moment...";
+
+  try {
+    const res = await fetch("/api/projects/clone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: url }),
+    });
+    const data = await res.json();
+    if (data.error) {
+      status.style.color = "var(--red)";
+      status.textContent = data.error;
+      btn.disabled = false;
+      btn.textContent = "Clone";
+      return;
+    }
+    currentProject = data.id;
+    closeModal();
+    await loadProjects();
+    document.getElementById("project-select").value = currentProject;
+    refreshFileTree();
+  } catch {
+    status.style.color = "var(--red)";
+    status.textContent = "Clone failed. Check URL and try again.";
+    btn.disabled = false;
+    btn.textContent = "Clone";
+  }
+}
+
+function showUploadModal() {
+  if (!currentProject) {
+    alert("Create or select a project first.");
+    return;
+  }
+  document.getElementById("modal-content").innerHTML = `
+    <h3>Upload Files</h3>
+    <p style="color:var(--text-secondary);font-size:12px;margin-bottom:16px">
+      Select files or a folder to upload to <strong>${currentProject}</strong>
+    </p>
+    <div class="input-group">
+      <label>Select Files</label>
+      <input type="file" id="upload-files" multiple />
+    </div>
+    <div class="input-group">
+      <label>Or Select Folder</label>
+      <input type="file" id="upload-folder" webkitdirectory directory multiple />
+    </div>
+    <div id="upload-status" style="display:none;font-size:12px;margin-bottom:12px"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" style="width:auto;padding:8px 20px" id="upload-btn" onclick="uploadFiles()">Upload</button>
+    </div>
+  `;
+  openModal();
+}
+
+async function uploadFiles() {
+  const fileInput = document.getElementById("upload-files");
+  const folderInput = document.getElementById("upload-folder");
+  const files = fileInput.files.length > 0 ? fileInput.files : folderInput.files;
+  if (!files || files.length === 0) return;
+
+  const btn = document.getElementById("upload-btn");
+  const status = document.getElementById("upload-status");
+  btn.disabled = true;
+  btn.textContent = "Uploading...";
+  status.style.display = "block";
+  status.style.color = "var(--text-secondary)";
+  status.textContent = `Uploading ${files.length} file(s)...`;
+
+  const form = new FormData();
+  form.append("projectId", currentProject);
+  for (const f of files) {
+    form.append("files", f);
+    if (f.webkitRelativePath) {
+      form.append(`path_${f.name}`, f.webkitRelativePath);
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/projects/${currentProject}/upload`, {
+      method: "POST",
+      body: form,
+    });
+    const data = await res.json();
+    if (data.error) {
+      status.style.color = "var(--red)";
+      status.textContent = data.error;
+      btn.disabled = false;
+      btn.textContent = "Upload";
+      return;
+    }
+    closeModal();
+    refreshFileTree();
+  } catch {
+    status.style.color = "var(--red)";
+    status.textContent = "Upload failed.";
+    btn.disabled = false;
+    btn.textContent = "Upload";
+  }
+}
+
+// FILE TREE
+async function refreshFileTree() {
+  if (!currentProject) return;
+  const container = document.getElementById("file-tree");
+
+  try {
+    const res = await fetch(`/api/files/${currentProject}`);
+    const tree = await res.json();
+    if (tree.length === 0) {
+      container.innerHTML = '<p class="empty-state">Project is empty. Upload files or clone a repo.</p>';
+      return;
+    }
+    container.innerHTML = "";
+    renderTreeNodes(container, tree, 0);
+  } catch {
+    container.innerHTML = '<p class="empty-state">Failed to load files</p>';
+  }
+}
+
+function renderTreeNodes(parent, nodes, depth) {
+  for (const node of nodes) {
+    if (node.type === "dir") {
+      const wrapper = document.createElement("div");
+
+      const item = document.createElement("div");
+      item.className = "tree-item";
+      item.style.setProperty("--depth", depth);
+      item.innerHTML = `
+        <span class="tree-toggle">&#9654;</span>
+        <span class="tree-icon">&#128193;</span>
+        <span class="tree-name">${escapeHtml(node.name)}</span>
+      `;
+
+      const children = document.createElement("div");
+      children.className = "tree-children";
+      renderTreeNodes(children, node.children || [], depth + 1);
+
+      item.addEventListener("click", () => {
+        const isOpen = children.classList.toggle("open");
+        item.querySelector(".tree-toggle").innerHTML = isOpen ? "&#9660;" : "&#9654;";
+      });
+
+      wrapper.appendChild(item);
+      wrapper.appendChild(children);
+      parent.appendChild(wrapper);
+    } else {
+      const item = document.createElement("div");
+      item.className = "tree-item";
+      item.style.setProperty("--depth", depth);
+      item.dataset.path = node.path;
+      item.innerHTML = `
+        <span class="tree-toggle" style="visibility:hidden">&#9654;</span>
+        <span class="tree-icon">${getFileIcon(node.name)}</span>
+        <span class="tree-name">${escapeHtml(node.name)}</span>
+      `;
+      item.addEventListener("click", () => openFile(node.path, node.name));
+      parent.appendChild(item);
+    }
+  }
+}
+
+function getFileIcon(name) {
+  const ext = name.split(".").pop().toLowerCase();
+  const icons = {
+    js: "&#128312;", ts: "&#128309;", py: "&#128154;", html: "&#128992;",
+    css: "&#128311;", json: "&#128313;", md: "&#128220;", jsx: "&#128312;",
+    tsx: "&#128309;", vue: "&#128154;", rb: "&#128308;", go: "&#128309;",
+    rs: "&#128992;", java: "&#128308;", php: "&#128312;", sql: "&#128313;",
+    yml: "&#128313;", yaml: "&#128313;", toml: "&#128313;", sh: "&#128311;",
+  };
+  return icons[ext] || "&#128196;";
+}
+
+// EDITOR TABS
+async function openFile(filePath) {
+  const existing = openTabs.find((t) => t.path === filePath);
+  if (existing) {
+    activateTab(filePath);
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/files/${currentProject}/${filePath}`);
+    if (!res.ok) return;
+    const content = await res.text();
+
+    const lang = getLanguageFromPath(filePath);
+    const model = monaco.editor.createModel(content, lang);
+
+    openTabs.push({ path: filePath, content, model });
+    activateTab(filePath);
+    renderTabs();
+  } catch (err) {
+    console.error("Failed to open file:", err);
+  }
+}
+
+function activateTab(filePath) {
+  activeTabPath = filePath;
+  const tab = openTabs.find((t) => t.path === filePath);
+  if (tab && editor) {
+    editor.setModel(tab.model);
+  }
+  renderTabs();
+
+  document.querySelectorAll(".tree-item").forEach((el) => {
+    el.classList.toggle("active", el.dataset.path === filePath);
+  });
+}
+
+function closeTab(filePath, event) {
+  if (event) event.stopPropagation();
+  const idx = openTabs.findIndex((t) => t.path === filePath);
+  if (idx === -1) return;
+
+  openTabs[idx].model.dispose();
+  openTabs.splice(idx, 1);
+
+  if (activeTabPath === filePath) {
+    if (openTabs.length > 0) {
+      const newIdx = Math.min(idx, openTabs.length - 1);
+      activateTab(openTabs[newIdx].path);
+    } else {
+      activeTabPath = null;
+      if (editor) {
+        editor.setModel(monaco.editor.createModel("// No file open", "plaintext"));
+      }
+    }
+  }
+  renderTabs();
+}
+
+function renderTabs() {
+  const container = document.getElementById("editor-tabs");
+  if (openTabs.length === 0) {
+    container.innerHTML = '<div class="tab-placeholder">No file open</div>';
+    return;
+  }
+  container.innerHTML = openTabs
+    .map((t) => {
+      const name = t.path.split("/").pop();
+      const isActive = t.path === activeTabPath;
+      return `<div class="tab ${isActive ? "active" : ""}" onclick="activateTab('${escapeAttr(t.path)}')">
+        <span>${escapeHtml(name)}</span>
+        <span class="close-tab" onclick="closeTab('${escapeAttr(t.path)}', event)">&times;</span>
+      </div>`;
+    })
+    .join("");
+}
+
+async function saveCurrentFile() {
+  if (!activeTabPath || !currentProject) return;
+  const tab = openTabs.find((t) => t.path === activeTabPath);
+  if (!tab) return;
+  const content = editor.getValue();
+  await fetch(`/api/files/${currentProject}/${activeTabPath}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+}
+
+function getLanguageFromPath(filePath) {
+  const ext = filePath.split(".").pop().toLowerCase();
+  const map = {
+    js: "javascript", jsx: "javascript", ts: "typescript", tsx: "typescript",
+    py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
+    html: "html", htm: "html", css: "css", scss: "scss", less: "less",
+    json: "json", xml: "xml", yaml: "yaml", yml: "yaml", toml: "ini",
+    md: "markdown", sql: "sql", sh: "shell", bash: "shell", zsh: "shell",
+    c: "c", cpp: "cpp", h: "c", hpp: "cpp", cs: "csharp",
+    php: "php", swift: "swift", kt: "kotlin", r: "r",
+    dockerfile: "dockerfile", makefile: "makefile",
+  };
+  return map[ext] || "plaintext";
+}
+
+// CHAT
+function handleChatKeydown(e) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+async function sendMessage() {
+  const input = document.getElementById("chat-input");
+  const message = input.value.trim();
+  if (!message || !currentProject || isStreaming) return;
+
+  input.value = "";
+  isStreaming = true;
+  document.getElementById("send-btn").disabled = true;
+
+  appendChatMessage("user", message);
+  const typingId = appendTypingIndicator();
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectId: currentProject,
+        message,
+        sessionId: chatSessionId,
+      }),
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let assistantText = "";
+    let assistantEl = null;
+
+    removeTypingIndicator(typingId);
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n");
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6);
+        if (raw === "") continue;
+
+        let event;
+        try { event = JSON.parse(raw); } catch { continue; }
+
+        if (event.type === "text") {
+          assistantText += event.text;
+          if (!assistantEl) {
+            assistantEl = appendChatMessage("assistant", "");
+          }
+          assistantEl.innerHTML = renderMarkdown(assistantText);
+        } else if (event.type === "tool_use") {
+          appendToolIndicator(event.tool, JSON.stringify(event.input).slice(0, 80), "running");
+        } else if (event.type === "tool_result") {
+          appendToolIndicator(event.tool, event.result.slice(0, 120), "done");
+        } else if (event.type === "tool_error") {
+          appendToolIndicator(event.tool, event.error, "error");
+        } else if (event.type === "error") {
+          appendChatMessage("assistant", "Error: " + event.text);
+        } else if (event.type === "done") {
+          refreshFileTree();
+          if (activeTabPath) {
+            try {
+              const r = await fetch(`/api/files/${currentProject}/${activeTabPath}`);
+              if (r.ok) {
+                const updated = await r.text();
+                const tab = openTabs.find((t) => t.path === activeTabPath);
+                if (tab && tab.content !== updated) {
+                  tab.content = updated;
+                  tab.model.setValue(updated);
+                }
+              }
+            } catch {}
+          }
+        }
+      }
+    }
+  } catch (err) {
+    removeTypingIndicator(typingId);
+    appendChatMessage("assistant", "Connection error: " + err.message);
+  } finally {
+    isStreaming = false;
+    document.getElementById("send-btn").disabled = false;
+    input.focus();
+  }
+}
+
+function appendChatMessage(role, text) {
+  const container = document.getElementById("chat-messages");
+  const div = document.createElement("div");
+  div.className = `chat-msg ${role}-msg`;
+  if (role === "user") {
+    div.textContent = text;
+  } else {
+    div.innerHTML = renderMarkdown(text);
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+function appendToolIndicator(tool, detail, status) {
+  const container = document.getElementById("chat-messages");
+  const div = document.createElement("div");
+  const icon = status === "running" ? "&#9881;" : status === "done" ? "&#10003;" : "&#10007;";
+  const cls = status === "done" ? "tool-done" : status === "error" ? "tool-error" : "";
+  div.className = `tool-indicator ${cls}`;
+  div.innerHTML = `<span class="tool-icon">${icon}</span> <strong>${escapeHtml(tool)}</strong> <span style="opacity:0.6">${escapeHtml(detail)}</span>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendTypingIndicator() {
+  const container = document.getElementById("chat-messages");
+  const div = document.createElement("div");
+  const id = "typing-" + Date.now();
+  div.id = id;
+  div.className = "typing-indicator";
+  div.innerHTML = "<span></span><span></span><span></span>";
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return id;
+}
+
+function removeTypingIndicator(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove();
+}
+
+function clearChat() {
+  document.getElementById("chat-messages").innerHTML = "";
+  chatSessionId = "chat-" + Date.now();
+  fetch(`/api/chat/${chatSessionId}`, { method: "DELETE" }).catch(() => {});
+}
+
+function renderMarkdown(text) {
+  if (!text) return "";
+  try {
+    return marked.parse(text, { breaks: true });
+  } catch {
+    return escapeHtml(text);
+  }
+}
+
+// MODALS
+function openModal() {
+  document.getElementById("modal-overlay").style.display = "flex";
+}
+function closeModal() {
+  document.getElementById("modal-overlay").style.display = "none";
+}
+
+// RESIZE HANDLES
+function initResizeHandles() {
+  const sidebarHandle = document.getElementById("sidebar-resize");
+  const sidebar = document.getElementById("sidebar");
+  let dragging = null;
+
+  sidebarHandle.addEventListener("mousedown", (e) => {
+    dragging = "sidebar";
+    sidebarHandle.classList.add("active");
+    e.preventDefault();
+  });
+
+  const chatHandle = document.getElementById("chat-resize");
+  const chatPanel = document.getElementById("chat-panel");
+
+  chatHandle.addEventListener("mousedown", (e) => {
+    dragging = "chat";
+    chatHandle.classList.add("active");
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    if (dragging === "sidebar") {
+      const w = Math.max(180, Math.min(500, e.clientX));
+      sidebar.style.width = w + "px";
+    } else if (dragging === "chat") {
+      const mainArea = document.querySelector(".main-area");
+      const rect = mainArea.getBoundingClientRect();
+      const h = Math.max(120, rect.bottom - e.clientY);
+      chatPanel.style.height = h + "px";
+    }
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (dragging) {
+      sidebarHandle.classList.remove("active");
+      chatHandle.classList.remove("active");
+      dragging = null;
+      if (editor) editor.layout();
+    }
+  });
+}
+
+// UTILS
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+function escapeAttr(s) {
+  return s.replace(/'/g, "\\'").replace(/"/g, "&quot;");
+}
+
+===========================================================
+FILE: public/js/agent-studio.js
+===========================================================
+
+let allSkills = [];
+let activeFilter = "all";
+
+document.addEventListener("DOMContentLoaded", () => {
+  checkAuth();
+  loadSkills();
+
+  document.getElementById("repo-url").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") startTraining();
+  });
+});
+
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/auth/status");
+    const data = await res.json();
+    const badge = document.getElementById("auth-status");
+    if (data.authenticated) {
+      badge.textContent = data.keyHint;
+    } else {
+      badge.textContent = "Not connected";
+      badge.style.color = "#ef4444";
+    }
+  } catch {}
+}
+
+// LOAD & RENDER SKILLS
+async function loadSkills() {
+  try {
+    const res = await fetch("/api/skills");
+    allSkills = await res.json();
+    renderSkills();
+  } catch {
+    allSkills = [];
+    renderSkills();
+  }
+}
+
+function renderSkills() {
+  const grid = document.getElementById("skills-grid");
+  const empty = document.getElementById("empty-state");
+  const count = document.getElementById("skills-count");
+
+  const filtered =
+    activeFilter === "all"
+      ? allSkills
+      : allSkills.filter((s) => s.category === activeFilter);
+
+  count.textContent = `${filtered.length} skill${filtered.length !== 1 ? "s" : ""}`;
+
+  if (filtered.length === 0) {
+    grid.innerHTML = "";
+    empty.style.display = "block";
+    if (allSkills.length > 0 && activeFilter !== "all") {
+      empty.querySelector("h3").textContent = "No skills in this category";
+      empty.querySelector("p").textContent = "Try a different filter or train more repos.";
+    } else {
+      empty.querySelector("h3").textContent = "No skills trained yet";
+      empty.querySelector("p").textContent = "Paste a GitHub link above to teach ATREYU new skills from real codebases.";
+    }
+    return;
+  }
+
+  empty.style.display = "none";
+
+  grid.innerHTML = filtered
+    .map((skill) => {
+      const badgeClass = "badge-" + skill.category.replace(/[^a-zA-Z]/g, "");
+      const complexClass = "complexity-" + (skill.complexity || "intermediate");
+      const tags = (skill.key_concepts || []).slice(0, 4);
+      const repoName = extractRepoName(skill.source_repo);
+
+      return `
+        <div class="skill-card" onclick="openSkillModal('${skill.id}')"
+             style="--card-accent: var(--${getCategoryColor(skill.category)})">
+          <div class="card-header">
+            <div class="card-title">${escapeHtml(skill.name)}</div>
+            <span class="card-badge ${badgeClass}">${escapeHtml(skill.category)}</span>
+          </div>
+          <div class="card-summary">${escapeHtml(skill.summary)}</div>
+          <div class="card-tags">
+            ${tags.map((t) => `<span class="card-tag">${escapeHtml(t)}</span>`).join("")}
+          </div>
+          <div class="card-footer">
+            <span class="card-complexity ${complexClass}">${escapeHtml(skill.complexity || "intermediate")}</span>
+            <span class="card-source" title="${escapeHtml(skill.source_repo)}">${escapeHtml(repoName)}</span>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
+function filterSkills(category, btn) {
+  activeFilter = category;
+  document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  renderSkills();
+}
+
+// TRAINING
+async function startTraining() {
+  const input = document.getElementById("repo-url");
+  const url = input.value.trim();
+  const btn = document.getElementById("train-btn");
+  const errEl = document.getElementById("train-error");
+  const progress = document.getElementById("training-progress");
+  const steps = document.getElementById("progress-steps");
+  const fill = document.getElementById("progress-fill");
+
+  errEl.style.display = "none";
+
+  if (!url) {
+    showTrainError("Please enter a GitHub repository URL.");
+    return;
+  }
+
+  if (!/^https?:\/\/(www\.)?github\.com\/.+\/.+/i.test(url)) {
+    showTrainError("Please enter a valid GitHub URL (e.g., https://github.com/user/repo)");
+    return;
+  }
+
+  const authRes = await fetch("/api/auth/status");
+  const authData = await authRes.json();
+  if (!authData.authenticated) {
+    showTrainError("You need to connect your Anthropic API key first. Go to the IDE page to connect.");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.querySelector(".btn-text").style.display = "none";
+  btn.querySelector(".btn-loading").style.display = "inline";
+  progress.style.display = "block";
+  steps.innerHTML = "";
+  fill.style.width = "10%";
+
+  try {
+    const res = await fetch("/api/skills/train", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoUrl: url }),
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split("\n");
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        let event;
+        try {
+          event = JSON.parse(line.slice(6));
+        } catch {
+          continue;
+        }
+
+        addProgressStep(event.stage, event.message);
+
+        switch (event.stage) {
+          case "cloning":
+            fill.style.width = "20%";
+            break;
+          case "reading":
+            fill.style.width = "35%";
+            break;
+          case "analyzing":
+            fill.style.width = "55%";
+            break;
+          case "processing":
+            fill.style.width = "75%";
+            break;
+          case "saving":
+            fill.style.width = "90%";
+            break;
+          case "done":
+            fill.style.width = "100%";
+            await loadSkills();
+            input.value = "";
+            setTimeout(() => {
+              progress.style.display = "none";
+              fill.style.width = "0%";
+            }, 3000);
+            break;
+          case "error":
+            fill.style.width = "0%";
+            showTrainError(event.message);
+            break;
+        }
+      }
+    }
+  } catch (err) {
+    showTrainError("Training failed: " + err.message);
+    fill.style.width = "0%";
+  } finally {
+    btn.disabled = false;
+    btn.querySelector(".btn-text").style.display = "inline";
+    btn.querySelector(".btn-loading").style.display = "none";
+  }
+}
+
+function addProgressStep(stage, message) {
+  const steps = document.getElementById("progress-steps");
+  steps.querySelectorAll(".progress-step.active").forEach((el) => {
+    el.classList.remove("active");
+    el.classList.add("done");
+    el.querySelector(".step-icon").textContent = "\u2713";
+  });
+
+  const step = document.createElement("div");
+  const isError = stage === "error";
+  const isDone = stage === "done";
+  step.className = `progress-step ${isError ? "error" : isDone ? "done" : "active"}`;
+
+  const icon = isError ? "\u2717" : isDone ? "\u2713" : "\u25CF";
+  step.innerHTML = `<span class="step-icon">${icon}</span><span>${escapeHtml(message)}</span>`;
+  steps.appendChild(step);
+  steps.scrollTop = steps.scrollHeight;
+}
+
+function showTrainError(msg) {
+  const el = document.getElementById("train-error");
+  el.textContent = msg;
+  el.style.display = "block";
+}
+
+// SKILL DETAIL MODAL
+function openSkillModal(id) {
+  const skill = allSkills.find((s) => s.id === id);
+  if (!skill) return;
+
+  const modal = document.getElementById("skill-modal");
+  const content = document.getElementById("skill-modal-content");
+
+  const badgeClass = "badge-" + skill.category.replace(/[^a-zA-Z]/g, "");
+  const complexClass = "complexity-" + (skill.complexity || "intermediate");
+  const trainedDate = new Date(skill.trained_at).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+
+  content.innerHTML = `
+    <div class="modal-skill-header">
+      <div>
+        <div class="modal-skill-title">${escapeHtml(skill.name)}</div>
+      </div>
+    </div>
+
+    <div class="modal-meta">
+      <span class="modal-meta-item">
+        <span class="card-badge ${badgeClass}">${escapeHtml(skill.category)}</span>
+      </span>
+      <span class="modal-meta-item">
+        <span class="card-complexity ${complexClass}">${escapeHtml(skill.complexity || "intermediate")}</span>
+      </span>
+      <span class="modal-meta-item">Trained: ${trainedDate}</span>
+    </div>
+
+    <div class="modal-section">
+      <div class="modal-section-title">Description</div>
+      <div class="modal-description">${escapeHtml(skill.description)}</div>
+    </div>
+
+    ${
+      skill.key_concepts && skill.key_concepts.length > 0
+        ? `<div class="modal-section">
+            <div class="modal-section-title">Key Concepts</div>
+            <div class="modal-concepts">
+              ${skill.key_concepts.map((c) => `<span class="modal-concept-tag">${escapeHtml(c)}</span>`).join("")}
+            </div>
+          </div>`
+        : ""
+    }
+
+    ${
+      skill.code_example
+        ? `<div class="modal-section">
+            <div class="modal-section-title">Code Example</div>
+            <pre class="modal-code-block">${escapeHtml(skill.code_example)}</pre>
+          </div>`
+        : ""
+    }
+
+    ${
+      skill.use_cases && skill.use_cases.length > 0
+        ? `<div class="modal-section">
+            <div class="modal-section-title">Use Cases</div>
+            <ul class="modal-use-cases">
+              ${skill.use_cases
+                .map(
+                  (uc) => `<li><span class="use-case-arrow">\u2192</span> ${escapeHtml(uc)}</li>`
+                )
+                .join("")}
+            </ul>
+          </div>`
+        : ""
+    }
+
+    <div class="modal-section">
+      <div class="modal-section-title">Source Repository</div>
+      <a href="${escapeHtml(skill.source_repo)}" target="_blank" rel="noopener" class="modal-source-link">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        ${escapeHtml(skill.source_repo)}
+      </a>
+    </div>
+
+    <button class="modal-delete-btn" onclick="deleteSkill('${skill.id}')">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+      Remove this skill
+    </button>
+  `;
+
+  modal.style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+
+function closeSkillModal(event) {
+  if (event && event.target !== event.currentTarget) return;
+  document.getElementById("skill-modal").style.display = "none";
+  document.body.style.overflow = "";
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeSkillModal();
+});
+
+async function deleteSkill(id) {
+  if (!confirm("Remove this skill from ATREYU?")) return;
+
+  try {
+    await fetch(`/api/skills/${id}`, { method: "DELETE" });
+    closeSkillModal();
+    await loadSkills();
+  } catch (err) {
+    alert("Failed to delete skill: " + err.message);
+  }
+}
+
+// UTILS
+function escapeHtml(str) {
+  if (!str) return "";
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function extractRepoName(url) {
+  if (!url) return "";
+  try {
+    const parts = url.replace(/\.git$/, "").split("/");
+    return parts.slice(-2).join("/");
+  } catch {
+    return url;
+  }
+}
+
+function getCategoryColor(category) {
+  const map = {
+    Frontend: "cyan",
+    Backend: "green",
+    Database: "yellow",
+    API: "accent",
+    Auth: "red",
+    DevOps: "purple",
+    Testing: "green",
+    "AI/ML": "purple",
+    Architecture: "cyan",
+    Tooling: "yellow",
+    Security: "red",
+    "Data Processing": "yellow",
+  };
+  return map[category] || "accent";
+}
+
+===========================================================
+END OF CODEBASE
+===========================================================
+
+QUICK START:
+1. Create a new Node.js Repl on Replit
+2. Create each file at the path shown above (e.g., "server/index.js", "public/index.html", etc.)
+3. Click the Run button — it will install dependencies and start automatically
+4. Visit the Repl URL to see the ATREYU login page
+5. Enter your Anthropic API key (get one at https://console.anthropic.com/settings/keys)
+6. Use the IDE at "/" or go to "/agent-studio.html" to train skills from GitHub repos
+
+FILE SUMMARY:
+- .replit                    — Replit config (auto-run)
+- replit.nix                 — System dependencies
+- package.json               — Node.js dependencies
+- .gitignore                 — Ignore generated dirs
+- server/index.js            — Main Express server (all API routes)
+- server/claude-agent.js     — Claude agentic coding loop (8 tools)
+- server/trainer.js          — Clones repos + Claude skill extraction
+- server/skills-store.js     — Persistent JSON skill storage
+- public/index.html          — IDE page (editor, file tree, chat)
+- public/agent-studio.html   — Agent Studio (train skills, browse cards)
+- public/css/style.css       — IDE styles
+- public/css/agent-studio.css — Agent Studio styles
+- public/js/app.js           — IDE frontend logic
+- public/js/agent-studio.js  — Agent Studio frontend logic
