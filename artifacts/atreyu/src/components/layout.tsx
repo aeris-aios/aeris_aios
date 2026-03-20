@@ -461,17 +461,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               display: "flex", alignItems: "flex-start", gap: 8,
               padding: "10px 16px", borderRadius: 20,
               background: frameBg,
-              boxShadow: raisedSm,
+              boxShadow: insetSm,
               width: "100%", position: "relative", overflow: "hidden",
               transition: "box-shadow 0.2s ease",
             }}>
-              {/* Glass highlight strip — matches dock icon treatment */}
-              <div style={{
-                position: "absolute", top: 0, left: 0, right: 0, height: "42%",
-                borderRadius: "inherit",
-                background: `linear-gradient(180deg, ${fslite}55 0%, transparent 100%)`,
-                pointerEvents: "none", zIndex: 0,
-              }} />
               <Search style={{
                 width: 14, height: 14, opacity: 0.35, flexShrink: 0,
                 color: "var(--foreground,#1e2030)", marginTop: 2,
