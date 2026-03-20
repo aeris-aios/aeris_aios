@@ -136,7 +136,7 @@ export default function Dashboard() {
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Velocity chart */}
-        <div className="lg:col-span-2 rounded-2xl p-5 fut-clip-tr fut-grid"
+        <div className="lg:col-span-2 rounded-2xl p-5"
           style={{ background: n.bg, boxShadow: n.raised }}>
           <div className="flex items-center justify-between mb-4">
             <div>
