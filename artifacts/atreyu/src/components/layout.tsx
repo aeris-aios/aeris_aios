@@ -1,9 +1,8 @@
 import { Link, useLocation } from "wouter";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   LayoutDashboard, Bot, Microscope, PenTool,
   Megaphone, Library, Zap, Settings, Search, Sun, Moon, Palette, Code2,
-  ChevronUp, ChevronDown,
 } from "lucide-react";
 import { useTheme } from "@/contexts/theme";
 
@@ -19,24 +18,6 @@ const navItems = [
   { title: "Brand Kit",   url: "/brand",       icon: Palette,         color: "#ec4899", glow: "rgba(236,72,153,0.6)", bg: "linear-gradient(145deg,#f472b6,#be185d)" },
   { title: "Settings",    url: "/settings",    icon: Settings,        color: "#6b7280", glow: "rgba(150,150,160,0.5)", bg: "linear-gradient(145deg,#a8b0be,#555f6d)" },
 ];
-
-const NAV_ORDER_KEY = "atreyu-nav-order";
-
-/* Restore user's saved order. New items not in saved order are appended at end. */
-function loadNavOrder(): typeof navItems {
-  try {
-    const raw = localStorage.getItem(NAV_ORDER_KEY);
-    if (!raw) return navItems;
-    const urls: string[] = JSON.parse(raw);
-    const byUrl = Object.fromEntries(navItems.map(it => [it.url, it]));
-    const ordered = urls.flatMap(u => (byUrl[u] ? [byUrl[u]] : []));
-    const seen = new Set(urls);
-    navItems.forEach(it => { if (!seen.has(it.url)) ordered.push(it); });
-    return ordered;
-  } catch {
-    return navItems;
-  }
-}
 
 /* ─────────────────────────────────────────────────────────────
    GEOMETRY
@@ -165,105 +146,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [frameW, setFrameW]       = useState(1200);
 
-  /* ── Drag-to-reorder dock icons (pointer events — works in iframes) ── */
-  const [orderedItems, setOrderedItems] = useState(() => loadNavOrder());
-  const dockRef       = useRef<HTMLDivElement>(null);
-  const dragSrcIdx    = useRef<number | null>(null);
-  const dragTgtIdx    = useRef<number | null>(null);
-  const iconMids      = useRef<number[]>([]);  /* centre-x of each icon slot at drag start */
-  const [dragState, setDragState] = useState<{
-    src: number; tgt: number; x: number; y: number;
-  } | null>(null);
-
-  const saveOrder = useCallback((items: typeof navItems) => {
-    localStorage.setItem(NAV_ORDER_KEY, JSON.stringify(items.map(it => it.url)));
-  }, []);
-
-  const snapTgt = (clientX: number) => {
-    const mids = iconMids.current;
-    let t = mids.length - 1;
-    for (let i = 0; i < mids.length; i++) {
-      if (clientX < mids[i]) { t = i; break; }
-    }
-    return t;
-  };
-
-  /* How many px to slide icon at position `idx` during drag.
-     Dragging right (tgt > src): icons between src+1..tgt shift left one slot.
-     Dragging left  (tgt < src): icons between tgt..src-1 shift right one slot. */
-  const getDragOffset = (idx: number, src: number, tgt: number): number => {
-    if (idx === src) return 0;
-    const step = ICON_SZ + ICON_GAP;
-    if (tgt > src && idx > src && idx <= tgt) return -step;
-    if (tgt < src && idx >= tgt && idx < src) return  step;
-    return 0;
-  };
-
-  const onIconPointerDown = useCallback((e: React.PointerEvent, idx: number) => {
-    e.preventDefault();
-    const dock = dockRef.current;
-    if (!dock) return;
-    /* snapshot the horizontal mid-points of every icon slot */
-    const children = Array.from(dock.children) as HTMLElement[];
-    iconMids.current = children.map(el => {
-      const r = el.getBoundingClientRect();
-      return r.left + r.width / 2;
-    });
-    dragSrcIdx.current = idx;
-    dragTgtIdx.current = idx;
-    setDragState({ src: idx, tgt: idx, x: e.clientX, y: e.clientY });
-    /* pointer capture on the dock so we get move/up even outside the dock */
-    dock.setPointerCapture(e.pointerId);
-  }, []);
-
-  const onDockPointerMove = useCallback((e: React.PointerEvent) => {
-    if (dragSrcIdx.current === null) return;
-    const t = snapTgt(e.clientX);
-    dragTgtIdx.current = t;
-    setDragState(d => d ? { ...d, tgt: t, x: e.clientX, y: e.clientY } : null);
-  }, []);
-
-  const onDockPointerUp = useCallback(() => {
-    const src = dragSrcIdx.current;
-    const tgt = dragTgtIdx.current;
-    dragSrcIdx.current = null;
-    dragTgtIdx.current = null;
-    if (src === null || tgt === null || src === tgt) {
-      setDragState(null);
-      return;
-    }
-    setOrderedItems(prev => {
-      const next = [...prev];
-      const [moved] = next.splice(src, 1);
-      next.splice(tgt, 0, moved);
-      saveOrder(next);
-      return next;
-    });
-    setDragState(null);
-  }, [saveOrder]);
-
-  const onDockPointerCancel = useCallback(() => {
-    dragSrcIdx.current = null;
-    dragTgtIdx.current = null;
-    setDragState(null);
-  }, []);
-
-  /* ── Bottom bar collapse toggle ──────────────────────────── */
-  const [botCollapsed, setBotCollapsed] = useState(() =>
-    localStorage.getItem("atreyu-bot-collapsed") === "true"
-  );
-  const toggleBot = useCallback(() => {
-    setBotCollapsed(prev => {
-      const next = !prev;
-      localStorage.setItem("atreyu-bot-collapsed", String(next));
-      return next;
-    });
-  }, []);
-
   /* ── Dynamic bottom bar geometry based on textarea content ── */
   const botPocketH = Math.max(BOT_MIN_POCKET_H, inputH + BOT_V_PAD * 2);
   const botTotalH  = BOT_BAR_H + botPocketH;
-  const activeBotH = botCollapsed ? BOT_BAR_H : botTotalH;
 
   function autoGrow(el: HTMLTextAreaElement) {
     el.style.height = "auto";
@@ -363,14 +248,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           overflowY: "auto",
           overflowX: "hidden",
           paddingTop: TOTAL_H,
-          paddingBottom: activeBotH,
+          paddingBottom: botTotalH,
           scrollbarWidth: "none",
           position: "relative",
           zIndex: 1,
-          transition: "padding-bottom 0.3s cubic-bezier(0.4,0,0.2,1)",
         }}>
           <style>{`::-webkit-scrollbar{display:none}`}</style>
-          <div style={{ padding: `24px 32px ${activeBotH + 16}px`, transition: "padding-bottom 0.3s cubic-bezier(0.4,0,0.2,1)" }}>
+          <div style={{ padding: `24px 32px ${botTotalH + 16}px` }}>
             {children}
           </div>
         </div>
@@ -458,106 +342,86 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Dock icons inside the pocket */}
-          <div
-            ref={dockRef}
-            onPointerMove={onDockPointerMove}
-            onPointerUp={onDockPointerUp}
-            onPointerCancel={onDockPointerCancel}
-            style={{
-              position: "absolute",
-              top: BAR_H, left: "50%", transform: "translateX(-50%)",
-              width: DOCK_W, height: POCKET_H,
-              display: "flex", alignItems: "center", justifyContent: "center", gap: ICON_GAP,
-              pointerEvents: "auto", zIndex: 2,
-              touchAction: "none",   /* required for pointer capture to work on touch */
-            }}
-          >
-            {orderedItems.map((item, idx) => {
-              const isActive  = location === item.url;
-              const isDragging = dragState !== null;
-              const isSrc     = dragState?.src === idx;
-              const isHov     = hov === idx && !isDragging;
-              const dragOffsetX = dragState
-                ? getDragOffset(idx, dragState.src, dragState.tgt)
-                : 0;
+          <div style={{
+            position: "absolute",
+            top: BAR_H, left: "50%", transform: "translateX(-50%)",
+            width: DOCK_W, height: POCKET_H,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: ICON_GAP,
+            pointerEvents: "auto", zIndex: 2,
+          }}>
+            {navItems.map((item, idx) => {
+              const isActive = location === item.url;
+              const isHov    = hov === idx;
+              const isAdj    = hov !== null && Math.abs(hov - idx) === 1;
+              const scale    = 1;
 
               return (
-                <div
-                  key={item.url}
-                  onPointerDown={e => onIconPointerDown(e, idx)}
-                  style={{
-                    display: "flex", flexDirection: "column", alignItems: "center",
-                    cursor: isDragging ? "grabbing" : "grab",
-                    position: "relative",
-                    userSelect: "none",
-                    transition: "opacity 0.12s ease, transform 0.2s cubic-bezier(0.34,1.2,0.64,1)",
-                    opacity: isSrc ? 0 : 1,
-                    transform: `translateX(${dragOffsetX}px)`,
-                  }}
-                  onMouseEnter={() => !isDragging && setHov(idx)}
-                  onMouseLeave={() => setHov(null)}
-                >
-                  <Link href={item.url}>
-                    <div
-                      style={{ display: "flex", flexDirection: "column", alignItems: "center" }}
-                      onClick={e => { if (isDragging) e.preventDefault(); }}
-                    >
+                <Link key={item.url} href={item.url}>
+                  <div
+                    style={{
+                      display: "flex", flexDirection: "column", alignItems: "center",
+                      cursor: "pointer", position: "relative",
+                      transform: `scale(${scale})`, transformOrigin: "center bottom",
+                      transition: "transform 0.18s cubic-bezier(0.34,1.56,0.64,1)",
+                    }}
+                    onMouseEnter={() => setHov(idx)}
+                    onMouseLeave={() => setHov(null)}
+                  >
+                    <div style={{
+                      width: ICON_SZ, height: ICON_SZ, borderRadius: "28%",
+                      background: frameBg,
+                      boxShadow: isActive ? insetSm : raisedSm,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      position: "relative", overflow: "hidden",
+                      transition: "box-shadow 0.2s ease",
+                    }}>
                       <div style={{
-                        width: ICON_SZ, height: ICON_SZ, borderRadius: "28%",
-                        background: frameBg,
-                        boxShadow: isActive ? insetSm : raisedSm,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        position: "relative", overflow: "hidden",
-                        transition: "box-shadow 0.2s ease",
-                      }}>
+                        position: "absolute", inset: 0, borderRadius: "inherit",
+                        background: item.bg,
+                        opacity: isActive ? 0.22 : isHov ? 0.16 : 0.10,
+                        transition: "opacity 0.2s",
+                      }} />
+                      {!isActive && (
                         <div style={{
-                          position: "absolute", inset: 0, borderRadius: "inherit",
-                          background: item.bg,
-                          opacity: isActive ? 0.22 : isHov ? 0.16 : 0.10,
-                          transition: "opacity 0.2s",
+                          position: "absolute", top: 0, left: 0, right: 0, height: "42%",
+                          borderRadius: "inherit",
+                          background: `linear-gradient(180deg, ${fslite}55 0%, transparent 100%)`,
+                          pointerEvents: "none",
                         }} />
-                        {!isActive && (
-                          <div style={{
-                            position: "absolute", top: 0, left: 0, right: 0, height: "42%",
-                            borderRadius: "inherit",
-                            background: `linear-gradient(180deg, ${fslite}55 0%, transparent 100%)`,
-                            pointerEvents: "none",
-                          }} />
-                        )}
-                        <item.icon style={{
-                          width: 19, height: 19, position: "relative",
-                          color: isActive ? item.color : `${item.color}99`,
-                          filter: isActive ? `drop-shadow(0 0 4px ${item.glow})` : "none",
-                          transition: "color 0.2s, filter 0.2s",
-                        }} />
-                      </div>
-                      <div style={{
-                        marginTop: 4,
-                        width: isActive ? ICON_SZ : 0,
-                        height: 2.5,
-                        borderRadius: 2,
-                        background: isActive ? item.color : "transparent",
-                        boxShadow: isActive ? `0 0 6px ${item.glow}, 0 0 12px ${item.glow}` : "none",
-                        transition: "width 0.28s cubic-bezier(0.34,1.56,0.64,1), background 0.2s, box-shadow 0.2s",
-                        overflow: "hidden",
+                      )}
+                      <item.icon style={{
+                        width: 19, height: 19, position: "relative",
+                        color: isActive ? item.color : `${item.color}99`,
+                        filter: isActive ? `drop-shadow(0 0 4px ${item.glow})` : "none",
+                        transition: "color 0.2s, filter 0.2s",
                       }} />
                     </div>
-                  </Link>
-                  {isHov && (
                     <div style={{
-                      position: "absolute", bottom: "calc(100% + 10px)",
-                      left: "50%", transform: "translateX(-50%)",
-                      background: isLight ? `${fsdark}f0` : `${fslite}f0`,
-                      color: isLight ? "#fff" : "#0f111a",
-                      fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
-                      textTransform: "uppercase", padding: "3px 9px",
-                      borderRadius: 7, whiteSpace: "nowrap",
-                      pointerEvents: "none", boxShadow: raisedSm,
-                    }}>
-                      {item.title}
-                    </div>
-                  )}
-                </div>
+                      marginTop: 4,
+                      width: isActive ? ICON_SZ : 0,
+                      height: 2.5,
+                      borderRadius: 2,
+                      background: isActive ? item.color : "transparent",
+                      boxShadow: isActive ? `0 0 6px ${item.glow}, 0 0 12px ${item.glow}` : "none",
+                      transition: "width 0.28s cubic-bezier(0.34,1.56,0.64,1), background 0.2s, box-shadow 0.2s",
+                      overflow: "hidden",
+                    }} />
+                    {isHov && (
+                      <div style={{
+                        position: "absolute", bottom: "calc(100% + 10px)",
+                        left: "50%", transform: "translateX(-50%)",
+                        background: isLight ? `${fsdark}f0` : `${fslite}f0`,
+                        color: isLight ? "#fff" : "#0f111a",
+                        fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+                        textTransform: "uppercase", padding: "3px 9px",
+                        borderRadius: 7, whiteSpace: "nowrap",
+                        pointerEvents: "none", boxShadow: raisedSm,
+                      }}>
+                        {item.title}
+                      </div>
+                    )}
+                  </div>
+                </Link>
               );
             })}
           </div>
@@ -569,43 +433,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         ══════════════════════════════════════════════════════ */}
         <div style={{
           position: "absolute", bottom: 0, left: 0, right: 0,
-          height: activeBotH,
-          transition: "height 0.3s cubic-bezier(0.4,0,0.2,1)",
+          height: botTotalH,
+          transition: "height 0.18s cubic-bezier(0.4,0,0.2,1)",
           zIndex: 20, pointerEvents: "none",
         }}>
-
-          {/* ── Toggle pill — always floats at the very top-center ── */}
-          <button
-            onClick={toggleBot}
-            style={{
-              position: "absolute", top: -14, left: "50%", transform: "translateX(-50%)",
-              width: 52, height: 18,
-              background: frameBg,
-              boxShadow: raisedSm,
-              border: "none", borderRadius: 10,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", pointerEvents: "auto", zIndex: 30,
-              transition: "box-shadow 0.15s ease, opacity 0.2s",
-              opacity: 0.7,
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "0.7"; }}
-            title={botCollapsed ? "Expand command bar" : "Collapse command bar"}
-          >
-            {botCollapsed
-              ? <ChevronUp   style={{ width: 11, height: 11, opacity: 0.55, color: "var(--foreground,#1e2030)" }} />
-              : <ChevronDown style={{ width: 11, height: 11, opacity: 0.55, color: "var(--foreground,#1e2030)" }} />
-            }
-          </button>
-
           {/* Inverted pocket SVG — neumorphic raised with highlight */}
           <svg
             style={{
               position: "absolute", top: 0, left: 0,
               width: "100%", height: "100%",
               overflow: "visible",
-              opacity: botCollapsed ? 0 : 1,
-              transition: "opacity 0.25s cubic-bezier(0.4,0,0.2,1)",
               filter: isLight
                 ? `drop-shadow(4px 4px 12px ${fsdark}cc) drop-shadow(-3px -3px 8px ${fslite})`
                 : `drop-shadow(4px 4px 12px ${fsdark}) drop-shadow(-3px -3px 8px ${fslite}44)`,
@@ -630,10 +467,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             left: "50%", transform: "translateX(-50%)",
             width: BOT_PILL_W,
             display: "flex", alignItems: "center", justifyContent: "center",
-            pointerEvents: botCollapsed ? "none" : "auto",
-            zIndex: 2,
-            opacity: botCollapsed ? 0 : 1,
-            transition: "opacity 0.2s cubic-bezier(0.4,0,0.2,1)",
+            pointerEvents: "auto", zIndex: 2,
           }}>
             <div style={{
               display: "flex", alignItems: "center", gap: 8,
@@ -676,61 +510,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
 
       </div>{/* end frame */}
-
-      {/* ── Drag ghost — fixed, follows cursor, outside frame so it escapes overflow:hidden ── */}
-      {dragState && (() => {
-        const ghost = orderedItems[dragState.src];
-        if (!ghost) return null;
-        const GhostIcon = ghost.icon;
-        return (
-          <div
-            style={{
-              position: "fixed",
-              left: dragState.x, top: dragState.y,
-              transform: "translate(-50%, -60%)",
-              pointerEvents: "none",
-              zIndex: 9999,
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 5,
-              filter: `drop-shadow(0 6px 20px ${ghost.glow})`,
-              transition: "none",
-            }}
-          >
-            <div style={{
-              width: ICON_SZ + 8, height: ICON_SZ + 8, borderRadius: "28%",
-              background: frameBg,
-              boxShadow: `${raisedSm}, 0 0 0 2px ${ghost.color}66`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              position: "relative", overflow: "hidden",
-            }}>
-              <div style={{
-                position: "absolute", inset: 0, borderRadius: "inherit",
-                background: ghost.bg, opacity: 0.3,
-              }} />
-              <div style={{
-                position: "absolute", top: 0, left: 0, right: 0, height: "42%",
-                borderRadius: "inherit",
-                background: `linear-gradient(180deg, ${fslite}66 0%, transparent 100%)`,
-              }} />
-              <GhostIcon style={{
-                width: 22, height: 22, position: "relative",
-                color: ghost.color,
-                filter: `drop-shadow(0 0 5px ${ghost.glow})`,
-              }} />
-            </div>
-            <div style={{
-              background: isLight ? `${fsdark}ee` : `${fslite}ee`,
-              color: isLight ? "#fff" : "#0f111a",
-              fontSize: 9, fontWeight: 700, letterSpacing: "0.10em",
-              textTransform: "uppercase", padding: "3px 9px",
-              borderRadius: 6, whiteSpace: "nowrap",
-              boxShadow: raisedSm,
-            }}>
-              {ghost.title}
-            </div>
-          </div>
-        );
-      })()}
-
     </div>
   );
 }
