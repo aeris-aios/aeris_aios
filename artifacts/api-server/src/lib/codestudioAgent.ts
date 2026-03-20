@@ -67,8 +67,11 @@ const tools: Anthropic.Tool[] = [
 
 /* ─── Path-traversal guard ─────────────────────────────────── */
 function safePath(projectDir: string, relativePath: string): string {
-  const resolved = path.resolve(projectDir, relativePath);
-  if (!resolved.startsWith(path.resolve(projectDir))) {
+  const root     = path.resolve(projectDir);
+  const resolved = path.resolve(root, relativePath);
+  const rel      = path.relative(root, resolved);
+  /* reject if relative path escapes root or is absolute */
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
     throw new Error(`Path traversal blocked: ${relativePath}`);
   }
   return resolved;
