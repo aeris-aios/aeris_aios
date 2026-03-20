@@ -200,13 +200,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const svgPocket    = buildPath(dockHalf);
   const svgBotPocket = bottomPocketPath(botDockHalf, botPocketH, botTotalH, botIrX, botIrY, botOrX, botOrY);
 
+  /* Re-measure textarea whenever cmd changes (including after clear on submit) */
+  useEffect(() => {
+    if (textareaRef.current) autoGrow(textareaRef.current);
+  }, [cmd]);
+
   function onCmd(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey && cmd.trim()) {
       e.preventDefault();
       navigate("/assistant");
       setCmd("");
-      setInputH(BOT_MIN_INPUT_H);
-      if (textareaRef.current) textareaRef.current.style.height = `${BOT_MIN_INPUT_H}px`;
     }
   }
 
