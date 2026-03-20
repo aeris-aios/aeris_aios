@@ -8,6 +8,8 @@ import { execFileSync } from "child_process";
 import simpleGit from "simple-git";
 import AdmZip from "adm-zip";
 import { runCodeStudioAgent, clearSession } from "../lib/codestudioAgent";
+import { db, codestudioSessionsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 const router = Router();
 
@@ -41,23 +43,24 @@ function guardPath(projectDir: string, relativePath: string): string {
   return resolved;
 }
 
-/* ─── BYOK Auth session store ──────────────────────────────────
-   Map from sessionToken (UUID) → { apiKey, keyHint }
-   Stored in memory only — the raw key never persists to disk.   */
-interface AuthSession {
-  apiKey:  string;
-  keyHint: string;   /* e.g. "sk-ant-...abc123" */
+/* ─── BYOK Auth helpers (DB-backed) ────────────────────────── */
+async function dbGetSession(token: string) {
+  const rows = await db
+    .select()
+    .from(codestudioSessionsTable)
+    .where(eq(codestudioSessionsTable.sessionToken, token))
+    .limit(1);
+  return rows[0] ?? null;
 }
-const authSessions = new Map<string, AuthSession>();
 
 /* ────────────────────────────────────────────────────────────
    POST /api/codestudio/auth/connect
    Body: { apiKey: string }
-   Validates the key with a live Anthropic call, then stores it.
+   Validates the key with a live Anthropic call, then persists it.
    Returns: { sessionToken, keyHint }
 ──────────────────────────────────────────────────────────── */
 router.post("/auth/connect", async (req, res) => {
-  const { apiKey } = req.body as { apiKey?: string };
+  const { apiKey, sessionToken: existingToken } = req.body as { apiKey?: string; sessionToken?: string };
 
   if (!apiKey || typeof apiKey !== "string") {
     res.status(400).json({ error: "apiKey is required" });
@@ -86,9 +89,17 @@ router.post("/auth/connect", async (req, res) => {
     return;
   }
 
-  const sessionToken = randomUUID();
+  const sessionToken = existingToken ?? randomUUID();
   const keyHint      = `${apiKey.slice(0, 10)}...${apiKey.slice(-6)}`;
-  authSessions.set(sessionToken, { apiKey, keyHint });
+
+  /* Upsert: update the key if the token already exists, otherwise insert */
+  await db
+    .insert(codestudioSessionsTable)
+    .values({ sessionToken, apiKey, keyHint, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: codestudioSessionsTable.sessionToken,
+      set: { apiKey, keyHint, updatedAt: new Date() },
+    });
 
   res.json({ sessionToken, keyHint });
 });
@@ -96,13 +107,13 @@ router.post("/auth/connect", async (req, res) => {
 /* ────────────────────────────────────────────────────────────
    GET /api/codestudio/auth/status?token=<sessionToken>
 ──────────────────────────────────────────────────────────── */
-router.get("/auth/status", (req, res) => {
+router.get("/auth/status", async (req, res) => {
   const token = req.query.token as string | undefined;
   if (!token) {
     res.json({ connected: false });
     return;
   }
-  const session = authSessions.get(token);
+  const session = await dbGetSession(token);
   if (!session) {
     res.json({ connected: false });
     return;
@@ -114,9 +125,13 @@ router.get("/auth/status", (req, res) => {
    POST /api/codestudio/auth/disconnect
    Body: { sessionToken: string }
 ──────────────────────────────────────────────────────────── */
-router.post("/auth/disconnect", (req, res) => {
+router.post("/auth/disconnect", async (req, res) => {
   const { sessionToken } = req.body as { sessionToken?: string };
-  if (sessionToken) authSessions.delete(sessionToken);
+  if (sessionToken) {
+    await db
+      .delete(codestudioSessionsTable)
+      .where(eq(codestudioSessionsTable.sessionToken, sessionToken));
+  }
   res.json({ ok: true });
 });
 
@@ -133,14 +148,18 @@ function requireApiKey(
     res.status(401).json({ error: "sessionToken required — connect your Anthropic API key first" });
     return;
   }
-  const session = authSessions.get(token);
-  if (!session) {
-    res.status(401).json({ error: "Invalid or expired session — please reconnect your API key" });
-    return;
-  }
-  /* Attach apiKey to locals for downstream handlers */
-  res.locals.apiKey = session.apiKey;
-  next();
+
+  dbGetSession(token).then(session => {
+    if (!session) {
+      res.status(401).json({ error: "Invalid or expired session — please reconnect your API key" });
+      return;
+    }
+    /* Attach apiKey to locals for downstream handlers */
+    res.locals.apiKey = session.apiKey;
+    next();
+  }).catch(() => {
+    res.status(500).json({ error: "Auth lookup failed — please try again" });
+  });
 }
 
 /* ─── File tree helper ─────────────────────────────────────── */
