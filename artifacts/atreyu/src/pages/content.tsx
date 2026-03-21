@@ -4,7 +4,7 @@ import {
   Repeat2, TrendingUp, HeartHandshake, LayoutTemplate, Layers,
   Copy, Check, Download, Palette, Building2, Globe, Link,
   Instagram, Youtube, Twitter, Linkedin, Facebook, Share2, FileImage,
-  Users, Eye, AlertCircle, Sparkles,
+  Users, Eye, AlertCircle, Sparkles, ImagePlus,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -527,18 +527,113 @@ function renderModern(
 }
 
 /* ════════════════════════════════════════════
+   TEMPLATE 4: PHOTO  (AI-generated background already drawn on canvas)
+   Adds cinematic overlays + white text on top of whatever is on the canvas.
+════════════════════════════════════════════ */
+function renderPhotoTemplate(
+  ctx: CanvasRenderingContext2D,
+  W: number, H: number, PAD: number,
+  pal: StyleProfile["colorPalette"],
+  hook: string, supporting: string,
+  brandName: string, variantNum: number,
+) {
+  const SF = "-apple-system,'Helvetica Neue',Arial,sans-serif";
+
+  /* Cinematic radial vignette */
+  const vig = ctx.createRadialGradient(W/2, H/2, W*0.2, W/2, H/2, W*0.9);
+  vig.addColorStop(0, "rgba(0,0,0,0)");
+  vig.addColorStop(1, "rgba(0,0,0,0.58)");
+  ctx.fillStyle = vig; ctx.fillRect(0,0,W,H);
+
+  /* Bottom gradient for footer readability */
+  const footGrd = ctx.createLinearGradient(0, H * 0.72, 0, H);
+  footGrd.addColorStop(0, "rgba(0,0,0,0)");
+  footGrd.addColorStop(1, "rgba(0,0,0,0.88)");
+  ctx.fillStyle = footGrd; ctx.fillRect(0, H * 0.72, W, H * 0.28);
+
+  /* Top gradient for top readability */
+  const topGrd = ctx.createLinearGradient(0, 0, 0, H * 0.18);
+  topGrd.addColorStop(0, "rgba(0,0,0,0.38)");
+  topGrd.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = topGrd; ctx.fillRect(0, 0, W, H * 0.18);
+
+  /* Thin top accent bar */
+  ctx.fillStyle = pal.accent; ctx.fillRect(0, 0, W, 4);
+
+  /* Hook text — centred, white, shadowed */
+  const hookSize  = Math.min(Math.round(W * 0.065), 90);
+  const maxHookW  = W - PAD * 2.4;
+  ctx.textBaseline = "top"; ctx.textAlign = "center";
+  ctx.font = `700 ${hookSize}px ${SF}`;
+  const hookLines = wrapCanvasText(ctx, hook, maxHookW);
+  const hookLineH = hookSize * 1.22;
+  const supSize   = Math.round(hookSize * 0.33);
+  const sepGap    = hookSize * 0.55;
+  const supLineH  = supSize * 1.5;
+  const supLines  = supporting ? wrapCanvasText(ctx, supporting, maxHookW) : [];
+  const totalTH   = hookLines.length * hookLineH + (supporting ? sepGap + supLines.length * supLineH : 0);
+  let y = (H * 0.86 - totalTH) / 2;
+  y = Math.max(H * 0.12, y);
+
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.85)";
+  ctx.shadowBlur  = 20;
+  ctx.font = `700 ${hookSize}px ${SF}`;
+  hookLines.forEach((line, i) => {
+    ctx.fillStyle = i === 0 ? "#FFFFFF" : "rgba(255,255,255,0.9)";
+    ctx.fillText(line, W/2, y);
+    y += hookLineH;
+  });
+
+  if (supporting) {
+    y += hookSize * 0.18;
+    const pillW = Math.round(W * 0.09), pillH = 3;
+    rrect(ctx, W/2 - pillW/2, y, pillW, pillH, pillH/2);
+    ctx.fillStyle = pal.accent; ctx.fill();
+    y += hookSize * 0.32;
+    ctx.shadowBlur = 14;
+    ctx.font = `300 ${supSize}px ${SF}`;
+    supLines.slice(0, 2).forEach(line => {
+      ctx.fillStyle = "rgba(255,255,255,0.78)";
+      ctx.fillText(line, W/2, y);
+      y += supLineH;
+    });
+  }
+  ctx.restore();
+
+  /* Footer */
+  const footH  = Math.round(H * 0.10);
+  const footY  = H - footH;
+  const bfSize = Math.round(footH * 0.33);
+  ctx.font = `600 ${bfSize}px ${SF}`;
+  ctx.fillStyle = "#FFFFFF";
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(brandName.toUpperCase(), PAD, footY + footH / 2);
+
+  ctx.fillStyle = pal.accent;
+  ctx.beginPath(); ctx.arc(PAD * 0.55, footY + footH / 2, bfSize * 0.2, 0, Math.PI*2); ctx.fill();
+
+  if (variantNum > 1) {
+    ctx.font = `400 ${bfSize * 0.82}px ${SF}`;
+    ctx.fillStyle = "rgba(255,255,255,0.45)";
+    ctx.textAlign = "right";
+    ctx.fillText(`V${variantNum}`, W - PAD, footY + footH / 2);
+  }
+}
+
+/* ════════════════════════════════════════════
    MAIN EXPORT — picks template, renders, returns PNG Blob
 ════════════════════════════════════════════ */
 async function exportToImage(
   text: string, fmt: OutputFormat, brandName: string,
   variantNum: number, styleProfile?: StyleProfile,
+  bgImageUrl?: string,
 ): Promise<Blob> {
   const W = fmt.canvasW, H = fmt.canvasH;
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext("2d")!;
 
-  /* Default palette if no style profile */
   const pal: StyleProfile["colorPalette"] = styleProfile?.colorPalette ?? {
     primary: "#E8ECF4", secondary: "#D6DDF0", accent: "#6366f1", text: "#1A1A1A",
   };
@@ -546,20 +641,43 @@ async function exportToImage(
   const { hook, supporting } = extractHook(text);
   const PAD = Math.round(W * 0.08);
 
-  /* Choose template */
-  const bg  = styleProfile?.backgroundStyle ?? "gradient";
-  const typ = styleProfile?.typographyStyle ?? "sans-serif";
-
-  const isDark = bg === "dark" || isDarkColor(pal.primary);
-  const isEditorial = (typ === "serif" || styleProfile?.layoutStyle === "editorial" || styleProfile?.layoutStyle === "left-aligned") && !isDark;
-  const isGradient  = bg === "gradient" && !isDark;
-
-  if (isDark) {
-    renderCinematic(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
-  } else if (isEditorial) {
-    renderEditorial(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
+  if (bgImageUrl) {
+    /* Draw AI photo as cover-fill background */
+    await new Promise<void>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const imgAR = img.width / img.height;
+        const canAR = W / H;
+        let sx = 0, sy = 0, sw = img.width, sh = img.height;
+        if (imgAR > canAR) {
+          sw = Math.round(img.height * canAR);
+          sx = Math.round((img.width - sw) / 2);
+        } else {
+          sh = Math.round(img.width / canAR);
+          sy = Math.round((img.height - sh) / 2);
+        }
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
+        resolve();
+      };
+      img.onerror = () => resolve();
+      img.src = `/api/content/image-proxy?url=${encodeURIComponent(bgImageUrl)}`;
+    });
+    renderPhotoTemplate(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
   } else {
-    renderModern(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum, isGradient);
+    /* Original typographic templates */
+    const bg  = styleProfile?.backgroundStyle ?? "gradient";
+    const typ = styleProfile?.typographyStyle ?? "sans-serif";
+    const isDark      = bg === "dark" || isDarkColor(pal.primary);
+    const isEditorial = (typ === "serif" || styleProfile?.layoutStyle === "editorial" || styleProfile?.layoutStyle === "left-aligned") && !isDark;
+    const isGradient  = bg === "gradient" && !isDark;
+    if (isDark) {
+      renderCinematic(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
+    } else if (isEditorial) {
+      renderEditorial(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
+    } else {
+      renderModern(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum, isGradient);
+    }
   }
 
   return new Promise(r => canvas.toBlob(b => r(b!), "image/png", 1.0));
@@ -573,9 +691,10 @@ function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number, _l
 async function downloadVariant(
   text: string, fmt: OutputFormat, brandName: string,
   variantNum: number, styleProfile: StyleProfile | null, toast: (t: any) => void,
+  bgImageUrl?: string,
 ) {
   try {
-    const blob = await exportToImage(text, fmt, brandName, variantNum, styleProfile ?? undefined);
+    const blob = await exportToImage(text, fmt, brandName, variantNum, styleProfile ?? undefined, bgImageUrl);
     const file = new File([blob], `atreyu-${fmt.id}-v${variantNum}.png`, { type: "image/png" });
     if (navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: `ATREYU — ${fmt.label}` }); return;
@@ -802,29 +921,74 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
   text: string; variantNum: number; totalVariants: number; fmt: OutputFormat;
   brandName: string; streaming: boolean; styleProfile: StyleProfile | null;
 }) {
-  const [copied, setCopied]           = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [preview, setPreview]         = useState<string | null>(null);
+  const [copied, setCopied]                 = useState(false);
+  const [downloading, setDownloading]       = useState(false);
+  const [preview, setPreview]               = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [aiImageUrl, setAiImageUrl]         = useState<string | null>(null);
+  const [aiImageLoading, setAiImageLoading] = useState(false);
+  const [aiImageError, setAiImageError]     = useState<string | null>(null);
   const { toast } = useToast();
   const isMobile = navigator.maxTouchPoints > 0;
 
-  /* Generate a small preview image */
-  const generatePreview = async () => {
+  /* Render canvas preview (uses AI background if available) */
+  const generatePreview = async (bgUrl?: string | null) => {
     if (!text || streaming) return;
     setPreviewLoading(true);
     try {
-      const blob = await exportToImage(text, fmt, brandName, variantNum, styleProfile ?? undefined);
-      setPreview(URL.createObjectURL(blob));
+      const blob = await exportToImage(
+        text, fmt, brandName, variantNum,
+        styleProfile ?? undefined,
+        bgUrl ?? aiImageUrl ?? undefined,
+      );
+      setPreview(prev => { if (prev) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
     } catch { /* silent */ }
     setPreviewLoading(false);
   };
 
-  /* Auto-preview once text is done streaming */
+  /* Auto-preview once streaming is done */
   useEffect(() => {
     if (!streaming && text) generatePreview();
-    return () => { if (preview) URL.revokeObjectURL(preview); };
   }, [streaming]);
+
+  /* Re-render preview when AI image arrives */
+  useEffect(() => {
+    if (aiImageUrl && !streaming && text) generatePreview(aiImageUrl);
+  }, [aiImageUrl]);
+
+  /* Generate an AI photo background via KIE.AI */
+  const generateAiPhoto = async () => {
+    if (!text || streaming || aiImageLoading) return;
+    setAiImageLoading(true);
+    setAiImageError(null);
+    try {
+      const { hook } = extractHook(text);
+      const res = await fetch("/api/content/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hook,
+          contentStyle: styleProfile?.contentStyle,
+          formatId:     fmt.id,
+          brandColors:  styleProfile?.colorPalette
+            ? [styleProfile.colorPalette.primary, styleProfile.colorPalette.accent]
+            : undefined,
+          brandName,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error ?? "Image generation failed");
+      }
+      const { imageUrl } = await res.json();
+      setAiImageUrl(imageUrl);
+    } catch (err: any) {
+      const msg = err?.message ?? "AI photo generation failed";
+      setAiImageError(msg);
+      toast({ title: "AI Photo failed", description: msg, variant: "destructive" });
+    }
+    setAiImageLoading(false);
+  };
 
   const pal = styleProfile?.colorPalette;
 
@@ -849,6 +1013,11 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
               style-matched
             </span>
           )}
+          {aiImageUrl && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-500 font-semibold flex items-center gap-1">
+              <ImagePlus className="h-2.5 w-2.5" /> AI photo
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           <button onClick={()=>{navigator.clipboard.writeText(deepCleanText(text));setCopied(true);setTimeout(()=>setCopied(false),1800);}}
@@ -857,7 +1026,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
             {copied?<><Check className="h-3 w-3 text-green-500"/>Copied</>:<><Copy className="h-3 w-3 text-muted-foreground"/>Copy</>}
           </button>
           <button
-            onClick={async()=>{setDownloading(true);await downloadVariant(text,fmt,brandName,variantNum,styleProfile,toast);setDownloading(false);}}
+            onClick={async()=>{setDownloading(true);await downloadVariant(text,fmt,brandName,variantNum,styleProfile,toast,aiImageUrl??undefined);setDownloading(false);}}
             disabled={!text||streaming||downloading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-40 shadow-sm">
             {downloading?<Loader2 className="h-3 w-3 animate-spin"/>:
@@ -867,10 +1036,10 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         </div>
       </div>
 
-      {/* Image preview (if generated) */}
+      {/* Image preview */}
       {preview && !streaming && (
         <div className="px-5 pt-4">
-          <div className="rounded-xl overflow-hidden neu-inset-sm" style={{aspectRatio:`${fmt.w}/${fmt.h}`,maxHeight:240}}>
+          <div className="rounded-xl overflow-hidden neu-inset-sm relative" style={{aspectRatio:`${fmt.w}/${fmt.h}`,maxHeight:240}}>
             <img src={preview} alt="Post preview" className="w-full h-full object-cover" />
           </div>
           <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
@@ -886,7 +1055,27 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         </div>
       )}
 
-      {/* Text content — plain cleaned text, ready to copy-paste as social caption */}
+      {/* AI Photo button — shown below preview once text is ready */}
+      {!streaming && text && !fmt.isText && (
+        <div className="px-5 pb-1 pt-2">
+          <button
+            onClick={generateAiPhoto}
+            disabled={aiImageLoading}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-violet-500/30 text-violet-500 hover:bg-violet-500/8 disabled:opacity-50 transition-colors">
+            {aiImageLoading
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating AI photo (up to 30s)…</>
+              : aiImageUrl
+                ? <><ImagePlus className="h-3.5 w-3.5" />Regenerate AI background</>
+                : <><ImagePlus className="h-3.5 w-3.5" />Generate AI background photo</>
+            }
+          </button>
+          {aiImageError && (
+            <p className="text-[10px] text-red-400 text-center mt-1">{aiImageError}</p>
+          )}
+        </div>
+      )}
+
+      {/* Text content */}
       <div className="p-5 flex-1 min-h-[120px]">
         {text ? (
           <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap font-[inherit]">

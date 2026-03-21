@@ -610,4 +610,115 @@ Rules:
   }
 });
 
+/* ────── POST /api/content/generate-image ─────────────────────────────── */
+/* Generates an AI photo background via KIE.AI Flux Kontext, polls until    */
+/* done, and returns { imageUrl }.  Used by the Content page to composite   */
+/* a real photograph behind the typographic canvas text overlay.            */
+
+const KIE_ASPECT_MAP: Record<string, string> = {
+  square:        "1:1",
+  portrait:      "3:4",
+  vertical:      "9:16",
+  story:         "9:16",
+  landscape:     "16:9",
+  youtube_short: "9:16",
+  carousel:      "3:4",
+  linkedin_post: "4:3",
+};
+
+router.post("/generate-image", async (req, res) => {
+  const { hook, contentStyle, formatId, brandColors, brandName } = req.body as {
+    hook: string;
+    contentStyle?: string;
+    formatId?: string;
+    brandColors?: string[];
+    brandName?: string;
+  };
+
+  if (!hook) { res.status(400).json({ error: "hook is required" }); return; }
+
+  const KIE_API_KEY = process.env.KIE_AI_API_KEY;
+  if (!KIE_API_KEY) { res.status(500).json({ error: "KIE_AI_API_KEY not configured" }); return; }
+
+  const aspectRatio = KIE_ASPECT_MAP[formatId ?? ""] ?? "1:1";
+
+  /* Build a cinematic art-direction prompt */
+  const colorHint   = brandColors?.length
+    ? `, color palette inspired by ${brandColors.slice(0, 2).join(" and ")}`
+    : "";
+  const styleHint   = contentStyle ? `${contentStyle}. ` : "";
+  const brandHint   = brandName ? `Lifestyle imagery that fits the brand ${brandName}. ` : "";
+
+  const prompt = `${styleHint}${brandHint}Cinematic editorial photograph as a social media post background about: "${hook}". Professional photography, dramatic lighting, clean minimalist composition with space for text overlay, high-end commercial look, no people, no text, no logos${colorHint}.`;
+
+  const negativePrompt = "text, watermarks, logos, words, letters, people, faces, cluttered backgrounds, amateur photography, blurry, low quality, distorted";
+
+  try {
+    /* Submit generation task */
+    const submitRes = await fetch("https://api.kie.ai/api/v1/flux/kontext/generate", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${KIE_API_KEY}`,
+        "Content-Type":  "application/json",
+      },
+      body: JSON.stringify({
+        prompt,
+        model:            "flux-kontext-pro",
+        aspectRatio,
+        outputFormat:     "jpeg",
+        safetyTolerance:  2,
+        promptUpsampling: true,
+      }),
+    });
+
+    if (!submitRes.ok) {
+      const errText = await submitRes.text();
+      console.error("[generate-image] KIE submit failed:", errText);
+      res.status(502).json({ error: `Image generation failed: ${errText}` }); return;
+    }
+
+    const submitData = await submitRes.json();
+    const taskId = submitData?.data?.taskId ?? submitData?.taskId;
+    if (!taskId) {
+      res.status(502).json({ error: "No taskId returned from KIE.AI" }); return;
+    }
+
+    /* Poll until done — max 90 seconds (30 polls × 3s) */
+    const MAX_POLLS    = 30;
+    const POLL_INTERVAL = 3_000;
+
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+
+      const pollRes = await fetch(
+        `https://api.kie.ai/api/v1/flux/kontext/image/${taskId}`,
+        { headers: { "Authorization": `Bearer ${KIE_API_KEY}` } },
+      );
+
+      if (!pollRes.ok) continue;
+
+      const pollData = await pollRes.json();
+      const status   = pollData?.data?.status ?? pollData?.status;
+      const imageUrl =
+        pollData?.data?.imageUrl     ??
+        pollData?.data?.resultImageUrl ??
+        pollData?.data?.url          ??
+        pollData?.imageUrl;
+
+      if ((status === "completed" || status === "success" || status === "SUCCEEDED") && imageUrl) {
+        res.json({ imageUrl }); return;
+      }
+
+      if (status === "failed" || status === "error" || status === "FAILED") {
+        res.status(502).json({ error: "KIE.AI image generation failed" }); return;
+      }
+    }
+
+    res.status(504).json({ error: "Image generation timed out after 90 seconds" });
+  } catch (err: any) {
+    console.error("[generate-image] error:", err);
+    res.status(500).json({ error: err?.message ?? "Image generation error" });
+  }
+});
+
 export default router;
