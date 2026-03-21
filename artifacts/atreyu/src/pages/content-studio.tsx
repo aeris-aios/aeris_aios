@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Copy, Check, Sparkles, Zap, Clock, Trash2 } from "lucide-react";
+import { Copy, Check, Sparkles, Trash2, Loader2, ChevronRight, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const API = "/api/content-studio";
@@ -40,7 +40,7 @@ const PLATFORMS = [
   { id: "instagram-reel",   label: "Instagram Reel",   icon: "🎬" },
   { id: "youtube-short",    label: "YouTube Short",    icon: "▶️" },
   { id: "youtube-video",    label: "YouTube Video",    icon: "🎥" },
-  { id: "twitter-x",        label: "Twitter/X",        icon: "💬" },
+  { id: "twitter-x",        label: "Twitter / X",      icon: "💬" },
   { id: "linkedin",         label: "LinkedIn",         icon: "💼" },
   { id: "tiktok",           label: "TikTok",           icon: "🎵" },
   { id: "blog-post",        label: "Blog Post",        icon: "📝" },
@@ -54,46 +54,34 @@ const PLATFORM_ICONS: Record<string, string> = Object.fromEntries(
 );
 
 const TONES = [
-  { value: "professional",  label: "Professional"       },
-  { value: "casual",        label: "Casual & Friendly"  },
-  { value: "witty",         label: "Witty & Clever"     },
-  { value: "inspirational", label: "Inspirational"      },
-  { value: "urgent",        label: "Urgent & Action-Driven" },
-  { value: "educational",   label: "Educational"        },
-  { value: "storytelling",  label: "Storytelling"       },
-  { value: "bold",          label: "Bold & Provocative" },
-  { value: "minimal",       label: "Minimal & Clean"    },
-  { value: "luxurious",     label: "Luxurious & Premium"},
+  { value: "professional",  label: "Professional"            },
+  { value: "casual",        label: "Casual & Friendly"       },
+  { value: "witty",         label: "Witty & Clever"          },
+  { value: "inspirational", label: "Inspirational"           },
+  { value: "urgent",        label: "Urgent & Action-Driven"  },
+  { value: "educational",   label: "Educational"             },
+  { value: "storytelling",  label: "Storytelling"            },
+  { value: "bold",          label: "Bold & Provocative"      },
+  { value: "minimal",       label: "Minimal & Clean"         },
+  { value: "luxurious",     label: "Luxurious & Premium"     },
 ];
 
 type ProgressStep = { stage: string; message: string; status: "active" | "done" | "error" };
 
-/* ── CopyButton ─────────────────────────────────────────────────── */
+/* ── Copy button ─────────────────────────────────────────────────── */
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {}
-  };
   return (
     <button
-      onClick={handleCopy}
-      style={{
-        position: "absolute", top: 8, right: 8,
-        display: "flex", alignItems: "center", gap: 4,
-        padding: "4px 10px", fontSize: 11, borderRadius: 4,
-        background: copied ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.06)",
-        border: `1px solid ${copied ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.1)"}`,
-        color: copied ? "#22c55e" : "#94a3b8",
-        cursor: "pointer", transition: "all 0.15s", opacity: 0,
+      onClick={async () => {
+        try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
       }}
-      className="copy-btn-cs"
+      className={`absolute top-2.5 right-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all
+        ${copied
+          ? "bg-green-500/15 border border-green-500/30 text-green-500"
+          : "neu-raised-sm text-muted-foreground opacity-0 group-hover/piece:opacity-100"}`}
     >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-      {copied ? "Copied!" : "Copy"}
+      {copied ? <><Check className="h-3 w-3" />Copied</> : <><Copy className="h-3 w-3" />Copy</>}
     </button>
   );
 }
@@ -102,28 +90,23 @@ function CopyButton({ text }: { text: string }) {
 export default function ContentStudioPage() {
   const { toast } = useToast();
 
-  /* Form state */
   const [prompt,     setPrompt]     = useState("");
   const [selected,   setSelected]   = useState<string[]>([]);
   const [tone,       setTone]       = useState("professional");
   const [brandVoice, setBrandVoice] = useState("");
   const [addContext, setAddContext] = useState("");
 
-  /* UI state */
-  const [skillCount,  setSkillCount]  = useState(0);
-  const [generating,  setGenerating]  = useState(false);
-  const [genError,    setGenError]    = useState("");
-  const [steps,       setSteps]       = useState<ProgressStep[]>([]);
-  const [progress,    setProgress]    = useState(0);
-  const [result,      setResult]      = useState<ContentItem | null>(null);
-  const [history,     setHistory]     = useState<ContentItem[]>([]);
+  const [skillCount, setSkillCount] = useState(0);
+  const [generating, setGenerating] = useState(false);
+  const [genError,   setGenError]   = useState("");
+  const [steps,      setSteps]      = useState<ProgressStep[]>([]);
+  const [progress,   setProgress]   = useState(0);
+  const [result,     setResult]     = useState<ContentItem | null>(null);
+  const [history,    setHistory]    = useState<ContentItem[]>([]);
   const outputRef = useRef<HTMLDivElement>(null);
   const abortRef  = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    loadSkillCount();
-    loadHistory();
-  }, []);
+  useEffect(() => { loadSkillCount(); loadHistory(); }, []);
 
   async function loadSkillCount() {
     try {
@@ -140,28 +123,20 @@ export default function ContentStudioPage() {
   }
 
   function togglePlatform(id: string) {
-    setSelected(prev =>
-      prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
-    );
+    setSelected(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]);
   }
 
-  const STAGE_ORDER = ["loading_skills","selecting_skills","generating","processing","saving","done","error"];
+  const STAGE_ORDER = ["loading_skills", "selecting_skills", "generating", "processing", "saving", "done", "error"];
   function stageProgress(stage: string) {
     const idx = STAGE_ORDER.indexOf(stage);
-    if (idx < 0) return 0;
-    return Math.round(((idx + 1) / (STAGE_ORDER.length - 1)) * 100);
+    return idx < 0 ? 0 : Math.round(((idx + 1) / (STAGE_ORDER.length - 1)) * 100);
   }
 
   async function handleGenerate() {
-    if (!prompt.trim()) { setGenError("Please describe what you want to create."); return; }
-    if (selected.length === 0) { setGenError("Please select at least one platform."); return; }
+    if (!prompt.trim())    { setGenError("Please describe what you want to create."); return; }
+    if (!selected.length)  { setGenError("Please select at least one platform."); return; }
 
-    setGenerating(true);
-    setGenError("");
-    setSteps([]);
-    setProgress(0);
-    setResult(null);
-
+    setGenerating(true); setGenError(""); setSteps([]); setProgress(0); setResult(null);
     const abort = new AbortController();
     abortRef.current = abort;
 
@@ -172,16 +147,13 @@ export default function ContentStudioPage() {
         body: JSON.stringify({ prompt, platforms: selected, tone, brandVoice, additionalContext: addContext }),
         signal: abort.signal,
       });
-
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Request failed" }));
         throw new Error(err.error ?? "Request failed");
       }
-
       const reader = res.body?.getReader();
       const dec    = new TextDecoder();
       if (!reader) throw new Error("No response stream");
-
       let buf = "";
       while (true) {
         const { done, value } = await reader.read();
@@ -195,17 +167,14 @@ export default function ContentStudioPage() {
           if (!raw) continue;
           let evt: Record<string, unknown>;
           try { evt = JSON.parse(raw); } catch { continue; }
-
           const stage   = String(evt.stage ?? "");
           const message = String(evt.message ?? "");
-
           if (stage === "error") {
             setSteps(prev => {
               const next = prev.map(s => s.status === "active" ? { ...s, status: "error" as const } : s);
               return [...next, { stage, message, status: "error" as const }];
             });
-            setProgress(0);
-            setGenError(message);
+            setProgress(0); setGenError(message);
           } else if (stage === "done") {
             setSteps(prev => prev.map(s => s.status === "active" ? { ...s, status: "done" as const } : s));
             setProgress(100);
@@ -225,9 +194,7 @@ export default function ContentStudioPage() {
         }
       }
     } catch (err: any) {
-      if (err?.name !== "AbortError") {
-        setGenError(err?.message ?? "Generation failed. Please try again.");
-      }
+      if (err?.name !== "AbortError") setGenError(err?.message ?? "Generation failed. Please try again.");
     } finally {
       setGenerating(false);
     }
@@ -253,189 +220,153 @@ export default function ContentStudioPage() {
     } catch {}
   }
 
-  /* ── Styles ── */
-  const cs = {
-    page: { minHeight: "100%", background: "var(--bg-primary, #0d1117)", color: "var(--text-primary, #e6edf3)", fontFamily: "var(--font-sans, sans-serif)", overflowY: "auto" as const },
-    section: { maxWidth: 820, margin: "0 auto", padding: "48px 24px 32px" },
-    header: { textAlign: "center" as const, marginBottom: 36 },
-    h1: { fontSize: 30, fontWeight: 700, marginBottom: 10, background: "linear-gradient(135deg, #e2e8f0, #a855f7, #3b82f6)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" as any },
-    sub: { color: "#94a3b8", fontSize: 14, lineHeight: 1.6, maxWidth: 540, margin: "0 auto" },
-    form: { display: "flex", flexDirection: "column" as const, gap: 20 },
-    group: { display: "flex", flexDirection: "column" as const, gap: 6 },
-    label: { fontSize: 12, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase" as const, letterSpacing: "0.5px" },
-    input: { background: "#0d1321", border: "1px solid #1e293b", borderRadius: 8, color: "#e2e8f0", padding: "12px 14px", outline: "none", fontSize: 14, lineHeight: 1.5, width: "100%", boxSizing: "border-box" as const, fontFamily: "inherit" },
-    row: { display: "flex", gap: 16 },
-    chip: (active: boolean): React.CSSProperties => ({
-      display: "flex", alignItems: "center", gap: 6, padding: "8px 14px",
-      background: active ? "rgba(168,85,247,0.15)" : "rgba(255,255,255,0.03)",
-      border: `1px solid ${active ? "#a855f7" : "#1e293b"}`,
-      borderRadius: 8, fontSize: 13, color: active ? "#c084fc" : "#94a3b8",
-      cursor: "pointer", transition: "all 0.2s", userSelect: "none",
-    }),
-    skillsBadge: { padding: "12px 16px", background: "rgba(168,85,247,0.06)", border: "1px solid rgba(168,85,247,0.15)", borderRadius: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#94a3b8" },
-    genBtn: (disabled: boolean): React.CSSProperties => ({
-      width: "100%", padding: "14px 24px",
-      background: disabled ? "rgba(59,130,246,0.3)" : "linear-gradient(135deg, #3b82f6, #a855f7)",
-      color: "#fff", border: "none", borderRadius: 8, fontWeight: 600, fontSize: 15,
-      cursor: disabled ? "not-allowed" : "pointer", transition: "all 0.2s", marginTop: 8,
-      opacity: disabled ? 0.6 : 1,
-    }),
-    errorBox: { padding: "10px 16px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 8, color: "#ef4444", fontSize: 13 },
-    progressBox: { maxWidth: 820, margin: "20px auto 0", padding: "0 24px" },
-    progressTrack: { height: 4, background: "#1e293b", borderRadius: 2, overflow: "hidden", marginBottom: 12 },
-    progressFill: (pct: number): React.CSSProperties => ({
-      height: "100%", background: "linear-gradient(90deg, #3b82f6, #a855f7)", borderRadius: 2,
-      width: `${pct}%`, transition: "width 0.5s ease",
-    }),
-    stepRow: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#94a3b8", padding: "6px 12px", background: "rgba(255,255,255,0.02)", borderRadius: 8 },
-    outputSection: { maxWidth: 1100, margin: "0 auto", padding: "40px 24px 20px" },
-    outputH2: { fontSize: 24, fontWeight: 700, marginBottom: 8 },
-    outputMeta: { fontSize: 12, color: "#475569", display: "flex", gap: 16, flexWrap: "wrap" as const, marginTop: 4 },
-    skillsPanel: { marginBottom: 24, padding: "16px 20px", background: "rgba(168,85,247,0.06)", border: "1px solid rgba(168,85,247,0.15)", borderRadius: 14 },
-    strategyPanel: { marginBottom: 24, padding: "16px 20px", background: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)", borderRadius: 14, fontSize: 13, color: "#94a3b8", lineHeight: 1.6 },
-    platformCard: { background: "#151c2c", border: "1px solid #1e293b", borderRadius: 14, overflow: "hidden", marginBottom: 20 },
-    platformCardHeader: { display: "flex", alignItems: "center", gap: 10, padding: "16px 20px", borderBottom: "1px solid #1e293b", background: "rgba(255,255,255,0.02)", fontSize: 16, fontWeight: 600 },
-    platformCardBody: { padding: 20 },
-    historySection: { maxWidth: 1100, margin: "0 auto", padding: "40px 24px 80px" },
-  };
-
-  /* ── Spinner ── */
-  const Spinner = () => (
-    <span style={{ display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "cs-spin 0.6s linear infinite", verticalAlign: "middle", marginRight: 6 }} />
-  );
-
-  const stepIcon = (s: ProgressStep) =>
-    s.status === "done"  ? "✓" :
-    s.status === "error" ? "✕" : "●";
-
-  const stepColor = (s: ProgressStep) =>
-    s.status === "done"  ? "#22c55e" :
-    s.status === "error" ? "#ef4444" : "#3b82f6";
+  const canGenerate = !generating && selected.length > 0 && prompt.trim().length > 0;
 
   return (
-    <div style={cs.page}>
-      <style>{`
-        @keyframes cs-spin { to { transform: rotate(360deg); } }
-        .copy-btn-cs { opacity: 0 !important; }
-        .piece-text-cs:hover .copy-btn-cs { opacity: 1 !important; }
-        .cs-history-item:hover { background: #1a2236 !important; border-color: #2a3a52 !important; }
-        .cs-platform-chip:hover { border-color: #2a3a52; background: rgba(255,255,255,0.06); }
-      `}</style>
+    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500 pb-24">
 
-      {/* ── Create Section ── */}
-      <div style={cs.section}>
-        <div style={cs.header}>
-          <h1 style={cs.h1}>AI Content Studio</h1>
-          <p style={cs.sub}>
-            Describe what you want to create. ATREYU uses your trained skills from Agent Studio to generate platform-ready content.
-          </p>
+      {/* ── Header ── */}
+      <div className="text-center space-y-1.5 pt-2">
+        <p className="hud-label flex items-center justify-center gap-1.5">
+          <Sparkles className="h-3 w-3 text-violet-500" /> AI Content Studio
+        </p>
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-violet-500 via-purple-400 to-blue-500 bg-clip-text text-transparent">
+          Content That Converts
+        </h1>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">
+          Describe what you want. ATREYU uses your trained skills to generate platform-ready content.
+        </p>
+      </div>
+
+      {/* ── Form Card ── */}
+      <div className="neu-card rounded-3xl p-7 space-y-6">
+
+        {/* Prompt */}
+        <div className="space-y-2">
+          <label className="hud-label">What do you want to create?</label>
+          <textarea
+            value={prompt}
+            onChange={e => setPrompt(e.target.value)}
+            rows={4}
+            placeholder="e.g., Create a product launch campaign for our new AI writing tool that helps developers write documentation 10x faster. Target audience: software developers and tech leads."
+            disabled={generating}
+            className="neu-inset-sm w-full rounded-xl px-4 py-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 bg-transparent outline-none resize-y disabled:opacity-60 transition-all"
+          />
         </div>
 
-        <div style={cs.form}>
-          {/* Prompt */}
-          <div style={cs.group}>
-            <label style={cs.label}>What do you want to create?</label>
-            <textarea
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              rows={4}
-              placeholder="e.g., Create a product launch campaign for our new AI writing tool that helps developers write documentation 10x faster. Target audience: software developers and tech leads. Key benefits: saves time, maintains consistency, integrates with GitHub."
-              style={{ ...cs.input, resize: "vertical" }}
-              disabled={generating}
-            />
-          </div>
-
-          {/* Platforms */}
-          <div style={cs.group}>
-            <label style={cs.label}>Select Platforms</label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {PLATFORMS.map(p => (
-                <div
+        {/* Platform chips */}
+        <div className="space-y-2.5">
+          <label className="hud-label">Select Platforms</label>
+          <div className="flex flex-wrap gap-2">
+            {PLATFORMS.map(p => {
+              const active = selected.includes(p.id);
+              return (
+                <button
                   key={p.id}
-                  className="cs-platform-chip"
-                  style={cs.chip(selected.includes(p.id))}
                   onClick={() => !generating && togglePlatform(p.id)}
+                  disabled={generating}
+                  className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all select-none disabled:opacity-60
+                    ${active
+                      ? "neu-inset ring-2 ring-violet-500/30 text-violet-500"
+                      : "neu-raised-sm text-muted-foreground hover:text-foreground"}`}
                 >
-                  <span style={{ fontSize: 16 }}>{p.icon}</span>
+                  <span className="text-base leading-none">{p.icon}</span>
                   {p.label}
-                </div>
-              ))}
-            </div>
+                </button>
+              );
+            })}
           </div>
+        </div>
 
-          {/* Tone & Brand Voice */}
-          <div style={cs.row}>
-            <div style={{ ...cs.group, flex: 1 }}>
-              <label style={cs.label}>Tone</label>
-              <select
-                value={tone}
-                onChange={e => setTone(e.target.value)}
-                style={{ ...cs.input, cursor: "pointer" }}
-                disabled={generating}
-              >
-                {TONES.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ ...cs.group, flex: 1 }}>
-              <label style={cs.label}>Brand Voice (optional)</label>
-              <input
-                type="text"
-                value={brandVoice}
-                onChange={e => setBrandVoice(e.target.value)}
-                placeholder="e.g., Fun, tech-savvy, like talking to a smart friend"
-                style={cs.input}
-                disabled={generating}
-              />
-            </div>
-          </div>
-
-          {/* Additional Context */}
-          <div style={cs.group}>
-            <label style={cs.label}>Additional Context (optional)</label>
-            <textarea
-              value={addContext}
-              onChange={e => setAddContext(e.target.value)}
-              rows={2}
-              placeholder="Target demographics, campaign goals, specific requirements, competitor references..."
-              style={{ ...cs.input, resize: "vertical" }}
+        {/* Tone + Brand Voice */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="hud-label">Tone</label>
+            <select
+              value={tone}
+              onChange={e => setTone(e.target.value)}
               disabled={generating}
+              className="neu-inset-sm w-full rounded-xl px-4 py-3 text-sm text-foreground bg-[hsl(var(--card))] outline-none cursor-pointer disabled:opacity-60 transition-all"
+            >
+              {TONES.map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="hud-label">Brand Voice <span className="normal-case font-normal text-muted-foreground">(optional)</span></label>
+            <input
+              type="text"
+              value={brandVoice}
+              onChange={e => setBrandVoice(e.target.value)}
+              placeholder="e.g., Fun, tech-savvy, like talking to a smart friend"
+              disabled={generating}
+              className="neu-inset-sm w-full rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 bg-transparent outline-none disabled:opacity-60 transition-all"
             />
           </div>
-
-          {/* Skills badge */}
-          <div style={cs.skillsBadge}>
-            <Sparkles size={16} color="#a855f7" />
-            <span>ATREYU has <strong style={{ color: "#e2e8f0" }}>{skillCount}</strong> trained skill{skillCount !== 1 ? "s" : ""} ready to use</span>
-            <a href="/claude" style={{ marginLeft: "auto", fontSize: 12, color: "#3b82f6", textDecoration: "none" }}>Train more skills →</a>
-          </div>
-
-          {/* Generate button */}
-          <button
-            style={cs.genBtn(generating || selected.length === 0 || !prompt.trim())}
-            onClick={handleGenerate}
-            disabled={generating || selected.length === 0 || !prompt.trim()}
-          >
-            {generating ? <><Spinner />Generating...</> : "Generate Content"}
-          </button>
-
-          {genError && <div style={cs.errorBox}>{genError}</div>}
         </div>
+
+        {/* Additional Context */}
+        <div className="space-y-2">
+          <label className="hud-label">Additional Context <span className="normal-case font-normal text-muted-foreground">(optional)</span></label>
+          <textarea
+            value={addContext}
+            onChange={e => setAddContext(e.target.value)}
+            rows={2}
+            placeholder="Target demographics, campaign goals, specific requirements, competitor references…"
+            disabled={generating}
+            className="neu-inset-sm w-full rounded-xl px-4 py-3 text-sm leading-relaxed text-foreground placeholder:text-muted-foreground/50 bg-transparent outline-none resize-y disabled:opacity-60 transition-all"
+          />
+        </div>
+
+        {/* Skills badge */}
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl neu-raised-sm">
+          <Sparkles className="h-4 w-4 text-violet-500 flex-shrink-0" />
+          <p className="text-sm text-muted-foreground flex-1">
+            ATREYU has <span className="font-semibold text-foreground">{skillCount}</span> trained skill{skillCount !== 1 ? "s" : ""} ready to use
+          </p>
+          <a href="/claude" className="text-xs text-primary hover:underline flex items-center gap-1 flex-shrink-0">
+            Train more <ChevronRight className="h-3 w-3" />
+          </a>
+        </div>
+
+        {/* Generate button */}
+        <button
+          onClick={handleGenerate}
+          disabled={!canGenerate}
+          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-violet-500/20"
+        >
+          {generating
+            ? <><Loader2 className="h-4 w-4 animate-spin" />Generating…</>
+            : <><Zap className="h-4 w-4" />Generate Content</>}
+        </button>
+
+        {genError && (
+          <div className="px-4 py-3 rounded-xl bg-destructive/10 border border-destructive/25 text-destructive text-sm">
+            {genError}
+          </div>
+        )}
 
         {/* Progress */}
         {steps.length > 0 && (
-          <div style={{ ...cs.progressBox, padding: "20px 0 0" }}>
-            <div style={cs.progressTrack}>
-              <div style={cs.progressFill(progress)} />
+          <div className="space-y-3 pt-1">
+            {/* Track */}
+            <div className="h-1 rounded-full neu-inset-sm overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-blue-500 transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {/* Steps */}
+            <div className="space-y-1.5">
               {steps.map((s, i) => (
-                <div key={i} style={{ ...cs.stepRow, color: stepColor(s) }}>
-                  <span style={{ width: 18, textAlign: "center", fontSize: 12, flexShrink: 0, color: stepColor(s) }}>
-                    {stepIcon(s)}
+                <div key={i} className="flex items-center gap-2.5 px-3 py-2 rounded-xl neu-raised-sm text-xs">
+                  <span className={`flex-shrink-0 font-bold ${s.status === "done" ? "text-green-500" : s.status === "error" ? "text-destructive" : "text-violet-500"}`}>
+                    {s.status === "done" ? "✓" : s.status === "error" ? "✕" : "●"}
                   </span>
-                  {s.message}
+                  <span className={s.status === "done" ? "text-muted-foreground" : s.status === "error" ? "text-destructive" : "text-foreground"}>
+                    {s.message}
+                  </span>
                 </div>
               ))}
             </div>
@@ -443,28 +374,27 @@ export default function ContentStudioPage() {
         )}
       </div>
 
-      {/* ── Output Section ── */}
+      {/* ── Output ── */}
       {result && (
-        <div ref={outputRef} style={cs.outputSection}>
-          <div style={{ marginBottom: 24 }}>
-            <h2 style={cs.outputH2}>Generated Content</h2>
-            <div style={cs.outputMeta}>
-              <span>Tone: {result.tone}</span>
-              <span>{result.platforms.length} platform{result.platforms.length !== 1 ? "s" : ""}</span>
-              <span>{new Date(result.createdAt).toLocaleString()}</span>
-            </div>
+        <div ref={outputRef} className="space-y-4">
+          {/* Output header */}
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-xl font-bold">Generated Content</h2>
+            <span className="text-xs text-muted-foreground">
+              {result.platforms.length} platform{result.platforms.length !== 1 ? "s" : ""} · {result.tone} · {new Date(result.createdAt).toLocaleString()}
+            </span>
           </div>
 
           {/* Skills applied */}
-          {result.skillsUsed && result.skillsUsed.length > 0 && (
-            <div style={cs.skillsPanel}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: 1, color: "#a855f7", marginBottom: 10 }}>
-                Skills Applied by ATREYU
-              </div>
+          {result.skillsUsed?.length > 0 && (
+            <div className="neu-card rounded-2xl p-5 space-y-3">
+              <p className="hud-label flex items-center gap-1.5 text-violet-500">
+                <Sparkles className="h-3 w-3" /> Skills Applied by ATREYU
+              </p>
               {result.skillsUsed.map((s, i) => (
-                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 0", fontSize: 13, color: "#94a3b8", lineHeight: 1.4 }}>
-                  <span style={{ color: "#a855f7", flexShrink: 0 }}>→</span>
-                  <span style={{ fontWeight: 600, color: "#e2e8f0", whiteSpace: "nowrap" }}>{s.skill_name}</span>
+                <div key={i} className="flex items-start gap-2 text-sm text-muted-foreground leading-relaxed">
+                  <span className="text-violet-500 mt-0.5 flex-shrink-0">→</span>
+                  <span className="font-semibold text-foreground whitespace-nowrap">{s.skill_name}</span>
                   <span>— {s.reason}</span>
                 </div>
               ))}
@@ -473,47 +403,40 @@ export default function ContentStudioPage() {
 
           {/* Strategy notes */}
           {result.strategyNotes && (
-            <div style={cs.strategyPanel}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: 1, color: "#3b82f6", marginBottom: 8 }}>
-                Content Strategy
-              </div>
-              {result.strategyNotes}
+            <div className="neu-card rounded-2xl p-5 space-y-2">
+              <p className="hud-label text-blue-500">Content Strategy</p>
+              <p className="text-sm text-muted-foreground leading-relaxed">{result.strategyNotes}</p>
             </div>
           )}
 
           {/* Platform cards */}
           {(result.content ?? []).map((platform, pi) => (
-            <div key={pi} style={cs.platformCard}>
-              <div style={cs.platformCardHeader}>
-                <span style={{ fontSize: 20 }}>{PLATFORM_ICONS[platform.platform] ?? "📄"}</span>
-                {platform.platform_name}
+            <div key={pi} className="neu-card rounded-2xl overflow-hidden">
+              {/* Card header */}
+              <div className="flex items-center gap-3 px-5 py-4 border-b border-border/40">
+                <span className="text-xl leading-none">{PLATFORM_ICONS[platform.platform] ?? "📄"}</span>
+                <span className="font-semibold text-foreground">{platform.platform_name}</span>
               </div>
-              <div style={cs.platformCardBody}>
+              {/* Card body */}
+              <div className="p-5 space-y-5">
                 {(platform.pieces ?? []).map((piece, ii) => (
-                  <div key={ii} style={{ marginBottom: ii < platform.pieces.length - 1 ? 20 : 0, paddingBottom: ii < platform.pieces.length - 1 ? 20 : 0, borderBottom: ii < platform.pieces.length - 1 ? "1px solid rgba(255,255,255,0.05)" : "none" }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.5px", color: "#475569", marginBottom: 8 }}>
-                      {piece.label || piece.type}
-                    </div>
-                    <div
-                      className="piece-text-cs"
-                      style={{ background: "#0d1117", border: "1px solid #1e293b", borderRadius: 8, padding: "14px 16px", fontSize: 13, lineHeight: 1.7, color: "#e2e8f0", whiteSpace: "pre-wrap", position: "relative" }}
-                    >
+                  <div key={ii} className={ii < platform.pieces.length - 1 ? "pb-5 border-b border-border/30" : ""}>
+                    <p className="hud-label mb-2">{piece.label || piece.type}</p>
+                    <div className="group/piece relative neu-inset-sm rounded-xl p-4 text-sm leading-relaxed text-foreground whitespace-pre-wrap">
                       {piece.text}
                       <CopyButton text={piece.text} />
                     </div>
                     {piece.notes && (
-                      <div style={{ marginTop: 8, fontSize: 12, color: "#475569", fontStyle: "italic", lineHeight: 1.5 }}>
-                        {piece.notes}
-                      </div>
+                      <p className="mt-2 text-xs text-muted-foreground italic leading-relaxed">{piece.notes}</p>
                     )}
                   </div>
                 ))}
 
                 {/* Hashtags */}
                 {platform.hashtags && platform.hashtags.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 12 }}>
+                  <div className="flex flex-wrap gap-1.5">
                     {platform.hashtags.map((h, hi) => (
-                      <span key={hi} style={{ fontSize: 12, color: "#3b82f6", padding: "2px 8px", background: "rgba(59,130,246,0.15)", borderRadius: 4, fontFamily: "monospace" }}>
+                      <span key={hi} className="text-xs text-blue-500 px-2.5 py-1 rounded-lg bg-blue-500/10 font-mono">
                         #{h.replace(/^#/, "")}
                       </span>
                     ))}
@@ -521,30 +444,30 @@ export default function ContentStudioPage() {
                 )}
 
                 {/* Metadata grid */}
-                {platform.metadata && (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px,1fr))", gap: 10, marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                {platform.metadata && Object.values(platform.metadata).some(Boolean) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-border/30">
                     {platform.metadata.suggested_visual && (
-                      <div style={{ fontSize: 12 }}>
-                        <div style={{ color: "#475569", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.5px", marginBottom: 3, fontSize: 10 }}>Visual Direction</div>
-                        <div style={{ color: "#94a3b8", lineHeight: 1.4 }}>{platform.metadata.suggested_visual}</div>
+                      <div className="neu-raised-sm rounded-xl px-4 py-3">
+                        <p className="hud-label mb-1">Visual Direction</p>
+                        <p className="text-xs text-muted-foreground leading-relaxed">{platform.metadata.suggested_visual}</p>
                       </div>
                     )}
                     {platform.metadata.best_posting_time && (
-                      <div style={{ fontSize: 12 }}>
-                        <div style={{ color: "#475569", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.5px", marginBottom: 3, fontSize: 10 }}>Best Posting Time</div>
-                        <div style={{ color: "#94a3b8", lineHeight: 1.4 }}>{platform.metadata.best_posting_time}</div>
+                      <div className="neu-raised-sm rounded-xl px-4 py-3">
+                        <p className="hud-label mb-1">Best Posting Time</p>
+                        <p className="text-xs text-muted-foreground leading-relaxed">{platform.metadata.best_posting_time}</p>
                       </div>
                     )}
                     {platform.metadata.target_audience && (
-                      <div style={{ fontSize: 12 }}>
-                        <div style={{ color: "#475569", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.5px", marginBottom: 3, fontSize: 10 }}>Target Audience</div>
-                        <div style={{ color: "#94a3b8", lineHeight: 1.4 }}>{platform.metadata.target_audience}</div>
+                      <div className="neu-raised-sm rounded-xl px-4 py-3">
+                        <p className="hud-label mb-1">Target Audience</p>
+                        <p className="text-xs text-muted-foreground leading-relaxed">{platform.metadata.target_audience}</p>
                       </div>
                     )}
                     {platform.metadata.estimated_engagement && (
-                      <div style={{ fontSize: 12 }}>
-                        <div style={{ color: "#475569", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.5px", marginBottom: 3, fontSize: 10 }}>Engagement Estimate</div>
-                        <div style={{ color: "#94a3b8", lineHeight: 1.4 }}>{platform.metadata.estimated_engagement}</div>
+                      <div className="neu-raised-sm rounded-xl px-4 py-3">
+                        <p className="hud-label mb-1">Engagement Estimate</p>
+                        <p className="text-xs text-muted-foreground leading-relaxed">{platform.metadata.estimated_engagement}</p>
                       </div>
                     )}
                   </div>
@@ -555,42 +478,39 @@ export default function ContentStudioPage() {
         </div>
       )}
 
-      {/* ── History Section ── */}
-      <div style={cs.historySection}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 20 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 600 }}>Content History</h2>
+      {/* ── History ── */}
+      <div className="space-y-4 pt-4">
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-lg font-semibold">Content History</h2>
           {history.length > 0 && (
-            <span style={{ fontSize: 13, color: "#475569" }}>{history.length} item{history.length !== 1 ? "s" : ""}</span>
+            <span className="text-xs text-muted-foreground">{history.length} item{history.length !== 1 ? "s" : ""}</span>
           )}
         </div>
 
         {history.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "40px 20px", color: "#475569", fontSize: 13 }}>
+          <div className="neu-card rounded-2xl p-10 text-center text-muted-foreground text-sm">
             No content generated yet. Fill out the form above and click Generate Content.
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="space-y-2">
             {history.map(item => (
               <div
                 key={item.id}
-                className="cs-history-item"
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", background: "#151c2c", border: "1px solid #1e293b", borderRadius: 8, cursor: "pointer", transition: "all 0.2s", gap: 12 }}
                 onClick={() => loadHistoryItem(item.id)}
+                className="neu-card-sm rounded-xl flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:ring-1 hover:ring-primary/20 transition-all"
               >
-                <span style={{ fontSize: 13, color: "#e2e8f0", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.prompt}
+                <span className="flex gap-1 text-base flex-shrink-0">
+                  {(item.platforms ?? []).slice(0, 4).map(p => PLATFORM_ICONS[p] ?? "").join("")}
                 </span>
-                <span style={{ display: "flex", gap: 4, fontSize: 16, marginRight: 12, flexShrink: 0 }}>
-                  {(item.platforms ?? []).slice(0, 5).map(p => PLATFORM_ICONS[p] ?? "").join(" ")}
-                </span>
-                <span style={{ fontSize: 11, color: "#475569", fontFamily: "monospace", whiteSpace: "nowrap", flexShrink: 0 }}>
+                <span className="text-sm text-foreground flex-1 truncate">{item.prompt}</span>
+                <span className="text-xs text-muted-foreground font-mono flex-shrink-0">
                   {new Date(item.createdAt).toLocaleDateString()}
                 </span>
                 <button
-                  style={{ padding: "4px 8px", fontSize: 11, color: "#ef4444", background: "transparent", border: "1px solid transparent", borderRadius: 4, cursor: "pointer", flexShrink: 0 }}
                   onClick={e => { e.stopPropagation(); deleteHistoryItem(item.id); }}
+                  className="flex-shrink-0 p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
                 >
-                  <Trash2 size={13} />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
             ))}
