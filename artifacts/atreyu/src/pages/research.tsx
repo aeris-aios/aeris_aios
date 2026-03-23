@@ -128,9 +128,21 @@ export default function ResearchLab() {
     keywords: "",
   });
   const [viewResultsId, setViewResultsId] = useState<number | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
 
+  const [justLaunched, setJustLaunched] = useState<number | null>(null);
   const queryClient = useQueryClient();
-  const { data: jobs, isLoading } = useListResearchJobs();
+
+  const { data: jobs, isLoading } = useListResearchJobs({
+    query: {
+      refetchInterval: (query) => {
+        const data = query.state.data as Array<{ status: string }> | undefined;
+        const hasActive = data?.some(j => j.status === "pending" || j.status === "running");
+        return hasActive ? 3000 : false;
+      },
+    },
+  });
+
   const { mutate: deleteJob } = useDeleteResearchJob();
 
   const { data: results, isLoading: loadingResults } = useGetResearchJobResults(viewResultsId || 0, {
@@ -152,10 +164,17 @@ export default function ResearchLab() {
       if (!res.ok) throw new Error("Failed to create job");
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/research/jobs"] });
       setWizardOpen(false);
       resetWizard();
+      if (data?.id) {
+        setJustLaunched(data.id);
+        setTimeout(() => setJustLaunched(null), 6000);
+      }
+    },
+    onError: () => {
+      setLaunchError("Something went wrong. Please try again.");
     },
   });
 
@@ -201,7 +220,11 @@ export default function ResearchLab() {
   };
 
   const handleLaunch = () => {
-    if (!wizard.keywords.trim()) return;
+    setLaunchError(null);
+    if (!wizard.keywords.trim()) {
+      setLaunchError("Please enter at least one keyword, hashtag, or URL.");
+      return;
+    }
     const finalTitle = wizard.title || autoTitle();
     createJobMutation.mutate({ ...wizard, title: finalTitle });
   };
@@ -268,7 +291,11 @@ export default function ResearchLab() {
             return (
               <Card
                 key={job.id}
-                className="rounded-2xl border border-border bg-card flex flex-col group hover:border-primary/30 transition-all"
+                className={`rounded-2xl border bg-card flex flex-col group transition-all ${
+                  justLaunched === job.id
+                    ? "border-primary shadow-[0_0_0_2px_hsl(var(--primary)/0.25)] animate-pulse-once"
+                    : "border-border hover:border-primary/30"
+                }`}
               >
                 <CardHeader className="pb-3">
                   <div className="flex justify-between items-start">
@@ -535,6 +562,12 @@ export default function ResearchLab() {
                   <p className="text-xs text-muted-foreground">Separate multiple entries with commas</p>
                 </div>
 
+                {launchError && (
+                  <div className="bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 text-sm text-destructive">
+                    {launchError}
+                  </div>
+                )}
+
                 <div className="bg-muted/40 rounded-xl p-4 border border-border">
                   <p className="text-xs font-medium text-muted-foreground mb-2">Research summary</p>
                   <div className="flex flex-wrap gap-2 text-xs">
@@ -590,7 +623,7 @@ export default function ResearchLab() {
             ) : (
               <Button
                 onClick={handleLaunch}
-                disabled={!wizard.keywords.trim() || createJobMutation.isPending}
+                disabled={createJobMutation.isPending}
                 className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
               >
                 {createJobMutation.isPending ? (
