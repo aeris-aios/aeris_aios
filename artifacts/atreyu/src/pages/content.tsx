@@ -12,6 +12,7 @@ import { useSSE } from "@/hooks/use-sse";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { ContentEditor } from "@/components/content/content-editor";
+import { PlatformMockup } from "@/components/content/platform-mockup";
 
 /* ─────────────── Image proxy ────────────────────────────────────────
    Instagram / social CDN URLs are CORS-blocked in the browser.
@@ -1029,42 +1030,19 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
       {/* Body — always horizontal (image left, content right) */}
       <div className={`flex flex-1 ${!fmt.isText ? "flex-row" : "flex-col"}`}>
 
-        {/* ── LEFT: preview fills the full card height ── */}
+        {/* ── LEFT: iPhone platform mockup ── */}
         {!fmt.isText && (
           <div className="w-[260px] flex-shrink-0 self-stretch relative overflow-hidden border-r border-border/30 bg-black/[0.03] dark:bg-white/[0.02] min-h-[320px]">
-            {savedImage ? (
-              <>
-                <img src={savedImage} alt="Saved design" className="w-full h-full object-cover" />
-                <div className="absolute top-2 left-2">
-                  <span className="px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
-                    Modified
-                  </span>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent text-center">
-                  <p className="text-[9px] text-white/80 leading-snug">
-                    Saved design · Download for full resolution
-                  </p>
-                </div>
-              </>
-            ) : (preview && !streaming) ? (
-              <>
-                <img src={preview} alt="Post preview" className="w-full h-full object-cover" />
-                <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent text-center">
-                  <p className="text-[9px] text-white/80 leading-snug">
-                    {fmt.canvasW}×{fmt.canvasH}px · Download for full resolution
-                  </p>
-                </div>
-              </>
-            ) : previewLoading ? (
-              <div className="w-full h-full flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-primary/40" />
-              </div>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                <ImagePlus className="h-8 w-8 text-muted-foreground/20" />
-                <span className="text-[10px] text-muted-foreground/40">Generating preview…</span>
-              </div>
-            )}
+            <PlatformMockup
+              previewUrl={preview}
+              savedImage={savedImage}
+              formatId={fmt.id}
+              canvasW={fmt.canvasW}
+              canvasH={fmt.canvasH}
+              brandName={brandName}
+              captionText={text}
+              loading={previewLoading || (streaming && !preview)}
+            />
           </div>
         )}
 
