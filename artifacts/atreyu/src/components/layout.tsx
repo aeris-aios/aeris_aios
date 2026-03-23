@@ -221,8 +221,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     <div style={{
       position: "fixed", inset: 0,
       background: outerBg,
-      display: "flex", alignItems: "stretch", justifyContent: "stretch",
-      padding: "28px 32px", boxSizing: "border-box", overflow: "hidden",
+      display: "flex", alignItems: "stretch", justifyContent: "center",
+      padding: "32px 64px", boxSizing: "border-box", overflow: "hidden",
     }}>
 
       {/* ── THE FRAME ─────────────────────────────────────────── */}
@@ -230,6 +230,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         ref={frameRef}
         style={{
           flex: 1,
+          maxWidth: 1360,
+          width: "100%",
           background: frameBg,
           borderRadius: 32,
           boxShadow: frameElev,
