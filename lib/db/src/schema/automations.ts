@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const automationsTable = pgTable("automations", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id"),
   title: text("title").notNull(),
   description: text("description"),
   trigger: text("trigger").notNull(),

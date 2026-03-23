@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const researchJobsTable = pgTable("research_jobs", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id"),
   title: text("title").notNull(),
   sourceType: text("source_type").notNull(),
   status: text("status").notNull().default("pending"),

@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const knowledgeItemsTable = pgTable("knowledge_items", {
   id: serial("id").primaryKey(),
+  userId: integer("user_id"),
   title: text("title").notNull(),
   type: text("type").notNull(),
   content: text("content").notNull(),
