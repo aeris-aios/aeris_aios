@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { researchJobsTable, researchResultsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
@@ -10,7 +10,7 @@ router.get("/research/jobs", async (_req, res) => {
   const jobs = await db
     .select()
     .from(researchJobsTable)
-    .where(eq(researchJobsTable.deletedAt, null as any))
+    .where(isNull(researchJobsTable.deletedAt))
     .orderBy(researchJobsTable.createdAt);
   res.json(jobs);
 });
