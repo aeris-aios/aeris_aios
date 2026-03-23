@@ -183,7 +183,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const raisedSm  = `4px 4px 10px ${fsdark}, -4px -4px 10px ${fslite}`;
   const frameElev = isLight
-    ? `20px 20px 60px #b8b8c0, -8px -8px 28px #ffffff, 0 40px 90px rgba(0,0,0,0.10)`
+    ? `0 24px 80px rgba(0,0,0,0.45), 0 8px 24px rgba(0,0,0,0.25)`
     : `20px 20px 60px #090909, -10px -10px 34px #2a2a32, 0 0 0 1px rgba(255,255,255,0.06), 0 40px 100px rgba(0,0,0,0.7)`;
   const insetSm   = `inset 3px 3px 8px ${fsdark}, inset -3px -3px 8px ${fslite}`;
   const insetMd   = `inset 6px 6px 16px ${fsdark}, inset -6px -6px 16px ${fslite}`;
