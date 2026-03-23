@@ -6,9 +6,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Microscope, Trash2, ChevronRight, FileText, TrendingUp, Target,
   Star, Search, MessageCircle, Award, Globe, Rocket,
-  CheckCircle2, Loader2, Clock, XCircle,
+  CheckCircle2, Loader2, Clock, XCircle, Eye, Heart, Share2, ExternalLink,
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, formatDistanceToNow, parseISO, subDays, isAfter } from "date-fns";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useTheme } from "@/contexts/theme";
 
@@ -18,7 +18,7 @@ function useNeu() {
   const isLight = theme === "light";
   const bg   = isLight ? "#e8ecf4" : "#0f111a";
   const dark = isLight ? "#bfc4d4" : "#090b12";
-  const lite = isLight ? "#ffffff" : "#191c2a";
+  const lite = isLight ? "#eef1f8" : "#191c2a";
   return {
     isLight, bg, dark, lite,
     raised:   `8px 8px 20px ${dark}, -8px -8px 20px ${lite}`,
@@ -27,6 +27,211 @@ function useNeu() {
     inset:    `inset 5px 5px 12px ${dark}, inset -5px -5px 12px ${lite}`,
     insetSm:  `inset 3px 3px 7px ${dark}, inset -3px -3px 7px ${lite}`,
   };
+}
+
+/* ─── Rich data helpers ───────────────────────────────────── */
+function detectPlatform(url: string): string {
+  if (!url) return "google";
+  if (url.includes("tiktok.com")) return "tiktok";
+  if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";
+  if (url.includes("instagram.com")) return "instagram";
+  if (url.includes("reddit.com")) return "reddit";
+  if (url.includes("twitter.com") || url.includes("x.com")) return "twitter";
+  if (url.includes("linkedin.com")) return "linkedin";
+  if (url.includes("trustpilot.com")) return "trustpilot";
+  return "google";
+}
+
+interface RichResult {
+  thumbnail?: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  date?: string;
+}
+
+function parseResultData(r: { url?: string; rawData?: string }): RichResult {
+  let raw: Record<string, any> = {};
+  try { raw = JSON.parse(r.rawData || "{}"); } catch { /* ignore */ }
+  const platform = detectPlatform(r.url || "");
+  switch (platform) {
+    case "tiktok":
+      return {
+        thumbnail: raw.videoMeta?.coverUrl,
+        views:     raw.playCount,
+        likes:     raw.diggCount,
+        comments:  raw.commentCount,
+        shares:    raw.shareCount,
+        date:      raw.createTimeISO,
+      };
+    case "youtube": {
+      const vid = (r.url || "").match(/[?&]v=([^&]+)/)?.[1];
+      return {
+        thumbnail: raw.thumbnailUrl || (vid ? `https://i.ytimg.com/vi/${vid}/hqdefault.jpg` : undefined),
+        views:     raw.viewCount,
+        likes:     raw.likeCount,
+        comments:  raw.commentCount,
+        date:      raw.uploadDate || raw.publishedAt,
+      };
+    }
+    case "instagram":
+      return {
+        thumbnail: raw.displayUrl || raw.thumbnailSrc,
+        views:     raw.videoViewCount || raw.videoPlayCount,
+        likes:     raw.likesCount,
+        comments:  raw.commentsCount,
+        date:      raw.timestamp,
+      };
+    case "reddit": {
+      const thumb = raw.thumbnail;
+      return {
+        thumbnail: thumb && !["self", "default", "nsfw", ""].includes(thumb) ? thumb : undefined,
+        likes:     raw.score,
+        comments:  raw.num_comments,
+        date:      raw.created_utc ? new Date(raw.created_utc * 1000).toISOString() : undefined,
+      };
+    }
+    case "twitter":
+      return {
+        likes:    raw.likeCount || raw.favoriteCount,
+        views:    raw.viewCount,
+        comments: raw.replyCount,
+        shares:   raw.retweetCount,
+        date:     raw.createdAt,
+      };
+    default:
+      return {};
+  }
+}
+
+function fmtNum(n?: number): string {
+  if (!n) return "";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function fmtDate(d?: string): string {
+  if (!d) return "";
+  try {
+    const dt = parseISO(d);
+    return formatDistanceToNow(dt, { addSuffix: true });
+  } catch { return ""; }
+}
+
+const API_BASE = import.meta.env.BASE_URL?.replace(/\/$/, "") || "";
+
+function thumbSrc(url?: string) {
+  if (!url) return "";
+  return `${API_BASE}/api/content/image-proxy?url=${encodeURIComponent(url)}`;
+}
+
+/* ─── Rich content card ───────────────────────────────────── */
+function ContentCard({
+  result, intentColor, n,
+}: {
+  result: { url?: string; title?: string; content?: string; rawData?: string };
+  intentColor: string;
+  n: ReturnType<typeof useNeu>;
+}) {
+  const platform = detectPlatform(result.url || "");
+  const rich = parseResultData(result);
+  const [imgFailed, setImgFailed] = useState(false);
+
+  const platformColors: Record<string, string> = {
+    tiktok: "#010101", youtube: "#FF0000", instagram: "#C13584",
+    reddit: "#FF4500", twitter: "#000000", linkedin: "#0077B5",
+    google: "#4285F4",
+  };
+  const thumbBg = platformColors[platform] || "#1a1e2e";
+
+  return (
+    <div
+      className="rounded-2xl overflow-hidden flex flex-col"
+      style={{ background: n.bg, boxShadow: n.raised }}
+    >
+      {/* ── Thumbnail ────────────────────────────────────── */}
+      <div
+        className="relative w-full overflow-hidden flex-shrink-0"
+        style={{ aspectRatio: "16/9", background: thumbBg }}
+      >
+        {rich.thumbnail && !imgFailed ? (
+          <img
+            src={thumbSrc(rich.thumbnail)}
+            alt={result.title || ""}
+            className="w-full h-full object-cover"
+            onError={() => setImgFailed(true)}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center opacity-20">
+            <PlatformLogo id={platform} size={48} />
+          </div>
+        )}
+        {/* Platform badge overlay */}
+        <div className="absolute top-2 left-2">
+          <PlatformBadge platformId={platform} size="sm" />
+        </div>
+        {/* Duration badge for video */}
+      </div>
+
+      {/* ── Body ─────────────────────────────────────────── */}
+      <div className="p-4 flex flex-col gap-2.5 flex-1">
+        {/* Author */}
+        {result.title && (
+          <p className="font-bold text-sm text-foreground leading-snug">{result.title}</p>
+        )}
+        {/* Caption */}
+        {result.content && (
+          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">{result.content}</p>
+        )}
+        {/* Engagement stats */}
+        {(rich.views || rich.likes || rich.comments || rich.shares) && (
+          <div
+            className="flex items-center flex-wrap gap-x-3 gap-y-1 px-2.5 py-1.5 rounded-xl text-xs"
+            style={{ background: n.bg, boxShadow: n.insetSm }}
+          >
+            {rich.views && (
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <Eye className="w-3 h-3" /> {fmtNum(rich.views)}
+              </span>
+            )}
+            {rich.likes && (
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <Heart className="w-3 h-3" style={{ color: "#ef4444" }} /> {fmtNum(rich.likes)}
+              </span>
+            )}
+            {rich.comments && (
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <MessageCircle className="w-3 h-3" style={{ color: "#3b82f6" }} /> {fmtNum(rich.comments)}
+              </span>
+            )}
+            {rich.shares && (
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <Share2 className="w-3 h-3" style={{ color: "#10b981" }} /> {fmtNum(rich.shares)}
+              </span>
+            )}
+          </div>
+        )}
+        {/* Footer: date + link */}
+        <div className="flex items-center justify-between mt-auto pt-1">
+          <span className="hud-label">{fmtDate(rich.date)}</span>
+          {result.url && (
+            <a
+              href={result.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg transition-all hover:opacity-80"
+              style={{ color: intentColor, background: n.bg, boxShadow: n.raisedSm }}
+            >
+              <ExternalLink className="w-3 h-3" />
+              View
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ─── Platform SVG Logos ──────────────────────────────────── */
@@ -185,6 +390,7 @@ export default function ResearchLab() {
   const [step, setStep] = useState(1);
   const [wizard, setWizard] = useState<WizardState>({ intent: "", platforms: [], title: "", keywords: "" });
   const [viewResultsId, setViewResultsId] = useState<number | null>(null);
+  const [reportTab, setReportTab] = useState<"all" | "recent">("all");
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [justLaunched, setJustLaunched] = useState<number | null>(null);
   const queryClient = useQueryClient();
@@ -409,67 +615,140 @@ export default function ResearchLab() {
                   </div>
 
                   {/* View Intelligence */}
-                  <Dialog
-                    open={viewResultsId === job.id}
-                    onOpenChange={(open) => setViewResultsId(open ? job.id : null)}
+                  <button
+                    onClick={() => job.status === "completed" && setViewResultsId(job.id)}
+                    disabled={job.status !== "completed"}
+                    className="mt-auto w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{
+                      background: n.bg,
+                      boxShadow: job.status === "completed" ? n.raisedSm : n.insetSm,
+                      color: job.status === "completed" ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
+                    }}
                   >
-                    <button
-                      onClick={() => job.status === "completed" && setViewResultsId(job.id)}
-                      disabled={job.status !== "completed"}
-                      className="mt-auto w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                      style={{
-                        background: n.bg,
-                        boxShadow: job.status === "completed" ? n.raisedSm : n.insetSm,
-                        color: job.status === "completed" ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
-                      }}
-                    >
-                      <span>View Intelligence</span>
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                    <DialogContent
-                      className="max-w-4xl max-h-[80vh] overflow-y-auto rounded-2xl border-0"
-                      style={{ background: n.bg, boxShadow: n.raisedLg }}
-                    >
-                      <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2 text-foreground">
-                          <FileText className="h-5 w-5" style={{ color: intentMeta?.color || "#0ea5e9" }} />
-                          Intelligence Report: {job.title}
-                        </DialogTitle>
-                      </DialogHeader>
-                      <div className="mt-4 space-y-3">
-                        {loadingResults ? (
-                          <div className="text-center py-10 hud-label animate-pulse">Compiling findings…</div>
-                        ) : results?.length ? (
-                          results.map((r, i) => (
-                            <div
-                              key={i}
-                              className="rounded-xl p-4"
-                              style={{ background: n.bg, boxShadow: n.insetSm }}
-                            >
-                              {r.title && <h4 className="font-semibold text-sm mb-2 text-foreground">{r.title}</h4>}
-                              {r.url && (
-                                <a href={r.url} target="_blank" rel="noopener noreferrer"
-                                  className="text-xs mb-2 block truncate hover:underline"
-                                  style={{ color: intentMeta?.color || "#0ea5e9" }}
-                                >
-                                  {r.url}
-                                </a>
-                              )}
-                              <p className="text-sm text-muted-foreground leading-relaxed">{r.content}</p>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="text-center py-10 hud-label">No intelligence recovered.</div>
-                        )}
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                    <span>View Intelligence</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {/* ── Intelligence Report Dialog ──────────────────────── */}
+      {(() => {
+        const reportJob = jobs?.find(j => j.id === viewResultsId);
+        const reportIntentMeta = INTENTS.find(i => i.id === reportJob?.sourceType);
+        const accentColor = reportIntentMeta?.color || "#0ea5e9";
+
+        const RECENT_CUTOFF = subDays(new Date(), 90);
+        const filteredResults = results?.filter(r => {
+          if (reportTab === "all") return true;
+          const rd = parseResultData(r as any);
+          if (!rd.date) return false;
+          try { return isAfter(parseISO(rd.date), RECENT_CUTOFF); } catch { return false; }
+        }) ?? [];
+
+        const sortedResults = [...filteredResults].sort((a, b) => {
+          const ra = parseResultData(a as any);
+          const rb = parseResultData(b as any);
+          const scoreA = (ra.views || 0) + (ra.likes || 0) * 2;
+          const scoreB = (rb.views || 0) + (rb.likes || 0) * 2;
+          return scoreB - scoreA;
+        });
+
+        return (
+          <Dialog
+            open={!!viewResultsId}
+            onOpenChange={(open) => {
+              if (!open) { setViewResultsId(null); setReportTab("all"); }
+            }}
+          >
+            <DialogContent
+              className="w-[95vw] max-w-6xl border-0 rounded-2xl p-0 overflow-hidden flex flex-col"
+              style={{ background: n.bg, maxHeight: "90vh" }}
+            >
+              {/* Header */}
+              <div
+                className="px-6 py-4 flex-shrink-0"
+                style={{ borderBottom: `1px solid ${accentColor}20` }}
+              >
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-foreground text-base font-bold">
+                    <FileText className="h-5 w-5 flex-shrink-0" style={{ color: accentColor }} />
+                    <span className="truncate">Intelligence Report: {reportJob?.title}</span>
+                  </DialogTitle>
+                </DialogHeader>
+
+                {/* Filter tabs + result count */}
+                <div className="flex items-center justify-between mt-4">
+                  <div
+                    className="flex items-center p-1 rounded-xl gap-1"
+                    style={{ background: n.bg, boxShadow: n.insetSm }}
+                  >
+                    {(["all", "recent"] as const).map(tab => (
+                      <button
+                        key={tab}
+                        onClick={() => setReportTab(tab)}
+                        className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-all"
+                        style={reportTab === tab ? {
+                          background: n.bg,
+                          boxShadow: n.raisedSm,
+                          color: accentColor,
+                        } : {
+                          color: "hsl(var(--muted-foreground))",
+                        }}
+                      >
+                        {tab === "all" ? "All Time" : "Recent (90 days)"}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="hud-label">
+                    {loadingResults ? "Loading…" : `${sortedResults.length} result${sortedResults.length !== 1 ? "s" : ""}`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Body — scrollable grid */}
+              <div className="overflow-y-auto flex-1 px-6 py-5">
+                {loadingResults ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {[1, 2, 3, 4, 5, 6].map(i => (
+                      <div
+                        key={i}
+                        className="rounded-2xl animate-pulse"
+                        style={{ aspectRatio: "4/3", background: n.bg, boxShadow: n.inset }}
+                      />
+                    ))}
+                  </div>
+                ) : sortedResults.length ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {sortedResults.map((r, i) => (
+                      <ContentCard
+                        key={i}
+                        result={r as any}
+                        intentColor={accentColor}
+                        n={n}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <div
+                      className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+                      style={{ background: n.bg, boxShadow: n.raised }}
+                    >
+                      <Search className="w-7 h-7 text-muted-foreground" />
+                    </div>
+                    <p className="font-semibold text-foreground mb-1">No results in this range</p>
+                    <p className="text-xs text-muted-foreground">Try switching to All Time to see older content.</p>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* ── Wizard Dialog ───────────────────────────────────── */}
       <Dialog open={wizardOpen} onOpenChange={(open) => { if (!open) resetWizard(); setWizardOpen(open); }}>

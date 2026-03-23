@@ -77,7 +77,7 @@
   /* Neumorphic surface */
   --neu-bg: #e8ecf4;
   --neu-shadow-dark: #bfc4d4;
-  --neu-shadow-light: #f5f7fd;
+  --neu-shadow-light: #eef1f8;
   --neu-raised: 6px 6px 16px var(--neu-shadow-dark), -6px -6px 16px var(--neu-shadow-light);
   --neu-raised-sm: 3px 3px 8px var(--neu-shadow-dark), -3px -3px 8px var(--neu-shadow-light);
   --neu-raised-lg: 10px 10px 24px var(--neu-shadow-dark), -10px -10px 24px var(--neu-shadow-light);

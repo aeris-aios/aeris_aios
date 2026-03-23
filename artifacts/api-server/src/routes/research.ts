@@ -126,7 +126,7 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
     trending: {
       actorId: "apify~instagram-hashtag-scraper",
       buildInput: (kw) => ({
-        hashtags: kw.split(",").map(s => s.trim().replace(/^#/, "")).filter(Boolean),
+        hashtags: kw.split(",").map(s => s.trim().replace(/^#/, "").replace(/\s+/g, "")).filter(Boolean),
         resultsLimit: 20,
       }),
     },

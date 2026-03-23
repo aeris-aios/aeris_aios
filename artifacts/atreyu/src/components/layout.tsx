@@ -175,7 +175,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   /* ── Palette ─────────────────────────────────────────────── */
   const frameBg  = isLight ? "#e8ecf4" : "#0f111a";
   const fsdark   = isLight ? "#b0b7ca" : "#07090e";
-  const fslite   = isLight ? "#ffffff"  : "#1a1e2e";
+  const fslite   = isLight ? "#eef1f8"  : "#1a1e2e";
   const outerBg  = isLight
     ? "linear-gradient(145deg, #b6bdcc 0%, #c4cbda 40%, #b0b8c8 100%)"
     : "linear-gradient(145deg, #040509 0%, #070a12 50%, #03040a 100%)";
