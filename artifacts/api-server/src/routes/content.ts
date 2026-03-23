@@ -699,6 +699,24 @@ router.post("/content/generate-image", async (req, res) => {
 
   const aspectRatio = KIE_ASPECT_MAP[formatId ?? ""] ?? "1:1";
 
+  /* ── Optionally fetch reference image for style transfer (before prompt build) ── */
+  let referenceBase64: string | null = null;
+  if (referenceImageUrl) {
+    if (!isSafeExternalUrl(referenceImageUrl)) {
+      console.warn("[generate-image] referenceImageUrl failed SSRF validation, skipping style transfer");
+    } else {
+      try {
+        const refImg = await imageUrlToBase64(referenceImageUrl);
+        if (refImg) {
+          referenceBase64 = `data:${refImg.mediaType};base64,${refImg.data}`;
+          console.log("[generate-image] style-transfer reference image fetched successfully");
+        }
+      } catch {
+        console.warn("[generate-image] could not fetch reference image, falling back to text-only");
+      }
+    }
+  }
+
   /* ── Build a high-quality, brand-aligned art direction prompt ── */
   const colorHint = brandColors?.length
     ? `. Dominant color tones: ${brandColors.slice(0, 3).join(", ")}`
@@ -726,9 +744,10 @@ router.post("/content/generate-image", async (req, res) => {
       visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point.";
   }
 
+  /* "Adopt..." clause only added when reference image was actually fetched */
   const prompt = [
     `Ultra-high-quality social media marketing visual for "${hook}".`,
-    referenceImageUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
+    referenceBase64 ? "Adopt the visual style, color palette, and mood from the reference image." : "",
     styleHint,
     moodHint,
     industryHint,
@@ -742,25 +761,6 @@ router.post("/content/generate-image", async (req, res) => {
   ].filter(Boolean).join(" ");
 
   const negativePrompt = "text, watermarks, logos, words, letters, numbers, people, faces, hands, fingers, cluttered backgrounds, amateur photography, blurry, low quality, distorted, oversaturated, cartoon, illustration, drawing, painting, render, 3D, CGI, stock photo watermark, busy composition";
-
-  /* ── Optionally fetch reference image for style transfer ── */
-  let referenceBase64: string | null = null;
-  if (referenceImageUrl) {
-    if (!isSafeExternalUrl(referenceImageUrl)) {
-      /* Silently skip — invalid/private URLs fall back to text-only */
-      console.warn("[generate-image] referenceImageUrl failed SSRF validation, skipping style transfer");
-    } else {
-      try {
-        const refImg = await imageUrlToBase64(referenceImageUrl);
-        if (refImg) {
-          referenceBase64 = `data:${refImg.mediaType};base64,${refImg.data}`;
-          console.log("[generate-image] style-transfer reference image fetched successfully");
-        }
-      } catch {
-        console.warn("[generate-image] could not fetch reference image, falling back to text-only");
-      }
-    }
-  }
 
   try {
     /* Submit generation task */
