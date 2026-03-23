@@ -118,6 +118,42 @@ RULES:
 };
 
 /* ─── Helpers ─────────────────────────────────────────────── */
+
+/**
+ * Validates that a URL is safe for server-side fetch (SSRF prevention).
+ * Blocks: non-HTTPS, loopback, private IPv4/IPv6 ranges, cloud metadata
+ * endpoints (169.254.x.x), and internal TLDs (.local / .internal).
+ */
+function isSafeExternalUrl(rawUrl: string): boolean {
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); } catch { return false; }
+
+  if (parsed.protocol !== "https:") return false;
+
+  const host = parsed.hostname.toLowerCase();
+
+  /* Block loopback and localhost variants */
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]") return false;
+
+  /* Block private/reserved IPv4 literals */
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [a, b] = [Number(ipv4[1]), Number(ipv4[2])];
+    if (a === 0)                           return false; // 0.0.0.0/8
+    if (a === 10)                          return false; // 10.0.0.0/8 private
+    if (a === 127)                         return false; // 127.0.0.0/8 loopback
+    if (a === 169 && b === 254)            return false; // 169.254.0.0/16 link-local / AWS metadata
+    if (a === 172 && b >= 16 && b <= 31)  return false; // 172.16.0.0/12 private
+    if (a === 192 && b === 168)            return false; // 192.168.0.0/16 private
+    if (a === 100 && b >= 64 && b <= 127) return false; // 100.64.0.0/10 carrier-grade NAT
+  }
+
+  /* Block internal TLDs */
+  if (host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".localhost")) return false;
+
+  return true;
+}
+
 async function imageUrlToBase64(url: string): Promise<{ data: string; mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif" } | null> {
   try {
     const resp = await fetch(url, {
@@ -710,14 +746,19 @@ router.post("/content/generate-image", async (req, res) => {
   /* ── Optionally fetch reference image for style transfer ── */
   let referenceBase64: string | null = null;
   if (referenceImageUrl) {
-    try {
-      const refImg = await imageUrlToBase64(referenceImageUrl);
-      if (refImg) {
-        referenceBase64 = `data:${refImg.mediaType};base64,${refImg.data}`;
-        console.log("[generate-image] style-transfer reference image fetched successfully");
+    if (!isSafeExternalUrl(referenceImageUrl)) {
+      /* Silently skip — invalid/private URLs fall back to text-only */
+      console.warn("[generate-image] referenceImageUrl failed SSRF validation, skipping style transfer");
+    } else {
+      try {
+        const refImg = await imageUrlToBase64(referenceImageUrl);
+        if (refImg) {
+          referenceBase64 = `data:${refImg.mediaType};base64,${refImg.data}`;
+          console.log("[generate-image] style-transfer reference image fetched successfully");
+        }
+      } catch {
+        console.warn("[generate-image] could not fetch reference image, falling back to text-only");
       }
-    } catch {
-      console.warn("[generate-image] could not fetch reference image, falling back to text-only");
     }
   }
 
