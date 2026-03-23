@@ -680,7 +680,7 @@ const KIE_ASPECT_MAP: Record<string, string> = {
 };
 
 router.post("/content/generate-image", async (req, res) => {
-  const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry, referenceImageUrl } = req.body as {
+  const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry, referenceImageUrl, userPrompt } = req.body as {
     hook: string;
     contentStyle?: string;
     formatId?: string;
@@ -690,6 +690,7 @@ router.post("/content/generate-image", async (req, res) => {
     backgroundStyle?: string;
     industry?: string;
     referenceImageUrl?: string;
+    userPrompt?: string;
   };
 
   if (!hook) { res.status(400).json({ error: "hook is required" }); return; }
@@ -746,21 +747,30 @@ router.post("/content/generate-image", async (req, res) => {
       visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point.";
   }
 
-  /* "Adopt..." clause only included when a validated reference URL exists */
-  const prompt = [
-    `Ultra-high-quality social media marketing visual for "${hook}".`,
-    validatedReferenceUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
-    styleHint,
-    moodHint,
-    industryHint,
-    visualApproach,
-    `Composition: clean negative space reserved for text overlay (top or center third).`,
-    `Shot on professional DSLR, 85mm lens, f/2.8. Studio-grade lighting.`,
-    `Premium stock photo quality suitable for Fortune 500 marketing materials.`,
-    brandName ? `Brand context: ${brandName}.` : "",
-    `Absolutely no text, no watermarks, no logos, no letters, no words, no people, no faces.`,
-    colorHint,
-  ].filter(Boolean).join(" ");
+  /* When the user supplies a custom prompt, use it as the primary directive */
+  const prompt = userPrompt?.trim()
+    ? [
+        userPrompt.trim(),
+        validatedReferenceUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
+        `Composition: clean negative space reserved for text overlay.`,
+        brandName ? `Brand: ${brandName}.` : "",
+        colorHint,
+        `Absolutely no text, no watermarks, no logos, no letters, no words.`,
+      ].filter(Boolean).join(" ")
+    : [
+        `Ultra-high-quality social media marketing visual for "${hook}".`,
+        validatedReferenceUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
+        styleHint,
+        moodHint,
+        industryHint,
+        visualApproach,
+        `Composition: clean negative space reserved for text overlay (top or center third).`,
+        `Shot on professional DSLR, 85mm lens, f/2.8. Studio-grade lighting.`,
+        `Premium stock photo quality suitable for Fortune 500 marketing materials.`,
+        brandName ? `Brand context: ${brandName}.` : "",
+        `Absolutely no text, no watermarks, no logos, no letters, no words, no people, no faces.`,
+        colorHint,
+      ].filter(Boolean).join(" ");
 
   const negativePrompt = "text, watermarks, logos, words, letters, numbers, people, faces, hands, fingers, cluttered backgrounds, amateur photography, blurry, low quality, distorted, oversaturated, cartoon, illustration, drawing, painting, render, 3D, CGI, stock photo watermark, busy composition";
 

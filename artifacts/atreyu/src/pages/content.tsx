@@ -918,11 +918,12 @@ function SkeletonCard({ fmt, index, total }: { fmt: OutputFormat; index: number;
 }
 
 /* ─────────────── Content card ─────────────── */
-function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streaming, styleProfile, referenceImageUrl, onEditGraphic }: {
+function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streaming, styleProfile, referenceImageUrl, savedImage, onEditGraphic }: {
   text: string; variantNum: number; totalVariants: number; fmt: OutputFormat;
   brandName: string; streaming: boolean; styleProfile: StyleProfile | null;
   referenceImageUrl?: string;
-  onEditGraphic?: (text: string, aiImageUrl: string | null) => void;
+  savedImage?: string | null;
+  onEditGraphic?: (text: string, aiImageUrl: string | null, variantIdx: number) => void;
 }) {
   const [copied, setCopied]                 = useState(false);
   const [downloading, setDownloading]       = useState(false);
@@ -1031,7 +1032,21 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         {/* ── LEFT: preview fills the full card height ── */}
         {!fmt.isText && (
           <div className="w-[260px] flex-shrink-0 self-stretch relative overflow-hidden border-r border-border/30 bg-black/[0.03] dark:bg-white/[0.02] min-h-[320px]">
-            {(preview && !streaming) ? (
+            {savedImage ? (
+              <>
+                <img src={savedImage} alt="Saved design" className="w-full h-full object-cover" />
+                <div className="absolute top-2 left-2">
+                  <span className="px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
+                    Modified
+                  </span>
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent text-center">
+                  <p className="text-[9px] text-white/80 leading-snug">
+                    Saved design · Download for full resolution
+                  </p>
+                </div>
+              </>
+            ) : (preview && !streaming) ? (
               <>
                 <img src={preview} alt="Post preview" className="w-full h-full object-cover" />
                 <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent text-center">
@@ -1110,9 +1125,9 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
               )}
               {onEditGraphic && (
                 <button
-                  onClick={() => onEditGraphic(text, aiImageUrl)}
+                  onClick={() => onEditGraphic(text, savedImage ?? aiImageUrl, variantNum - 1)}
                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
-                  <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
+                  <Pencil className="h-3.5 w-3.5" /> {savedImage ? "Re-edit Saved Design" : "Edit in Graphic Editor"}
                 </button>
               )}
             </div>
@@ -1122,9 +1137,9 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
           {!streaming && text && fmt.isText && onEditGraphic && (
             <div className="px-6 pt-4 pb-2">
               <button
-                onClick={() => onEditGraphic(text, null)}
+                onClick={() => onEditGraphic(text, savedImage ?? null, variantNum - 1)}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
-                <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
+                <Pencil className="h-3.5 w-3.5" /> {savedImage ? "Re-edit Saved Design" : "Edit in Graphic Editor"}
               </button>
             </div>
           )}
@@ -1302,9 +1317,11 @@ export default function ContentStudio() {
   const [carouselLoading, setCarouselLoading] = useState(false);
 
   /* ── Editor state (Step 4) ── */
-  const [editorMode, setEditorMode]       = useState(false);
-  const [editorText, setEditorText]       = useState("");
-  const [editorAiImage, setEditorAiImage] = useState<string|null>(null);
+  const [editorMode, setEditorMode]           = useState(false);
+  const [editorText, setEditorText]           = useState("");
+  const [editorAiImage, setEditorAiImage]     = useState<string|null>(null);
+  const [editorVariantIndex, setEditorVariantIndex] = useState(0);
+  const [savedImages, setSavedImages]         = useState<Record<number, string>>({});
 
   const selectedFormat = FORMATS.find(f => f.id === formatId);
   const brandName      = brand?.name ?? "AERIS";
@@ -1451,6 +1468,10 @@ export default function ContentStudio() {
           brandName={brandName}
           aiImageUrl={editorAiImage}
           onBack={() => setEditorMode(false)}
+          onSave={(dataUrl) => {
+            setSavedImages(prev => ({ ...prev, [editorVariantIndex]: dataUrl }));
+            setEditorMode(false);
+          }}
         />
       )}
 
@@ -1483,7 +1504,8 @@ export default function ContentStudio() {
                   fmt={selectedFormat!} brandName={brandName} streaming={isStreaming&&i===variants.length-1}
                   styleProfile={styleProfile}
                   referenceImageUrl={sourceMode==="social_import"&&profileData?.posts?.length?profileData.posts[0].imageUrl:undefined}
-                  onEditGraphic={(t, aiImg) => { setEditorText(t); setEditorAiImage(aiImg); setEditorMode(true); }} />
+                  savedImage={savedImages[i] ?? null}
+                  onEditGraphic={(t, aiImg, variantIdx) => { setEditorText(t); setEditorAiImage(aiImg); setEditorVariantIndex(variantIdx); setEditorMode(true); }} />
               ))}
               {isStreaming&&variants.length<versionCount&&Array.from({length:versionCount-variants.length}).map((_,i)=>(
                 <SkeletonCard key={`sk-${i}`} fmt={selectedFormat!} index={variants.length+i} total={versionCount} />

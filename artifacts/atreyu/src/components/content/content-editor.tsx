@@ -36,6 +36,7 @@ export interface ContentEditorProps {
   brandName: string;
   aiImageUrl?: string | null;
   onBack: () => void;
+  onSave?: (dataUrl: string) => void;
 }
 
 export function ContentEditor({
@@ -45,6 +46,7 @@ export function ContentEditor({
   brandName,
   aiImageUrl,
   onBack,
+  onSave,
 }: ContentEditorProps) {
   const W = format.canvasW;
   const H = format.canvasH;
@@ -402,6 +404,14 @@ export function ContentEditor({
     [W, displayW, format.id],
   );
 
+  /* ── Save Design (exports full-res PNG and calls onSave) ── */
+  const handleSave = useCallback(() => {
+    const stage = stageRef.current;
+    if (!stage || !onSave) return;
+    const uri = stage.toDataURL({ pixelRatio: W / displayW, mimeType: "image/png" });
+    onSave(uri);
+  }, [W, displayW, onSave]);
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 w-full max-w-6xl mx-auto">
       {/* Canvas area */}
@@ -413,10 +423,20 @@ export function ContentEditor({
           >
             <span className="text-lg leading-none">&larr;</span> Back to results
           </button>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{W}&times;{H}px</span>
-            <span className="text-muted-foreground/40">|</span>
-            <span>{format.label}</span>
+          <div className="flex items-center gap-2">
+            {onSave && (
+              <button
+                onClick={handleSave}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold bg-primary text-primary-foreground shadow-[0_0_18px_rgba(99,102,241,0.35)] hover:bg-primary/90 transition-all"
+              >
+                &#10003; Save Design
+              </button>
+            )}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground px-2">
+              <span>{W}&times;{H}px</span>
+              <span className="text-muted-foreground/40">|</span>
+              <span>{format.label}</span>
+            </div>
           </div>
         </div>
 

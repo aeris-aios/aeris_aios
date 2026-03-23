@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import {
   Type, ImagePlus, Image as ImageIcon, Download, Undo2, Redo2,
   Trash2, Loader2, Plus, Upload, Palette, AlignLeft, AlignCenter,
-  AlignRight, Bold, Italic, ChevronDown,
+  AlignRight, Bold, Italic, ChevronDown, ChevronUp, Sparkles,
 } from "lucide-react";
 import type {
   AnyEditorElement,
@@ -70,6 +70,8 @@ export function EditorToolbar({
   const [aiError, setAiError] = useState<string | null>(null);
   const [exportFormat, setExportFormat] = useState<"png" | "jpeg">("png");
   const [exportQuality, setExportQuality] = useState(0.92);
+  const [aiPromptOpen, setAiPromptOpen] = useState(false);
+  const [userPrompt, setUserPrompt] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -78,7 +80,7 @@ export function EditorToolbar({
   const textEl = isTextSelected ? (sel as TextElement) : null;
 
   /* ── Generate AI background ── */
-  const generateAiBackground = async () => {
+  const generateAiBackground = async (customPrompt?: string) => {
     setAiLoading(true);
     setAiError(null);
     try {
@@ -94,6 +96,7 @@ export function EditorToolbar({
             ? [styleProfile.colorPalette.primary, styleProfile.colorPalette.accent]
             : undefined,
           brandName,
+          userPrompt: customPrompt?.trim() || undefined,
         }),
       });
       if (!res.ok) {
@@ -102,6 +105,7 @@ export function EditorToolbar({
       }
       const { imageUrl } = await res.json();
       editor.setBackgroundImage(imageUrl);
+      setAiPromptOpen(false);
     } catch (err: any) {
       setAiError(err?.message ?? "AI background generation failed");
     }
@@ -120,30 +124,39 @@ export function EditorToolbar({
     e.target.value = "";
   };
 
-  /* ── Upload logo ── */
+  /* ── Upload logo (preserves natural aspect ratio) ── */
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      const logoEl: ImageElement = {
-        id: `logo-${Date.now()}`,
-        type: "image",
-        x: format.canvasW * 0.05,
-        y: format.canvasH * 0.85,
-        width: Math.round(format.canvasW * 0.15),
-        height: Math.round(format.canvasW * 0.15),
-        rotation: 0,
-        draggable: true,
-        visible: true,
-        opacity: 1,
-        zIndex: 50,
-        locked: false,
-        src: reader.result as string,
-        keepRatio: true,
-        role: "logo",
+      const src = reader.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const maxW = Math.round(format.canvasW * 0.25);
+        const ratio = img.naturalWidth > 0 ? img.naturalHeight / img.naturalWidth : 1;
+        const w = Math.min(maxW, img.naturalWidth);
+        const h = Math.round(w * ratio);
+        const logoEl: ImageElement = {
+          id: `logo-${Date.now()}`,
+          type: "image",
+          x: format.canvasW * 0.05,
+          y: format.canvasH * 0.82,
+          width: w,
+          height: h,
+          rotation: 0,
+          draggable: true,
+          visible: true,
+          opacity: 1,
+          zIndex: 50,
+          locked: false,
+          src,
+          keepRatio: true,
+          role: "logo",
+        };
+        editor.addElement(logoEl);
       };
-      editor.addElement(logoEl);
+      img.src = src;
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -342,7 +355,7 @@ export function EditorToolbar({
 
         <div className="grid grid-cols-2 gap-2">
           <button
-            onClick={generateAiBackground}
+            onClick={() => setAiPromptOpen(p => !p)}
             disabled={aiLoading}
             className="flex flex-col items-center gap-1.5 py-3 rounded-xl neu-raised-sm text-xs font-semibold hover:ring-1 hover:ring-primary/20 disabled:opacity-50 transition-all"
           >
@@ -352,6 +365,10 @@ export function EditorToolbar({
               <ImagePlus className="h-4 w-4 text-violet-500" />
             )}
             {aiLoading ? "Generating..." : "AI Generate"}
+            {!aiLoading && (aiPromptOpen
+              ? <ChevronUp className="h-3 w-3 text-muted-foreground" />
+              : <ChevronDown className="h-3 w-3 text-muted-foreground" />
+            )}
           </button>
 
           <button
@@ -362,6 +379,30 @@ export function EditorToolbar({
             Upload Image
           </button>
         </div>
+
+        {/* AI prompt input — expands when "AI Generate" is toggled */}
+        {aiPromptOpen && !aiLoading && (
+          <div className="space-y-2 pt-1">
+            <p className="text-[10px] text-muted-foreground">
+              Describe what you want to see, or leave blank for an auto-generated scene.
+            </p>
+            <textarea
+              value={userPrompt}
+              onChange={e => setUserPrompt(e.target.value)}
+              placeholder="e.g. Lush tropical rainforest at golden hour, no text…"
+              rows={3}
+              className="w-full text-xs rounded-lg neu-inset-sm px-3 py-2 bg-transparent border-0 resize-none placeholder:text-muted-foreground/50 focus:outline-none"
+            />
+            <button
+              onClick={() => generateAiBackground(userPrompt)}
+              disabled={aiLoading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold bg-violet-600 text-white hover:bg-violet-500 disabled:opacity-50 transition-colors"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {userPrompt.trim() ? "Generate with my prompt" : "Auto-generate"}
+            </button>
+          </div>
+        )}
 
         {aiError && (
           <p className="text-[10px] text-red-400 text-center">{aiError}</p>
