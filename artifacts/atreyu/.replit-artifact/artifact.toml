@@ -1,6 +1,6 @@
 kind = "web"
 previewPath = "/"
-title = "ATREYU"
+title = "AERIS"
 version = "1.0.0"
 id = "artifacts/atreyu"
 router = "path"

@@ -1,8 +1,8 @@
-# ATREYU — AI Marketing Operating System
+# AERIS — AI Marketing Operating System
 
 ## Overview
 
-ATREYU (Autonomous Tactical Resource & Execution for Your Universe) is a premium AI-powered marketing operating system. It's a full-stack web SaaS platform built on a pnpm monorepo.
+AERIS is a premium AI-powered marketing operating system. It's a full-stack web SaaS platform built on a pnpm monorepo.
 
 ## Stack
 
