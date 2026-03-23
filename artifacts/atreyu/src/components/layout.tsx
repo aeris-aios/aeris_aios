@@ -173,18 +173,18 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   /* ── Palette ─────────────────────────────────────────────── */
-  /* Dark mode: charcoal neumorphic palette (neutral, no navy tint)
-     Light mode: existing blue-gray neumorphic palette                */
-  const frameBg  = isLight ? "#e8ecf4" : "#1e1e24";
-  const fsdark   = isLight ? "#b0b7ca" : "#0f0f13";
-  const fslite   = isLight ? "#eef1f8"  : "#2d2d36";
+  /* Light: neutral near-white neumorphic (no blue tint)
+     Dark:  charcoal neumorphic                          */
+  const frameBg  = isLight ? "#eaeaee" : "#1e1e24";
+  const fsdark   = isLight ? "#c0c0c8" : "#0f0f13";
+  const fslite   = isLight ? "#ffffff"  : "#2d2d36";
   const outerBg  = isLight
-    ? "linear-gradient(145deg, #8fa3c8 0%, #9dafd8 35%, #8fa8d0 65%, #849ec6 100%)"
+    ? "linear-gradient(160deg, #d0d0d6 0%, #d4d4da 45%, #cecece 75%, #cacad0 100%)"
     : "linear-gradient(160deg, #101013 0%, #13131a 45%, #0f0f14 75%, #0c0c10 100%)";
 
   const raisedSm  = `4px 4px 10px ${fsdark}, -4px -4px 10px ${fslite}`;
   const frameElev = isLight
-    ? `28px 28px 80px #8294b8, 0 40px 120px rgba(80,100,160,0.3)`
+    ? `20px 20px 60px #b8b8c0, -8px -8px 28px #ffffff, 0 40px 90px rgba(0,0,0,0.10)`
     : `20px 20px 60px #090909, -10px -10px 34px #2a2a32, 0 0 0 1px rgba(255,255,255,0.06), 0 40px 100px rgba(0,0,0,0.7)`;
   const insetSm   = `inset 3px 3px 8px ${fsdark}, inset -3px -3px 8px ${fslite}`;
   const insetMd   = `inset 6px 6px 16px ${fsdark}, inset -6px -6px 16px ${fslite}`;
