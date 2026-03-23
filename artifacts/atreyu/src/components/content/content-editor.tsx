@@ -1,18 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Stage, Layer, Rect, Text, Image as KonvaImage, Transformer } from "react-konva";
-import useImage from "use-image";
-import type Konva from "konva";
+import Konva from "konva";
 import type {
   AnyEditorElement,
   TextElement,
   ImageElement,
-  RectElement,
   StyleProfile,
   OutputFormat,
 } from "@/types/content-editor";
 import { useEditorState } from "@/hooks/use-editor-state";
 import { generateTemplate } from "@/lib/konva-templates";
-import { extractHook } from "@/lib/content-templates";
 import { EditorToolbar } from "./editor-toolbar";
 
 /* ── Image proxy for CORS ── */
@@ -22,274 +18,17 @@ function proxyImg(url: string | undefined | null): string {
   return `/api/content/image-proxy?url=${encodeURIComponent(url)}`;
 }
 
-/* ── Background image component ── */
-function BackgroundImage({
-  src,
-  width,
-  height,
-}: {
-  src: string;
-  width: number;
-  height: number;
-}) {
-  const [image] = useImage(proxyImg(src), "anonymous");
-  if (!image) return null;
-
-  /* Cover-fill the canvas */
-  const imgAR = image.width / image.height;
-  const canAR = width / height;
-  let cropX = 0,
-    cropY = 0,
-    cropW = image.width,
-    cropH = image.height;
-  if (imgAR > canAR) {
-    cropW = Math.round(image.height * canAR);
-    cropX = Math.round((image.width - cropW) / 2);
-  } else {
-    cropH = Math.round(image.width / canAR);
-    cropY = Math.round((image.height - cropH) / 2);
-  }
-
-  return (
-    <KonvaImage
-      image={image}
-      x={0}
-      y={0}
-      width={width}
-      height={height}
-      crop={{ x: cropX, y: cropY, width: cropW, height: cropH }}
-      listening={false}
-    />
-  );
+/* ── Load image helper ── */
+function loadImg(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
 }
 
-/* ── Logo image element ── */
-function LogoElement({
-  el,
-  isSelected,
-  onSelect,
-  onChange,
-}: {
-  el: ImageElement;
-  isSelected: boolean;
-  onSelect: () => void;
-  onChange: (props: Partial<ImageElement>) => void;
-}) {
-  const [image] = useImage(proxyImg(el.src), "anonymous");
-  const shapeRef = useRef<Konva.Image>(null);
-  const trRef = useRef<Konva.Transformer>(null);
-
-  useEffect(() => {
-    if (isSelected && trRef.current && shapeRef.current) {
-      trRef.current.nodes([shapeRef.current]);
-      trRef.current.getLayer()?.batchDraw();
-    }
-  }, [isSelected]);
-
-  return (
-    <>
-      <KonvaImage
-        ref={shapeRef}
-        image={image}
-        x={el.x}
-        y={el.y}
-        width={el.width}
-        height={el.height}
-        rotation={el.rotation}
-        draggable={el.draggable && !el.locked}
-        opacity={el.opacity}
-        onClick={onSelect}
-        onTap={onSelect}
-        onDragEnd={(e) => {
-          onChange({ x: e.target.x(), y: e.target.y() });
-        }}
-        onTransformEnd={() => {
-          const node = shapeRef.current;
-          if (!node) return;
-          const scaleX = node.scaleX();
-          const scaleY = node.scaleY();
-          node.scaleX(1);
-          node.scaleY(1);
-          onChange({
-            x: node.x(),
-            y: node.y(),
-            width: Math.max(20, node.width() * scaleX),
-            height: Math.max(20, node.height() * scaleY),
-            rotation: node.rotation(),
-          });
-        }}
-      />
-      {isSelected && (
-        <Transformer
-          ref={trRef}
-          keepRatio={el.keepRatio}
-          boundBoxFunc={(_, newBox) => ({
-            ...newBox,
-            width: Math.max(20, newBox.width),
-            height: Math.max(20, newBox.height),
-          })}
-        />
-      )}
-    </>
-  );
-}
-
-/* ── Editable text element ── */
-function EditableText({
-  el,
-  isSelected,
-  onSelect,
-  onChange,
-  stageRef,
-  scale,
-}: {
-  el: TextElement;
-  isSelected: boolean;
-  onSelect: () => void;
-  onChange: (props: Partial<TextElement>) => void;
-  stageRef: React.RefObject<Konva.Stage | null>;
-  scale: number;
-}) {
-  const shapeRef = useRef<Konva.Text>(null);
-  const trRef = useRef<Konva.Transformer>(null);
-
-  useEffect(() => {
-    if (isSelected && trRef.current && shapeRef.current) {
-      trRef.current.nodes([shapeRef.current]);
-      trRef.current.getLayer()?.batchDraw();
-    }
-  }, [isSelected]);
-
-  /* Double-click opens a textarea overlay for editing */
-  const handleDblClick = useCallback(() => {
-    const textNode = shapeRef.current;
-    const stage = stageRef.current;
-    if (!textNode || !stage) return;
-
-    /* Hide Konva text while editing */
-    textNode.hide();
-    trRef.current?.hide();
-    textNode.getLayer()?.batchDraw();
-
-    const container = stage.container();
-    const textPos = textNode.absolutePosition();
-    const areaPos = {
-      x: container.offsetLeft + textPos.x * scale,
-      y: container.offsetTop + textPos.y * scale,
-    };
-
-    const textarea = document.createElement("textarea");
-    container.parentElement?.appendChild(textarea);
-    textarea.value = el.text;
-
-    Object.assign(textarea.style, {
-      position: "absolute",
-      top: `${areaPos.y}px`,
-      left: `${areaPos.x}px`,
-      width: `${el.width * scale}px`,
-      minHeight: `${el.height * scale}px`,
-      fontSize: `${el.fontSize * scale}px`,
-      fontFamily: el.fontFamily,
-      fontWeight: el.fontStyle.includes("bold") ? "bold" : "normal",
-      fontStyle: el.fontStyle.includes("italic") ? "italic" : "normal",
-      textAlign: el.align,
-      color: el.fill,
-      background: "rgba(0,0,0,0.6)",
-      border: "2px solid #6366f1",
-      borderRadius: "4px",
-      padding: "4px",
-      margin: "0",
-      overflow: "hidden",
-      resize: "none",
-      outline: "none",
-      lineHeight: String(el.lineHeight),
-      zIndex: "1000",
-    } satisfies Partial<CSSStyleDeclaration>);
-
-    textarea.focus();
-
-    const finishEdit = () => {
-      onChange({ text: textarea.value });
-      textarea.remove();
-      textNode.show();
-      trRef.current?.show();
-      textNode.getLayer()?.batchDraw();
-    };
-
-    textarea.addEventListener("blur", finishEdit, { once: true });
-    textarea.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        textarea.value = el.text; // revert
-        textarea.blur();
-      }
-      if (e.key === "Enter" && !e.shiftKey) {
-        textarea.blur();
-      }
-    });
-  }, [el, scale, stageRef, onChange]);
-
-  return (
-    <>
-      <Text
-        ref={shapeRef}
-        x={el.x}
-        y={el.y}
-        width={el.width}
-        height={undefined} /* let text auto-wrap height */
-        text={el.text}
-        fontSize={el.fontSize}
-        fontFamily={el.fontFamily}
-        fontStyle={el.fontStyle || undefined}
-        fill={el.fill}
-        align={el.align}
-        lineHeight={el.lineHeight}
-        letterSpacing={el.letterSpacing}
-        textDecoration={el.textDecoration || undefined}
-        opacity={el.opacity}
-        rotation={el.rotation}
-        draggable={el.draggable && !el.locked}
-        shadowColor={el.shadowColor}
-        shadowBlur={el.shadowBlur}
-        shadowOffsetX={el.shadowOffsetX}
-        shadowOffsetY={el.shadowOffsetY}
-        onClick={onSelect}
-        onTap={onSelect}
-        onDblClick={handleDblClick}
-        onDblTap={handleDblClick}
-        onDragEnd={(e) => {
-          onChange({ x: e.target.x(), y: e.target.y() });
-        }}
-        onTransformEnd={() => {
-          const node = shapeRef.current;
-          if (!node) return;
-          const scaleX = node.scaleX();
-          node.scaleX(1);
-          node.scaleY(1);
-          onChange({
-            x: node.x(),
-            y: node.y(),
-            width: Math.max(50, node.width() * scaleX),
-            rotation: node.rotation(),
-          });
-        }}
-      />
-      {isSelected && (
-        <Transformer
-          ref={trRef}
-          enabledAnchors={["middle-left", "middle-right"]}
-          boundBoxFunc={(_, newBox) => ({
-            ...newBox,
-            width: Math.max(50, newBox.width),
-          })}
-        />
-      )}
-    </>
-  );
-}
-
-/* ═══════════════════════════════════════════
-   MAIN CONTENT EDITOR
-═══════════════════════════════════════════ */
 export interface ContentEditorProps {
   text: string;
   format: OutputFormat;
@@ -310,7 +49,6 @@ export function ContentEditor({
   const W = format.canvasW;
   const H = format.canvasH;
 
-  /* Generate initial template elements */
   const template = useMemo(
     () =>
       generateTemplate({
@@ -332,16 +70,27 @@ export function ContentEditor({
     template.backgroundColor,
   );
 
-  const stageRef = useRef<Konva.Stage>(null);
+  /* Keep a stable ref to editor callbacks to avoid stale closures in Konva handlers */
+  const editorRef = useRef(editor);
+  useEffect(() => { editorRef.current = editor; }, [editor]);
+
+  /* Container for width measurement */
   const containerRef = useRef<HTMLDivElement>(null);
+  /* Dedicated div that Konva mounts its canvas into */
+  const konvaContainerRef = useRef<HTMLDivElement>(null);
+
+  /* Konva objects — created once, mutated on state changes */
+  const stageRef    = useRef<Konva.Stage | null>(null);
+  const bgLayerRef  = useRef<Konva.Layer | null>(null);
+  const mainLayerRef = useRef<Konva.Layer | null>(null);
+  const trRef       = useRef<Konva.Transformer | null>(null);
+
   const [containerWidth, setContainerWidth] = useState(600);
 
   /* Responsive scaling */
   useEffect(() => {
     const measure = () => {
-      if (containerRef.current) {
-        setContainerWidth(containerRef.current.offsetWidth);
-      }
+      if (containerRef.current) setContainerWidth(containerRef.current.offsetWidth);
     };
     measure();
     window.addEventListener("resize", measure);
@@ -349,51 +98,293 @@ export function ContentEditor({
   }, []);
 
   const maxDisplayWidth = Math.min(containerWidth, 700);
-  const scale = maxDisplayWidth / W;
+  const scale   = maxDisplayWidth / W;
   const displayW = W * scale;
   const displayH = H * scale;
 
-  /* Keyboard shortcuts */
+  /* ── Create Konva Stage once when container mounts ── */
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === "TEXTAREA" || (e.target as HTMLElement).tagName === "INPUT") return;
+    const container = konvaContainerRef.current;
+    if (!container) return;
 
-      if ((e.key === "Delete" || e.key === "Backspace") && editor.state.selectedId) {
-        const sel = editor.selectedElement;
-        if (sel && !sel.locked) {
-          editor.removeElement(editor.state.selectedId);
+    const stage = new Konva.Stage({ container, width: displayW, height: displayH });
+
+    const bgLayer   = new Konva.Layer({ listening: false });
+    const mainLayer = new Konva.Layer();
+    const tr = new Konva.Transformer({
+      keepRatio: true,
+      boundBoxFunc: (_, newBox) => ({
+        ...newBox,
+        width:  Math.max(20, newBox.width),
+        height: Math.max(20, newBox.height),
+      }),
+    });
+    mainLayer.add(tr);
+    stage.add(bgLayer);
+    stage.add(mainLayer);
+
+    /* Deselect on empty stage click */
+    stage.on("click tap", (e) => {
+      if (e.target === stage) editorRef.current.select(null);
+    });
+
+    stageRef.current    = stage;
+    bgLayerRef.current  = bgLayer;
+    mainLayerRef.current = mainLayer;
+    trRef.current       = tr;
+
+    /* Apply initial styling */
+    Object.assign(stage.container().style, {
+      borderRadius: "12px",
+      overflow: "hidden",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    });
+
+    return () => {
+      stage.destroy();
+      stageRef.current     = null;
+      bgLayerRef.current   = null;
+      mainLayerRef.current = null;
+      trRef.current        = null;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); /* intentionally empty — stage is created once */
+
+  /* ── Resize stage when display dimensions change ── */
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.width(displayW);
+    stage.height(displayH);
+    stage.scaleX(scale);
+    stage.scaleY(scale);
+    stage.batchDraw();
+  }, [displayW, displayH, scale]);
+
+  /* ── Re-render canvas whenever editor state changes ── */
+  useEffect(() => {
+    const stage     = stageRef.current;
+    const bgLayer   = bgLayerRef.current;
+    const mainLayer = mainLayerRef.current;
+    const tr        = trRef.current;
+    if (!stage || !bgLayer || !mainLayer || !tr) return;
+
+    /* ── Background layer ── */
+    bgLayer.destroyChildren();
+
+    new Konva.Rect({
+      x: 0, y: 0, width: W, height: H,
+      fill: editor.state.backgroundColor,
+      listening: false,
+    }).addTo(bgLayer);
+
+    if (editor.state.backgroundImage) {
+      loadImg(proxyImg(editor.state.backgroundImage)).then((img) => {
+        const imgAR = img.width / img.height;
+        const canAR = W / H;
+        let cropX = 0, cropY = 0, cropW = img.width, cropH = img.height;
+        if (imgAR > canAR) {
+          cropW = Math.round(img.height * canAR);
+          cropX = Math.round((img.width - cropW) / 2);
+        } else {
+          cropH = Math.round(img.width / canAR);
+          cropY = Math.round((img.height - cropH) / 2);
+        }
+        new Konva.Image({
+          image: img, x: 0, y: 0, width: W, height: H,
+          crop: { x: cropX, y: cropY, width: cropW, height: cropH },
+          listening: false,
+        }).addTo(bgLayer);
+        bgLayer.batchDraw();
+      }).catch(() => {});
+    }
+    bgLayer.batchDraw();
+
+    /* ── Main layer — destroy all except Transformer ── */
+    const toDestroy = mainLayer.children.filter((c) => c !== tr);
+    toDestroy.forEach((c) => c.destroy());
+    tr.nodes([]);
+
+    /* Sort elements by zIndex */
+    const sorted = [...editor.state.elements].sort((a, b) => a.zIndex - b.zIndex);
+
+    for (const el of sorted) {
+      if (!el.visible) continue;
+
+      /* ── Rect element ── */
+      if (el.type === "rect") {
+        const node = new Konva.Rect({
+          id: el.id,
+          x: el.x, y: el.y, width: el.width, height: el.height,
+          fill: el.fill, cornerRadius: el.cornerRadius,
+          stroke: el.stroke || undefined, strokeWidth: el.strokeWidth,
+          opacity: el.opacity, rotation: el.rotation,
+          draggable: el.draggable && !el.locked,
+          listening: !el.locked,
+        });
+        node.on("click tap", () => { if (!el.locked) editorRef.current.select(el.id); });
+        node.on("dragend", () => editorRef.current.updateElement(el.id, { x: node.x(), y: node.y() }));
+        node.on("transformend", () => {
+          const sx = node.scaleX(), sy = node.scaleY();
+          node.scaleX(1); node.scaleY(1);
+          editorRef.current.updateElement(el.id, {
+            x: node.x(), y: node.y(),
+            width:  Math.max(20, node.width()  * sx),
+            height: Math.max(20, node.height() * sy),
+            rotation: node.rotation(),
+          });
+        });
+        mainLayer.add(node);
+        if (el.id === editor.state.selectedId) tr.nodes([node]);
+      }
+
+      /* ── Text element ── */
+      if (el.type === "text") {
+        const textEl = el as TextElement;
+        const node = new Konva.Text({
+          id: el.id,
+          x: el.x, y: el.y, width: el.width,
+          text: textEl.text, fontSize: textEl.fontSize,
+          fontFamily: textEl.fontFamily,
+          fontStyle: textEl.fontStyle || undefined,
+          fill: textEl.fill, align: textEl.align,
+          lineHeight: textEl.lineHeight, letterSpacing: textEl.letterSpacing,
+          textDecoration: textEl.textDecoration || undefined,
+          opacity: el.opacity, rotation: el.rotation,
+          draggable: el.draggable && !el.locked,
+          shadowColor: textEl.shadowColor, shadowBlur: textEl.shadowBlur,
+          shadowOffsetX: textEl.shadowOffsetX, shadowOffsetY: textEl.shadowOffsetY,
+        });
+
+        node.on("click tap", () => { if (!el.locked) editorRef.current.select(el.id); });
+        node.on("dragend", () => editorRef.current.updateElement(el.id, { x: node.x(), y: node.y() }));
+        node.on("transformend", () => {
+          const sx = node.scaleX();
+          node.scaleX(1); node.scaleY(1);
+          editorRef.current.updateElement(el.id, {
+            x: node.x(), y: node.y(),
+            width: Math.max(50, node.width() * sx),
+            rotation: node.rotation(),
+          });
+        });
+
+        /* Double-click: inline textarea edit */
+        node.on("dblclick dbltap", () => {
+          const container = stage.container();
+          const pos = node.absolutePosition();
+          const currentScale = stageRef.current?.scaleX() ?? 1;
+
+          node.hide();
+          tr.hide();
+          mainLayer.batchDraw();
+
+          const textarea = document.createElement("textarea");
+          container.parentElement?.appendChild(textarea);
+          textarea.value = textEl.text;
+
+          Object.assign(textarea.style, {
+            position: "absolute",
+            top:  `${container.offsetTop  + pos.y * currentScale}px`,
+            left: `${container.offsetLeft + pos.x * currentScale}px`,
+            width:      `${textEl.width   * currentScale}px`,
+            minHeight:  `${textEl.height  * currentScale}px`,
+            fontSize:   `${textEl.fontSize * currentScale}px`,
+            fontFamily: textEl.fontFamily,
+            fontWeight: textEl.fontStyle?.includes("bold")   ? "bold"   : "normal",
+            fontStyle:  textEl.fontStyle?.includes("italic") ? "italic" : "normal",
+            textAlign:  textEl.align,
+            color:      textEl.fill,
+            background: "rgba(0,0,0,0.6)",
+            border:     "2px solid #6366f1",
+            borderRadius: "4px",
+            padding: "4px", margin: "0",
+            overflow: "hidden", resize: "none", outline: "none",
+            lineHeight: String(textEl.lineHeight),
+            zIndex: "1000",
+          } as Partial<CSSStyleDeclaration>);
+
+          textarea.focus();
+
+          const finishEdit = () => {
+            editorRef.current.updateElement(el.id, { text: textarea.value });
+            textarea.remove();
+            node.show();
+            tr.show();
+            mainLayer.batchDraw();
+          };
+
+          textarea.addEventListener("blur", finishEdit, { once: true });
+          textarea.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") { textarea.value = textEl.text; textarea.blur(); }
+            if (e.key === "Enter" && !e.shiftKey) textarea.blur();
+          });
+        });
+
+        mainLayer.add(node);
+
+        if (el.id === editor.state.selectedId) {
+          tr.nodes([node]);
+          tr.enabledAnchors(["middle-left", "middle-right"]);
+          tr.boundBoxFunc((_, nb) => ({ ...nb, width: Math.max(50, nb.width) }));
+          tr.keepRatio(false);
         }
       }
-      if (e.key === "Escape") {
-        editor.select(null);
+
+      /* ── Image element ── */
+      if (el.type === "image") {
+        const imgEl = el as ImageElement;
+        if (imgEl.role === "background") continue; /* handled in bg layer */
+        const capturedId = el.id;
+        loadImg(proxyImg(imgEl.src)).then((img) => {
+          const node = new Konva.Image({
+            id: capturedId,
+            image: img,
+            x: imgEl.x, y: imgEl.y, width: imgEl.width, height: imgEl.height,
+            rotation: imgEl.rotation, opacity: imgEl.opacity,
+            draggable: imgEl.draggable && !imgEl.locked,
+          });
+          node.on("click tap", () => { if (!imgEl.locked) editorRef.current.select(capturedId); });
+          node.on("dragend", () => editorRef.current.updateElement(capturedId, { x: node.x(), y: node.y() }));
+          node.on("transformend", () => {
+            const sx = node.scaleX(), sy = node.scaleY();
+            node.scaleX(1); node.scaleY(1);
+            editorRef.current.updateElement(capturedId, {
+              x: node.x(), y: node.y(),
+              width:  Math.max(20, node.width()  * sx),
+              height: Math.max(20, node.height() * sy),
+              rotation: node.rotation(),
+            });
+          });
+          mainLayer.add(node);
+          if (capturedId === editorRef.current.state.selectedId) tr.nodes([node]);
+          mainLayer.batchDraw();
+        }).catch(() => {});
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        editor.undo();
+    }
+
+    mainLayer.batchDraw();
+  }, [editor.state, W, H, scale]); /* re-render when editor state changes */
+
+  /* ── Keyboard shortcuts ── */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "TEXTAREA" || tag === "INPUT") return;
+
+      const ed = editorRef.current;
+      if ((e.key === "Delete" || e.key === "Backspace") && ed.state.selectedId) {
+        const sel = ed.selectedElement;
+        if (sel && !sel.locked) ed.removeElement(ed.state.selectedId);
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && e.shiftKey) {
-        e.preventDefault();
-        editor.redo();
-      }
+      if (e.key === "Escape") ed.select(null);
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); ed.undo(); }
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" &&  e.shiftKey) { e.preventDefault(); ed.redo(); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [editor]);
+  }, []);
 
-  /* Deselect on stage click */
-  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
-    if (e.target === e.target.getStage()) {
-      editor.select(null);
-    }
-  };
-
-  /* Sort elements by zIndex for rendering order */
-  const sortedElements = useMemo(
-    () => [...editor.state.elements].sort((a, b) => a.zIndex - b.zIndex),
-    [editor.state.elements],
-  );
-
-  /* Export high-res */
+  /* ── Export ── */
   const handleExport = useCallback(
     (fileFormat: "png" | "jpeg", quality: number) => {
       const stage = stageRef.current;
@@ -403,10 +394,10 @@ export function ContentEditor({
         mimeType: fileFormat === "jpeg" ? "image/jpeg" : "image/png",
         quality,
       });
-      const link = document.createElement("a");
-      link.download = `aeris-${format.id}.${fileFormat}`;
-      link.href = uri;
-      link.click();
+      const a = document.createElement("a");
+      a.download = `aeris-${format.id}.${fileFormat}`;
+      a.href = uri;
+      a.click();
     },
     [W, displayW, format.id],
   );
@@ -429,98 +420,10 @@ export function ContentEditor({
           </div>
         </div>
 
-        <div
-          ref={containerRef}
-          className="w-full flex justify-center"
-          style={{ position: "relative" }}
-        >
-          <Stage
-            ref={stageRef}
-            width={displayW}
-            height={displayH}
-            scaleX={scale}
-            scaleY={scale}
-            onClick={handleStageClick}
-            onTap={handleStageClick}
-            style={{
-              borderRadius: "12px",
-              overflow: "hidden",
-              boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
-            }}
-          >
-            {/* Background layer */}
-            <Layer listening={false}>
-              <Rect x={0} y={0} width={W} height={H} fill={editor.state.backgroundColor} />
-              {editor.state.backgroundImage && (
-                <BackgroundImage src={editor.state.backgroundImage} width={W} height={H} />
-              )}
-            </Layer>
-
-            {/* Content layer — interactive elements */}
-            <Layer>
-              {sortedElements.map((el) => {
-                if (!el.visible) return null;
-                const isSelected = el.id === editor.state.selectedId;
-
-                switch (el.type) {
-                  case "text":
-                    return (
-                      <EditableText
-                        key={el.id}
-                        el={el}
-                        isSelected={isSelected}
-                        onSelect={() => !el.locked && editor.select(el.id)}
-                        onChange={(props) => editor.updateElement(el.id, props)}
-                        stageRef={stageRef}
-                        scale={scale}
-                      />
-                    );
-
-                  case "image":
-                    if (el.role === "background") return null; /* handled in bg layer */
-                    return (
-                      <LogoElement
-                        key={el.id}
-                        el={el}
-                        isSelected={isSelected}
-                        onSelect={() => !el.locked && editor.select(el.id)}
-                        onChange={(props) => editor.updateElement(el.id, props)}
-                      />
-                    );
-
-                  case "rect":
-                    return (
-                      <Rect
-                        key={el.id}
-                        x={el.x}
-                        y={el.y}
-                        width={el.width}
-                        height={el.height}
-                        fill={el.fill}
-                        cornerRadius={el.cornerRadius}
-                        stroke={el.stroke || undefined}
-                        strokeWidth={el.strokeWidth}
-                        opacity={el.opacity}
-                        rotation={el.rotation}
-                        draggable={el.draggable && !el.locked}
-                        listening={!el.locked}
-                        onClick={() => !el.locked && editor.select(el.id)}
-                        onTap={() => !el.locked && editor.select(el.id)}
-                        onDragEnd={(e) => {
-                          editor.updateElement(el.id, {
-                            x: e.target.x(),
-                            y: e.target.y(),
-                          });
-                        }}
-                      />
-                    );
-
-                  default:
-                    return null;
-                }
-              })}
-            </Layer>
-          </Stage>
+        {/* Width measurement wrapper */}
+        <div ref={containerRef} className="w-full flex justify-center" style={{ position: "relative" }}>
+          {/* Konva mounts its canvas into this div */}
+          <div ref={konvaContainerRef} />
         </div>
 
         <p className="text-[10px] text-muted-foreground text-center">
