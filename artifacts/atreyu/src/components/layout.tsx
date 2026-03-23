@@ -178,8 +178,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const fsdark   = isLight ? "#c0c0c8" : "#0f0f13";
   const fslite   = isLight ? "#ffffff"  : "#2d2d36";
   const outerBg  = isLight
-    ? "linear-gradient(160deg, #d0d0d6 0%, #d4d4da 45%, #cecece 75%, #cacad0 100%)"
-    : "linear-gradient(160deg, #101013 0%, #13131a 45%, #0f0f14 75%, #0c0c10 100%)";
+    ? "linear-gradient(145deg, #bdd8f5 0%, #cce4fa 35%, #b8d4f0 65%, #a8c8ec 100%)"
+    : "linear-gradient(145deg, #0a1628 0%, #0d1f3c 40%, #0b1a32 70%, #071224 100%)";
 
   const raisedSm  = `4px 4px 10px ${fsdark}, -4px -4px 10px ${fslite}`;
   const frameElev = isLight
