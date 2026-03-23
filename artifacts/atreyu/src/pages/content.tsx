@@ -998,7 +998,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
 
   return (
     <div className="neu-card rounded-2xl overflow-hidden flex flex-col">
-      {/* Style palette strip */}
+      {/* Style palette strip — full width */}
       {pal && (
         <div className="flex h-1.5">
           {[pal.primary, pal.secondary, pal.accent, pal.text].map((c,i) => (
@@ -1007,112 +1007,127 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         </div>
       )}
 
-      {/* Card header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
-        <div className="flex items-center gap-2">
-          {streaming && <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
-          <span className="hud-label">{totalVariants>1?`Version ${variantNum}`:fmt.label}</span>
-          {styleProfile && !streaming && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">
-              style-matched
-            </span>
-          )}
-          {aiImageUrl && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-500 font-semibold flex items-center gap-1">
-              <ImagePlus className="h-2.5 w-2.5" /> AI photo
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button onClick={()=>{navigator.clipboard.writeText(deepCleanText(text));setCopied(true);setTimeout(()=>setCopied(false),1800);}}
-            disabled={!text}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium neu-raised-sm disabled:opacity-40">
-            {copied?<><Check className="h-3 w-3 text-green-500"/>Copied</>:<><Copy className="h-3 w-3 text-muted-foreground"/>Copy</>}
-          </button>
-          <button
-            onClick={async()=>{setDownloading(true);await downloadVariant(text,fmt,brandName,variantNum,styleProfile,toast,aiImageUrl??undefined);setDownloading(false);}}
-            disabled={!text||streaming||downloading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-40 shadow-sm">
-            {downloading?<Loader2 className="h-3 w-3 animate-spin"/>:
-              isMobile?<><Share2 className="h-3 w-3"/>Save</>:
-              <><Download className="h-3 w-3"/>Download PNG</>}
-          </button>
-        </div>
-      </div>
+      {/* Body — horizontal for image formats, vertical for text-only */}
+      <div className={`flex flex-1 ${!fmt.isText ? "flex-col sm:flex-row" : "flex-col"}`}>
 
-      {/* Image preview */}
-      {preview && !streaming && (
-        <div className="px-5 pt-4">
-          <div className="rounded-xl overflow-hidden neu-inset-sm relative" style={{aspectRatio:`${fmt.w}/${fmt.h}`,maxHeight:240}}>
-            <img src={preview} alt="Post preview" className="w-full h-full object-cover" />
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-1.5 text-center">
-            Preview · {fmt.canvasW}×{fmt.canvasH}px · Download for full resolution
-          </p>
-        </div>
-      )}
-      {previewLoading && (
-        <div className="px-5 pt-4">
-          <div className="rounded-xl neu-inset-sm flex items-center justify-center" style={{aspectRatio:`${fmt.w}/${fmt.h}`,maxHeight:240}}>
-            <Loader2 className="h-6 w-6 animate-spin text-primary/40" />
-          </div>
-        </div>
-      )}
-
-      {/* AI Photo button — shown below preview once text is ready */}
-      {!streaming && text && !fmt.isText && (
-        <div className="px-5 pb-1 pt-2 space-y-2">
-          <button
-            onClick={generateAiPhoto}
-            disabled={aiImageLoading}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-violet-500/30 text-violet-500 hover:bg-violet-500/8 disabled:opacity-50 transition-colors">
-            {aiImageLoading
-              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating AI photo (up to 30s)…</>
-              : aiImageUrl
-                ? <><ImagePlus className="h-3.5 w-3.5" />Regenerate AI background</>
-                : <><ImagePlus className="h-3.5 w-3.5" />Generate AI background photo</>
-            }
-          </button>
-          {aiImageError && (
-            <p className="text-[10px] text-red-400 text-center mt-1">{aiImageError}</p>
-          )}
-          {/* Open in Editor button */}
-          {onEditGraphic && (
-            <button
-              onClick={() => onEditGraphic(text, aiImageUrl)}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
-              <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Edit Graphic button for text-only formats */}
-      {!streaming && text && fmt.isText && onEditGraphic && (
-        <div className="px-5 pb-1 pt-2">
-          <button
-            onClick={() => onEditGraphic(text, null)}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
-            <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
-          </button>
-        </div>
-      )}
-
-      {/* Text content */}
-      <div className="p-5 flex-1 min-h-[120px]">
-        {text ? (
-          <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap font-[inherit]">
-            {deepCleanText(text)}
-            {streaming && variantNum===totalVariants && (
-              <span className="inline-block w-2 h-4 ml-0.5 bg-primary animate-pulse align-middle rounded-sm" />
+        {/* ── LEFT: large preview column (image formats only) ── */}
+        {!fmt.isText && (
+          <div className="sm:w-[42%] flex-shrink-0 flex flex-col items-center justify-start p-3 border-b sm:border-b-0 sm:border-r border-border/30 bg-black/[0.025] dark:bg-white/[0.02]">
+            {(preview && !streaming) ? (
+              <>
+                <div className="rounded-xl overflow-hidden neu-inset-sm w-full" style={{aspectRatio:`${fmt.w}/${fmt.h}`}}>
+                  <img src={preview} alt="Post preview" className="w-full h-full object-cover" />
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-2 text-center leading-snug">
+                  Preview · {fmt.canvasW}×{fmt.canvasH}px<br/>
+                  <span className="opacity-70">Download for full resolution</span>
+                </p>
+              </>
+            ) : previewLoading ? (
+              <div className="rounded-xl neu-inset-sm w-full flex items-center justify-center" style={{aspectRatio:`${fmt.w}/${fmt.h}`}}>
+                <Loader2 className="h-6 w-6 animate-spin text-primary/40" />
+              </div>
+            ) : (
+              <div className="rounded-xl neu-inset-sm w-full flex flex-col items-center justify-center gap-2" style={{aspectRatio:`${fmt.w}/${fmt.h}`}}>
+                <ImagePlus className="h-7 w-7 text-muted-foreground/20" />
+                <span className="text-[10px] text-muted-foreground/40">Generating preview…</span>
+              </div>
             )}
           </div>
-        ) : (
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" /> Generating…
-          </div>
         )}
-      </div>
+
+        {/* ── RIGHT: header + buttons + text ── */}
+        <div className="flex flex-col flex-1 min-w-0">
+
+          {/* Card header */}
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
+            <div className="flex items-center gap-2 flex-wrap">
+              {streaming && <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
+              <span className="hud-label">{totalVariants>1?`Version ${variantNum}`:fmt.label}</span>
+              {styleProfile && !streaming && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">
+                  style-matched
+                </span>
+              )}
+              {aiImageUrl && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-500 font-semibold flex items-center gap-1">
+                  <ImagePlus className="h-2.5 w-2.5" /> AI photo
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button onClick={()=>{navigator.clipboard.writeText(deepCleanText(text));setCopied(true);setTimeout(()=>setCopied(false),1800);}}
+                disabled={!text}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium neu-raised-sm disabled:opacity-40">
+                {copied?<><Check className="h-3 w-3 text-green-500"/>Copied</>:<><Copy className="h-3 w-3 text-muted-foreground"/>Copy</>}
+              </button>
+              <button
+                onClick={async()=>{setDownloading(true);await downloadVariant(text,fmt,brandName,variantNum,styleProfile,toast,aiImageUrl??undefined);setDownloading(false);}}
+                disabled={!text||streaming||downloading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground disabled:opacity-40 shadow-sm">
+                {downloading?<Loader2 className="h-3 w-3 animate-spin"/>:
+                  isMobile?<><Share2 className="h-3 w-3"/>Save</>:
+                  <><Download className="h-3 w-3"/>Download PNG</>}
+              </button>
+            </div>
+          </div>
+
+          {/* AI Photo + Edit buttons (image formats) */}
+          {!streaming && text && !fmt.isText && (
+            <div className="px-4 pb-1 pt-3 space-y-2">
+              <button
+                onClick={generateAiPhoto}
+                disabled={aiImageLoading}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-violet-500/30 text-violet-500 hover:bg-violet-500/8 disabled:opacity-50 transition-colors">
+                {aiImageLoading
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating AI photo (up to 90s)…</>
+                  : aiImageUrl
+                    ? <><ImagePlus className="h-3.5 w-3.5" />Regenerate AI background</>
+                    : <><ImagePlus className="h-3.5 w-3.5" />Generate AI background photo</>
+                }
+              </button>
+              {aiImageError && (
+                <p className="text-[10px] text-red-400 text-center">{aiImageError}</p>
+              )}
+              {onEditGraphic && (
+                <button
+                  onClick={() => onEditGraphic(text, aiImageUrl)}
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
+                  <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Edit Graphic button for text-only formats */}
+          {!streaming && text && fmt.isText && onEditGraphic && (
+            <div className="px-4 pb-1 pt-3">
+              <button
+                onClick={() => onEditGraphic(text, null)}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
+                <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
+              </button>
+            </div>
+          )}
+
+          {/* Text content */}
+          <div className="p-5 flex-1 min-h-[120px] overflow-y-auto">
+            {text ? (
+              <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap font-[inherit]">
+                {deepCleanText(text)}
+                {streaming && variantNum===totalVariants && (
+                  <span className="inline-block w-2 h-4 ml-0.5 bg-primary animate-pulse align-middle rounded-sm" />
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" /> Generating…
+              </div>
+            )}
+          </div>
+
+        </div>{/* end right column */}
+      </div>{/* end body */}
     </div>
   );
 }
