@@ -222,7 +222,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       position: "fixed", inset: 0,
       background: outerBg,
       display: "flex", alignItems: "stretch", justifyContent: "center",
-      padding: "32px 45px", boxSizing: "border-box", overflow: "hidden",
+      padding: "32px 32px", boxSizing: "border-box", overflow: "hidden",
     }}>
 
       {/* ── THE FRAME ─────────────────────────────────────────── */}
