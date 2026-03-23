@@ -282,7 +282,7 @@ export default function ResearchLab() {
   };
 
   return (
-    <div className="space-y-7 animate-in fade-in duration-500">
+    <div className="space-y-7 animate-in fade-in duration-500 max-w-6xl mx-auto">
 
       {/* ── Header ─────────────────────────────────────────── */}
       <div
