@@ -1080,7 +1080,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
                 disabled={aiImageLoading}
                 className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-violet-500/30 text-violet-500 hover:bg-violet-500/8 disabled:opacity-50 transition-colors">
                 {aiImageLoading
-                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating AI photo (up to 90s)…</>
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating AI photo…</>
                   : aiImageUrl
                     ? <><ImagePlus className="h-3.5 w-3.5" />Regenerate AI background</>
                     : <><ImagePlus className="h-3.5 w-3.5" />Generate AI background photo</>
