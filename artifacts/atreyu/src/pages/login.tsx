@@ -37,7 +37,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6"
-      style={{ background: "var(--bg)" }}>
+      style={{ background: "#ffffff" }}>
       <div className="w-full max-w-md space-y-8">
         {/* Logo/Brand */}
         <div className="text-center space-y-2">
