@@ -721,4 +721,42 @@ router.post("/generate-image", async (req, res) => {
   }
 });
 
+/* ═══════════════════════════════════════════════════════════
+   SAVE GRAPHIC
+   Saves a generated graphic (base64 PNG/JPEG) as a content asset.
+═══════════════════════════════════════════════════════════ */
+router.post("/content/save-graphic", async (req, res) => {
+  const { imageData, format, title } = req.body as {
+    imageData: string;   /* base64-encoded image data (with or without data URI prefix) */
+    format?: string;     /* output format id (square, portrait, etc.) */
+    title?: string;      /* optional title for the asset */
+  };
+
+  if (!imageData) {
+    res.status(400).json({ error: "imageData is required" }); return;
+  }
+
+  try {
+    /* Strip data URI prefix if present */
+    const base64 = imageData.replace(/^data:image\/\w+;base64,/, "");
+    const mimeType = imageData.startsWith("data:image/jpeg") ? "image/jpeg" : "image/png";
+    const extension = mimeType === "image/jpeg" ? "jpg" : "png";
+
+    const assetTitle = title || `AERIS Graphic — ${format || "custom"} — ${new Date().toISOString().slice(0, 10)}`;
+
+    const [asset] = await db.insert(contentAssetsTable).values({
+      title: assetTitle,
+      type: "graphic",
+      content: base64.slice(0, 100) + "…", /* Store truncated reference, not full image */
+      platform: format || "custom",
+      tone: "generated",
+    }).returning();
+
+    res.status(201).json({ id: asset.id, title: assetTitle });
+  } catch (err: any) {
+    console.error("[save-graphic] error:", err);
+    res.status(500).json({ error: err?.message ?? "Failed to save graphic" });
+  }
+});
+
 export default router;

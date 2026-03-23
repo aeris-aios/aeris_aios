@@ -4,13 +4,14 @@ import {
   Repeat2, TrendingUp, HeartHandshake, LayoutTemplate, Layers,
   Copy, Check, Download, Palette, Building2, Globe, Link,
   Instagram, Youtube, Twitter, Linkedin, Facebook, Share2, FileImage,
-  Users, Eye, AlertCircle, Sparkles, ImagePlus,
+  Users, Eye, AlertCircle, Sparkles, ImagePlus, Pencil,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useSSE } from "@/hooks/use-sse";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import { ContentEditor } from "@/components/content/content-editor";
 
 /* ─────────────── Image proxy ────────────────────────────────────────
    Instagram / social CDN URLs are CORS-blocked in the browser.
@@ -917,9 +918,10 @@ function SkeletonCard({ fmt, index, total }: { fmt: OutputFormat; index: number;
 }
 
 /* ─────────────── Content card ─────────────── */
-function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streaming, styleProfile }: {
+function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streaming, styleProfile, onEditGraphic }: {
   text: string; variantNum: number; totalVariants: number; fmt: OutputFormat;
   brandName: string; streaming: boolean; styleProfile: StyleProfile | null;
+  onEditGraphic?: (text: string, aiImageUrl: string | null) => void;
 }) {
   const [copied, setCopied]                 = useState(false);
   const [downloading, setDownloading]       = useState(false);
@@ -1057,7 +1059,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
 
       {/* AI Photo button — shown below preview once text is ready */}
       {!streaming && text && !fmt.isText && (
-        <div className="px-5 pb-1 pt-2">
+        <div className="px-5 pb-1 pt-2 space-y-2">
           <button
             onClick={generateAiPhoto}
             disabled={aiImageLoading}
@@ -1072,6 +1074,25 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
           {aiImageError && (
             <p className="text-[10px] text-red-400 text-center mt-1">{aiImageError}</p>
           )}
+          {/* Open in Editor button */}
+          {onEditGraphic && (
+            <button
+              onClick={() => onEditGraphic(text, aiImageUrl)}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
+              <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Edit Graphic button for text-only formats */}
+      {!streaming && text && fmt.isText && onEditGraphic && (
+        <div className="px-5 pb-1 pt-2">
+          <button
+            onClick={() => onEditGraphic(text, null)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
+            <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
+          </button>
         </div>
       )}
 
@@ -1244,6 +1265,11 @@ export default function ContentStudio() {
   const [carouselData, setCarouselData] = useState<CarouselStructure|null>(null);
   const [carouselLoading, setCarouselLoading] = useState(false);
 
+  /* ── Editor state (Step 4) ── */
+  const [editorMode, setEditorMode]       = useState(false);
+  const [editorText, setEditorText]       = useState("");
+  const [editorAiImage, setEditorAiImage] = useState<string|null>(null);
+
   const selectedFormat = FORMATS.find(f => f.id === formatId);
   const brandName      = brand?.name ?? "AERIS";
 
@@ -1352,6 +1378,7 @@ export default function ContentStudio() {
     setMethod("standard"); setFormatId(null); setVersionCount(1);
     setGenerated(false); setVariants([]); setCarouselData(null); setData("");
     setProfileData(null); setStyleProfile(null); setProfileLoading(false); setProfileError(null);
+    setEditorMode(false); setEditorText(""); setEditorAiImage(null);
     analysisTriggered.current = false;
   };
 
@@ -1359,7 +1386,7 @@ export default function ContentStudio() {
      RENDER
   ════════════════════════════════════════════ */
   return (
-    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500 pb-20">
+    <div className={`${editorMode ? "max-w-6xl" : "max-w-4xl"} mx-auto space-y-6 animate-in fade-in duration-500 pb-20`}>
 
       {/* Header */}
       <div className="text-center space-y-1 pt-2">
@@ -1370,7 +1397,7 @@ export default function ContentStudio() {
         </p>
       </div>
 
-      {generated && (
+      {generated && !editorMode && (
         <div className="flex justify-center">
           <button onClick={startOver}
             className="flex items-center gap-2 px-4 py-2 rounded-xl neu-raised-sm text-sm font-medium text-muted-foreground hover:text-foreground transition-all">
@@ -1379,8 +1406,20 @@ export default function ContentStudio() {
         </div>
       )}
 
+      {/* ════ GRAPHIC EDITOR MODE ════ */}
+      {editorMode && selectedFormat && (
+        <ContentEditor
+          text={editorText}
+          format={selectedFormat}
+          styleProfile={styleProfile}
+          brandName={brandName}
+          aiImageUrl={editorAiImage}
+          onBack={() => setEditorMode(false)}
+        />
+      )}
+
       {/* ════ GENERATED OUTPUT ════ */}
-      {generated ? (
+      {generated && !editorMode ? (
         <div className="space-y-5">
           <div className="flex flex-wrap items-center justify-center gap-2">
             {selectedFormat && <span className="px-3 py-1 rounded-full neu-raised-sm text-xs font-semibold text-primary">{selectedFormat.label}</span>}
@@ -1406,7 +1445,8 @@ export default function ContentStudio() {
               {(variants.length>0?variants:[rawText??""]).map((text,i)=>(
                 <ContentCard key={i} text={text} variantNum={i+1} totalVariants={versionCount}
                   fmt={selectedFormat!} brandName={brandName} streaming={isStreaming&&i===variants.length-1}
-                  styleProfile={styleProfile} />
+                  styleProfile={styleProfile}
+                  onEditGraphic={(t, aiImg) => { setEditorText(t); setEditorAiImage(aiImg); setEditorMode(true); }} />
               ))}
               {isStreaming&&variants.length<versionCount&&Array.from({length:versionCount-variants.length}).map((_,i)=>(
                 <SkeletonCard key={`sk-${i}`} fmt={selectedFormat!} index={variants.length+i} total={versionCount} />
