@@ -203,14 +203,44 @@
   html { @apply scroll-smooth; }
   body { @apply font-sans antialiased bg-background text-foreground; }
 
-  /* ── Hide all scrollbars everywhere ── */
+  /* ── Custom thin scrollbars (visible on desktop, hidden on mobile) ── */
   * {
-    scrollbar-width: none;        /* Firefox */
-    -ms-overflow-style: none;     /* IE / Edge */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
-  *::-webkit-scrollbar {
-    display: none;                /* Chrome / Safari / Opera */
+  *::-webkit-scrollbar { width: 6px; height: 6px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+
+  @media (max-width: 768px) {
+    * { scrollbar-width: none; }
+    *::-webkit-scrollbar { display: none; }
   }
+
+  /* ── Focus states for accessibility ── */
+  *:focus-visible {
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* ── Skip to content link ── */
+  .skip-to-content {
+    position: absolute;
+    top: -100%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 9999;
+    padding: 8px 16px;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    transition: top 0.2s;
+  }
+  .skip-to-content:focus { top: 8px; }
 }
 
 /* ─── NEUMORPHIC UTILITIES ───────────────────────────────── */
