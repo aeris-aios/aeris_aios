@@ -43,7 +43,8 @@ function getPlatformChrome(formatId: string, platforms?: string): PlatformChrome
 
 function clampCaption(text: string, maxLen = 70): string {
   if (!text) return "";
-  const first = text.split(/\n+/)[0].trim();
+  const sentenceMatch = text.match(/[^.!?]*[.!?]/);
+  const first = (sentenceMatch ? sentenceMatch[0] : text.split(/\n+/)[0]).trim();
   return first.length > maxLen ? first.slice(0, maxLen - 1) + "…" : first;
 }
 
