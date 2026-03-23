@@ -699,21 +699,16 @@ router.post("/content/generate-image", async (req, res) => {
 
   const aspectRatio = KIE_ASPECT_MAP[formatId ?? ""] ?? "1:1";
 
-  /* ── Optionally fetch reference image for style transfer (before prompt build) ── */
-  let referenceBase64: string | null = null;
+  /* ── Validate reference image URL for style transfer (before prompt build) ── */
+  /* Pass the URL directly to KIE.AI — avoids large base64 payloads and      */
+  /* keeps the submit request lightweight. SSRF guard runs first.              */
+  let validatedReferenceUrl: string | null = null;
   if (referenceImageUrl) {
     if (!isSafeExternalUrl(referenceImageUrl)) {
       console.warn("[generate-image] referenceImageUrl failed SSRF validation, skipping style transfer");
     } else {
-      try {
-        const refImg = await imageUrlToBase64(referenceImageUrl);
-        if (refImg) {
-          referenceBase64 = `data:${refImg.mediaType};base64,${refImg.data}`;
-          console.log("[generate-image] style-transfer reference image fetched successfully");
-        }
-      } catch {
-        console.warn("[generate-image] could not fetch reference image, falling back to text-only");
-      }
+      validatedReferenceUrl = referenceImageUrl;
+      console.log("[generate-image] style-transfer reference URL validated, will pass to KIE.AI");
     }
   }
 
@@ -744,10 +739,10 @@ router.post("/content/generate-image", async (req, res) => {
       visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point.";
   }
 
-  /* "Adopt..." clause only added when reference image was actually fetched */
+  /* "Adopt..." clause only included when a validated reference URL exists */
   const prompt = [
     `Ultra-high-quality social media marketing visual for "${hook}".`,
-    referenceBase64 ? "Adopt the visual style, color palette, and mood from the reference image." : "",
+    validatedReferenceUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
     styleHint,
     moodHint,
     industryHint,
@@ -773,9 +768,9 @@ router.post("/content/generate-image", async (req, res) => {
       promptUpsampling: true,
     };
 
-    /* Activate style-transfer mode when reference image is available */
-    if (referenceBase64) {
-      kieBody.imageUrl           = referenceBase64;
+    /* Activate style-transfer mode when a validated reference URL is available */
+    if (validatedReferenceUrl) {
+      kieBody.imageUrl            = validatedReferenceUrl;
       kieBody.imagePromptStrength = 0.35;
     }
 
@@ -795,43 +790,60 @@ router.post("/content/generate-image", async (req, res) => {
     }
 
     const submitData = await submitRes.json();
+    console.log("[generate-image] KIE submit response:", JSON.stringify(submitData));
     const taskId = submitData?.data?.taskId ?? submitData?.taskId;
     if (!taskId) {
       res.status(502).json({ error: "No taskId returned from KIE.AI" }); return;
     }
+    console.log("[generate-image] taskId:", taskId, "| styleTransfer:", !!validatedReferenceUrl);
 
-    /* Poll until done — max 180 seconds (60 polls × 3s) */
-    const MAX_POLLS    = 60;
+    /* Poll until done — max 300 seconds (100 polls × 3s) */
+    const MAX_POLLS    = 100;
     const POLL_INTERVAL = 3_000;
 
     for (let i = 0; i < MAX_POLLS; i++) {
       await new Promise(r => setTimeout(r, POLL_INTERVAL));
 
       const pollRes = await fetch(
-        `https://api.kie.ai/api/v1/flux/kontext/image/${taskId}`,
+        `https://api.kie.ai/api/v1/flux/kontext/record/${taskId}`,
         { headers: { "Authorization": `Bearer ${KIE_API_KEY}` } },
       );
 
-      if (!pollRes.ok) continue;
+      if (!pollRes.ok) {
+        if (i % 10 === 0) console.log(`[generate-image] poll ${i+1}: HTTP ${pollRes.status}`);
+        continue;
+      }
 
       const pollData = await pollRes.json();
-      const status   = pollData?.data?.status ?? pollData?.status;
+      const status   =
+        pollData?.data?.status ??
+        pollData?.status       ??
+        pollData?.data?.taskStatus ??
+        pollData?.taskStatus;
       const imageUrl =
-        pollData?.data?.imageUrl     ??
-        pollData?.data?.resultImageUrl ??
-        pollData?.data?.url          ??
+        pollData?.data?.imageUrl        ??
+        pollData?.data?.resultImageUrl  ??
+        pollData?.data?.outputImageUrl  ??
+        pollData?.data?.url             ??
         pollData?.imageUrl;
 
-      if ((status === "completed" || status === "success" || status === "SUCCEEDED") && imageUrl) {
+      if (i === 0 || i % 10 === 0) {
+        console.log(`[generate-image] poll ${i+1}: status=${status} hasUrl=${!!imageUrl} raw=${JSON.stringify(pollData).slice(0, 300)}`);
+      }
+
+      if ((status === "completed" || status === "success" || status === "SUCCEEDED" ||
+           status === "COMPLETE"  || status === "done"    || status === "SUCCESS") && imageUrl) {
+        console.log("[generate-image] completed at poll", i+1);
         res.json({ imageUrl }); return;
       }
 
-      if (status === "failed" || status === "error" || status === "FAILED") {
+      if (status === "failed" || status === "error" || status === "FAILED" || status === "ERROR") {
+        console.error("[generate-image] KIE task failed at poll", i+1, JSON.stringify(pollData));
         res.status(502).json({ error: "KIE.AI image generation failed" }); return;
       }
     }
 
-    res.status(504).json({ error: "Image generation timed out after 180 seconds" });
+    res.status(504).json({ error: "Image generation timed out after 300 seconds" });
   } catch (err: any) {
     console.error("[generate-image] error:", err);
     res.status(500).json({ error: err?.message ?? "Image generation error" });
