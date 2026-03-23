@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { agentSkillsTable, contentItemsTable } from "@workspace/db";
-import { eq, isNull, desc } from "drizzle-orm";
+import { agentSkillsTable, contentItemsTable, knowledgeItemsTable, brandProfilesTable } from "@workspace/db";
+import { eq, isNull, desc, and } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
@@ -129,12 +129,23 @@ router.post("/content-studio/generate", async (req, res) => {
   const send = (event: Record<string, unknown>) => res.write(`data: ${JSON.stringify(event)}\n\n`);
 
   try {
-    send({ stage: "loading_skills", message: "Loading trained skills..." });
+    send({ stage: "loading_skills", message: "Loading trained skills and knowledge base..." });
 
     const skillRows = await db
       .select()
       .from(agentSkillsTable)
       .where(isNull(agentSkillsTable.deletedAt));
+
+    /* ── Load Knowledge Base (auto-inject items) ── */
+    const knowledgeItems = await db.select()
+      .from(knowledgeItemsTable)
+      .where(and(
+        isNull(knowledgeItemsTable.deletedAt),
+        eq(knowledgeItemsTable.includeInContext, true),
+      ));
+
+    /* ── Load Brand Profile ── */
+    const [brand] = await db.select().from(brandProfilesTable).limit(1);
 
     const skills = skillRows.map(r => ({
       ...r,
@@ -164,8 +175,17 @@ router.post("/content-studio/generate", async (req, res) => {
       .map(p => `### ${p.name}\n${p.guidelines}`)
       .join("\n\n");
 
-    const systemPrompt = `You are AERIS, an elite AI content strategist and creator. You have been trained on specific skills from real codebases and knowledge bases. Use these skills to inform and enhance the content you create.
+    /* Build knowledge and brand blocks */
+    const knowledgeBlock = knowledgeItems.length > 0
+      ? `\nBUSINESS KNOWLEDGE (Use this context to inform all content):\n${knowledgeItems.map(k => `- ${k.title}: ${k.content.slice(0, 500)}`).join("\n")}\n`
+      : "";
 
+    const brandBlock = brand
+      ? `\nBRAND IDENTITY:\nBrand: ${brand.name}${brand.tagline ? ` — ${brand.tagline}` : ""}${brand.voiceDescription ? `\nVoice: ${brand.voiceDescription}` : ""}${brand.primaryAudience ? `\nAudience: ${brand.primaryAudience}` : ""}${brand.usps ? `\nUSPs: ${brand.usps}` : ""}${brand.industry ? `\nIndustry: ${brand.industry}` : ""}\n`
+      : "";
+
+    const systemPrompt = `You are AERIS, an elite AI content strategist and creator. You have been trained on specific skills from real codebases and knowledge bases. Use these skills to inform and enhance the content you create.
+${brandBlock}${knowledgeBlock}
 YOUR TRAINED SKILLS:
 ${skillsSummary}
 

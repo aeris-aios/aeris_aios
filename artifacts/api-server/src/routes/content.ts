@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { contentAssetsTable, brandProfilesTable, styleExamplesTable } from "@workspace/db";
-import { eq, isNull } from "drizzle-orm";
+import { contentAssetsTable, brandProfilesTable, styleExamplesTable, knowledgeItemsTable } from "@workspace/db";
+import { eq, isNull, and } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
@@ -425,6 +425,23 @@ router.post("/content/generate", async (req, res) => {
     .limit(3);
   const analyzedExamples = styleExamples.filter(e => e.analysisResult);
 
+  /* ── Load Knowledge Base (auto-inject items) ── */
+  const knowledgeItems = await db.select()
+    .from(knowledgeItemsTable)
+    .where(and(
+      isNull(knowledgeItemsTable.deletedAt),
+      eq(knowledgeItemsTable.includeInContext, true),
+    ));
+
+  let knowledgeContext = "";
+  if (knowledgeItems.length > 0) {
+    knowledgeContext = `
+## BUSINESS KNOWLEDGE (Use this context to inform your content)
+${knowledgeItems.map(k => `### ${k.title} (${k.type})
+${k.content}${k.url ? `\nSource: ${k.url}` : ""}`).join("\n\n")}
+`;
+  }
+
   let brandContext = "";
   if (brand) {
     brandContext = `
@@ -474,7 +491,7 @@ ${socialProfileUrl ? `Competitor profile: ${socialProfileUrl}` : ""}
       ? "\n\nIMPORTANT: Write ONLY the LinkedIn post caption text here. The carousel slides will be generated separately.\n"
       : "";
 
-    systemPrompt = `You are an expert LinkedIn content strategist and ghostwriter.${PLAIN_TEXT_RULES}${brandContext ? `\n${brandContext}` : ""}${styleBlock}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}${brand ? "" : "\n\nNo brand profile set — write for a generic professional brand based on the brief."}`;
+    systemPrompt = `You are an expert LinkedIn content strategist and ghostwriter.${PLAIN_TEXT_RULES}${brandContext ? `\n${brandContext}` : ""}${knowledgeContext}${styleBlock}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}${brand ? "" : "\n\nNo brand profile set — write for a generic professional brand based on the brief."}`;
 
     userPrompt = `${methodBlock}${originalPost && method === "viral_replication" ? originalPost + "\n\n---\n\nNow write the adapted version:\n" : ""}
 
@@ -489,7 +506,7 @@ ${variants > 1 ? `\nGenerate ${variants} distinct variants, clearly labeled as V
 Write the LinkedIn post now.`;
 
   } else {
-    systemPrompt = `You are AERIS, an elite marketing copywriter and strategist.${PLAIN_TEXT_RULES}${brandContext ? `\n${brandContext}` : ""}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}
+    systemPrompt = `You are AERIS, an elite marketing copywriter and strategist.${PLAIN_TEXT_RULES}${brandContext ? `\n${brandContext}` : ""}${knowledgeContext}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}
 
 Create high-converting, professional marketing content that is unmistakably ON-BRAND.${brand ? "" : "\n\nNo brand profile set — write professional content based on the brief provided."}`;
 
@@ -627,12 +644,15 @@ const KIE_ASPECT_MAP: Record<string, string> = {
 };
 
 router.post("/generate-image", async (req, res) => {
-  const { hook, contentStyle, formatId, brandColors, brandName } = req.body as {
+  const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry } = req.body as {
     hook: string;
     contentStyle?: string;
     formatId?: string;
     brandColors?: string[];
     brandName?: string;
+    mood?: string;
+    backgroundStyle?: string;
+    industry?: string;
   };
 
   if (!hook) { res.status(400).json({ error: "hook is required" }); return; }
@@ -642,16 +662,48 @@ router.post("/generate-image", async (req, res) => {
 
   const aspectRatio = KIE_ASPECT_MAP[formatId ?? ""] ?? "1:1";
 
-  /* Build a cinematic art-direction prompt */
-  const colorHint   = brandColors?.length
-    ? `, color palette inspired by ${brandColors.slice(0, 2).join(" and ")}`
+  /* ── Build a high-quality, brand-aligned art direction prompt ── */
+  const colorHint = brandColors?.length
+    ? `. Dominant color tones: ${brandColors.slice(0, 3).join(", ")}`
     : "";
-  const styleHint   = contentStyle ? `${contentStyle}. ` : "";
-  const brandHint   = brandName ? `Lifestyle imagery that fits the brand ${brandName}. ` : "";
+  const styleHint = contentStyle ? `Visual style: ${contentStyle}. ` : "";
+  const moodHint  = mood ? `Mood: ${mood}. ` : "";
+  const industryHint = industry ? `Industry context: ${industry}. ` : "";
 
-  const prompt = `${styleHint}${brandHint}Cinematic editorial photograph as a social media post background about: "${hook}". Professional photography, dramatic lighting, clean minimalist composition with space for text overlay, high-end commercial look, no people, no text, no logos${colorHint}.`;
+  /* Determine visual approach based on background style */
+  let visualApproach: string;
+  switch (backgroundStyle) {
+    case "dark":
+      visualApproach = "Dark, moody atmosphere with rich shadows and selective lighting. Deep blacks and subtle color accents.";
+      break;
+    case "gradient":
+      visualApproach = "Smooth gradient backdrop with soft ambient lighting. Clean, modern, and aspirational.";
+      break;
+    case "textured":
+      visualApproach = "Rich textures — marble, concrete, fabric, or natural materials. Tactile and premium feel.";
+      break;
+    case "light":
+      visualApproach = "Bright, airy, and clean. Soft diffused light, white space, minimal and premium.";
+      break;
+    default:
+      visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point.";
+  }
 
-  const negativePrompt = "text, watermarks, logos, words, letters, people, faces, cluttered backgrounds, amateur photography, blurry, low quality, distorted";
+  const prompt = [
+    `Ultra-high-quality social media marketing visual for "${hook}".`,
+    styleHint,
+    moodHint,
+    industryHint,
+    visualApproach,
+    `Composition: clean negative space reserved for text overlay (top or center third).`,
+    `Shot on professional DSLR, 85mm lens, f/2.8. Studio-grade lighting.`,
+    `Premium stock photo quality suitable for Fortune 500 marketing materials.`,
+    brandName ? `Brand context: ${brandName}.` : "",
+    `Absolutely no text, no watermarks, no logos, no letters, no words, no people, no faces.`,
+    colorHint,
+  ].filter(Boolean).join(" ");
+
+  const negativePrompt = "text, watermarks, logos, words, letters, numbers, people, faces, hands, fingers, cluttered backgrounds, amateur photography, blurry, low quality, distorted, oversaturated, cartoon, illustration, drawing, painting, render, 3D, CGI, stock photo watermark, busy composition";
 
   try {
     /* Submit generation task */

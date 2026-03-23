@@ -9,3 +9,4 @@ export * from "./automations";
 export * from "./agents";
 export * from "./brand";
 export * from "./codestudio";
+export * from "./settings";

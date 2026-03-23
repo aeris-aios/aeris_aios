@@ -970,12 +970,14 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           hook,
-          contentStyle: styleProfile?.contentStyle,
-          formatId:     fmt.id,
-          brandColors:  styleProfile?.colorPalette
-            ? [styleProfile.colorPalette.primary, styleProfile.colorPalette.accent]
+          contentStyle:    styleProfile?.contentStyle,
+          formatId:        fmt.id,
+          brandColors:     styleProfile?.colorPalette
+            ? [styleProfile.colorPalette.primary, styleProfile.colorPalette.accent, styleProfile.colorPalette.secondary]
             : undefined,
           brandName,
+          mood:            styleProfile?.mood,
+          backgroundStyle: styleProfile?.backgroundStyle,
         }),
       });
       if (!res.ok) {
