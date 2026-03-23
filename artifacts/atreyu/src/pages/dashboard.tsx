@@ -4,15 +4,7 @@ import { Folder, Megaphone, FileText, Activity, TrendingUp, ArrowUpRight } from 
 import { format } from "date-fns";
 import { useTheme } from "@/contexts/theme";
 
-const chartData = [
-  { name: "Mon", value: 12, secondary: 8  },
-  { name: "Tue", value: 19, secondary: 14 },
-  { name: "Wed", value: 16, secondary: 11 },
-  { name: "Thu", value: 7,  secondary: 5  },
-  { name: "Fri", value: 21, secondary: 17 },
-  { name: "Sat", value: 11, secondary: 9  },
-  { name: "Sun", value: 9,  secondary: 6  },
-];
+/* chartData now comes from the API via stats.chartData */
 
 /* Neumorphic helpers — inline styles for reliability */
 function useNeu() {
@@ -107,7 +99,15 @@ export default function Dashboard() {
   }
 
   if (isError || !stats) {
-    return <div className="h-full flex items-center justify-center hud-label text-destructive">SYSTEM FAULT — UNABLE TO LOAD</div>;
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3">
+        <p className="text-sm font-semibold text-destructive">Unable to load dashboard</p>
+        <button onClick={() => window.location.reload()}
+          className="px-4 py-2 rounded-xl neu-raised-sm text-xs font-medium text-muted-foreground hover:text-foreground transition-all">
+          Retry
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -151,7 +151,7 @@ export default function Dashboard() {
           </div>
           <div className="h-[200px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+              <AreaChart data={stats.chartData ?? []} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="grad1" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="#2563eb" stopOpacity={0.3} />
@@ -179,8 +179,8 @@ export default function Dashboard() {
                   }}
                   labelStyle={{ color: n.isLight ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.5)" }}
                 />
-                <Area type="monotone" dataKey="value"     stroke="#2563eb" strokeWidth={2} fill="url(#grad1)" dot={false} />
-                <Area type="monotone" dataKey="secondary" stroke="#06b6d4" strokeWidth={2} fill="url(#grad2)" dot={false} />
+                <Area type="monotone" dataKey="total"   stroke="#2563eb" strokeWidth={2} fill="url(#grad1)" dot={false} />
+                <Area type="monotone" dataKey="content" stroke="#06b6d4" strokeWidth={2} fill="url(#grad2)" dot={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>

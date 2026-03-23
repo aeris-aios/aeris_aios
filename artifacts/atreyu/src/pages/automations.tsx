@@ -45,6 +45,10 @@ export default function Automations() {
         queryClient.invalidateQueries({ queryKey: ["/api/automations"] });
         setOpen(false);
         form.reset();
+        toast({ title: "Automation created", description: `"${values.title}" is now active.` });
+      },
+      onError: () => {
+        toast({ title: "Failed to create automation", variant: "destructive" });
       }
     });
   };
@@ -99,22 +103,43 @@ export default function Automations() {
                     <FormMessage />
                   </FormItem>
                 )} />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField control={form.control} name="trigger" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Trigger / Condition</FormLabel>
-                      <FormControl><Input {...field} placeholder="e.g. Daily at 9am" className="bg-muted/50 border-border" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="action" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Action / Execution</FormLabel>
-                      <FormControl><Input {...field} placeholder="e.g. Generate LinkedIn Post" className="bg-muted/50 border-border" /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                </div>
+                <FormField control={form.control} name="trigger" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Schedule</FormLabel>
+                    <div className="flex flex-wrap gap-2">
+                      {["Every 30 minutes","Every 1 hour","Every 6 hours","Daily","Every 2 days","Weekly"].map(t => (
+                        <button key={t} type="button" onClick={() => field.onChange(t)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                            field.value === t ? "bg-primary text-primary-foreground" : "bg-muted/50 border border-border text-muted-foreground hover:text-foreground"
+                          }`}>{t}</button>
+                      ))}
+                    </div>
+                    <FormControl><Input {...field} placeholder="Or type custom: e.g. Every 3 hours" className="bg-muted/50 border-border mt-2" /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="action" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Action</FormLabel>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        "Generate LinkedIn post about our latest product updates",
+                        "Generate Instagram content for this week",
+                        "Run competitor research on our top 3 competitors",
+                        "Create weekly marketing performance digest",
+                        "Generate ad copy for current campaigns",
+                        "Write email newsletter draft",
+                      ].map(a => (
+                        <button key={a} type="button" onClick={() => field.onChange(a)}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all text-left ${
+                            field.value === a ? "bg-primary text-primary-foreground" : "bg-muted/50 border border-border text-muted-foreground hover:text-foreground"
+                          }`}>{a}</button>
+                      ))}
+                    </div>
+                    <FormControl><Textarea {...field} placeholder="Or describe a custom action..." className="bg-muted/50 border-border mt-2 min-h-[60px]" /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
                 <Button type="submit" disabled={isPending} className="w-full bg-primary hover:bg-primary/90 mt-4 shadow-[0_0_15px_rgba(0,150,255,0.3)]">
                   {isPending ? "Saving..." : "Deploy Sequence"}
                 </Button>
