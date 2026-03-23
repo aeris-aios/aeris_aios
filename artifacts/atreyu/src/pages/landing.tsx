@@ -89,7 +89,7 @@ export default function LandingPage() {
         boxShadow: `0 4px 20px ${DARK}88, 0 1px 0 ${LITE}`,
       }}>
         {/* Logo */}
-        <img src="/atreyu-logo.png" alt="ATREYU" style={{ height: 22, opacity: 0.8 }} />
+        <img src="/aeris-logo.svg" alt="AERIS" style={{ height: 22, opacity: 0.8 }} />
 
         {/* Links */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -313,7 +313,7 @@ export default function LandingPage() {
             textAlign: "center", maxWidth: 680, width: "100%",
           }}
         >
-          <img src="/atreyu-logo.png" alt="ATREYU" style={{ height: 28, opacity: 0.7, marginBottom: 28 }} />
+          <img src="/aeris-logo.svg" alt="AERIS" style={{ height: 28, opacity: 0.7, marginBottom: 28 }} />
           <h2 style={{ fontSize: 32, fontWeight: 800, letterSpacing: "-0.025em", color: FG, marginBottom: 16 }}>
             Ready to run your marketing universe?
           </h2>
@@ -342,9 +342,9 @@ export default function LandingPage() {
         padding: "24px 48px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
       }}>
-        <img src="/atreyu-logo.png" alt="ATREYU" style={{ height: 16, opacity: 0.35 }} />
+        <img src="/aeris-logo.svg" alt="AERIS" style={{ height: 16, opacity: 0.35 }} />
         <span style={{ fontSize: 11, color: SUB, opacity: 0.6 }}>
-          © 2026 ATREYU. AI-Powered Marketing OS.
+          © 2026 AERIS. AI-Powered Marketing OS.
         </span>
       </footer>
 

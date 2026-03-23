@@ -523,7 +523,7 @@ function renderModern(
   ctx.font = `400 ${ftSize}px ${SF}`;
   ctx.fillStyle = hexA("#1A1A1A", 0.32);
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(`MADE WITH ATREYU`, W/2, cardY + cardH + (H - cardY - cardH) * 0.5);
+  ctx.fillText(`MADE WITH AERIS`, W/2, cardY + cardH + (H - cardY - cardH) * 0.5);
 }
 
 /* ════════════════════════════════════════════
@@ -697,7 +697,7 @@ async function downloadVariant(
     const blob = await exportToImage(text, fmt, brandName, variantNum, styleProfile ?? undefined, bgImageUrl);
     const file = new File([blob], `atreyu-${fmt.id}-v${variantNum}.png`, { type: "image/png" });
     if (navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], title: `ATREYU — ${fmt.label}` }); return;
+      await navigator.share({ files: [file], title: `AERIS — ${fmt.label}` }); return;
     }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = file.name; a.click();
@@ -1245,7 +1245,7 @@ export default function ContentStudio() {
   const [carouselLoading, setCarouselLoading] = useState(false);
 
   const selectedFormat = FORMATS.find(f => f.id === formatId);
-  const brandName      = brand?.name ?? "ATREYU";
+  const brandName      = brand?.name ?? "AERIS";
 
   useEffect(() => { setDetectedPlatform(detectPlatform(socialUrl)); }, [socialUrl]);
 
@@ -1448,7 +1448,7 @@ export default function ContentStudio() {
               <div className="space-y-6">
                 <div className="text-center space-y-1.5">
                   <p className="hud-label">Step 1 of 3</p>
-                  <h2 className="text-xl font-bold">Where should ATREYU pull your brand from?</h2>
+                  <h2 className="text-xl font-bold">Where should AERIS pull your brand from?</h2>
                   <p className="text-sm text-muted-foreground">Your brand identity shapes every word of the output.</p>
                 </div>
 
@@ -1500,7 +1500,7 @@ export default function ContentStudio() {
                       </div>
                     </div>
                     <p className="text-sm text-muted-foreground mb-3">
-                      Paste a competitor's Instagram/LinkedIn/TikTok URL — ATREYU scrapes their posts, extracts their visual style, and writes content that matches their aesthetic.
+                      Paste a competitor's Instagram/LinkedIn/TikTok URL — AERIS scrapes their posts, extracts their visual style, and writes content that matches their aesthetic.
                     </p>
                     <div className="flex items-center gap-3">
                       {[{c:"#E1306C",I:Instagram},{c:"#1877F2",I:Facebook},{c:"#0A66C2",I:Linkedin},{c:"#000",I:Twitter},{c:"#FF0000",I:Youtube}]
@@ -1545,7 +1545,7 @@ export default function ContentStudio() {
                 <div className="text-center space-y-1.5">
                   <p className="hud-label">Step 2 of 3</p>
                   <h2 className="text-xl font-bold">What do you want to say?</h2>
-                  <p className="text-sm text-muted-foreground">Give ATREYU a clear brief — the more specific, the better the output.</p>
+                  <p className="text-sm text-muted-foreground">Give AERIS a clear brief — the more specific, the better the output.</p>
                 </div>
 
                 {/* Profile analysis (social_import only) */}
@@ -1599,7 +1599,7 @@ export default function ContentStudio() {
                     </label>
                     <NeuInput>
                       <Textarea value={originalPost} onChange={e=>setOriginalPost(e.target.value)}
-                        placeholder="Paste the viral post here. ATREYU keeps the hook structure and adapts it to your brand."
+                        placeholder="Paste the viral post here. AERIS keeps the hook structure and adapts it to your brand."
                         className="bg-transparent border-0 focus-visible:ring-0 shadow-none min-h-[90px] text-sm resize-none"/>
                     </NeuInput>
                   </div>
@@ -1666,7 +1666,7 @@ export default function ContentStudio() {
                 <div className="space-y-3">
                   <div className="text-center space-y-0.5">
                     <p className="text-sm font-semibold">How many versions do you want?</p>
-                    <p className="text-xs text-muted-foreground">ATREYU writes multiple takes so you can pick the best one.</p>
+                    <p className="text-xs text-muted-foreground">AERIS writes multiple takes so you can pick the best one.</p>
                   </div>
                   <div className="flex gap-2">
                     {[1,2,3,4].map(n=>(

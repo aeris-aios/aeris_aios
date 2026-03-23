@@ -267,7 +267,7 @@ export async function runCodeStudioAgent(opts: {
   const history: Anthropic.MessageParam[] = sessions.get(sessionId) ?? [];
   history.push({ role: "user", content: message });
 
-  const systemPrompt = `You are ATREYU Code Studio — an expert AI coding assistant embedded in a browser-based IDE.
+  const systemPrompt = `You are AERIS Code Studio — an expert AI coding assistant embedded in a browser-based IDE.
 You have direct access to the user's project files via tools. Use them proactively to understand context before answering.
 Project ID: ${projectId}
 

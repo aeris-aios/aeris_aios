@@ -126,7 +126,7 @@ function ConnectScreen({
             </span>
           </div>
           <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--app-muted)" }}>
-            ATREYU Code Studio uses your personal Anthropic API key so that Claude calls are billed directly
+            AERIS Code Studio uses your personal Anthropic API key so that Claude calls are billed directly
             to your Anthropic account — not ours. Your key is stored only in memory for this session and
             never saved to disk.
           </p>
@@ -813,7 +813,7 @@ export default function CodeStudio() {
         {/* RIGHT: Chat */}
         <div style={{ ...panelStyle, width: 340, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px 6px", borderBottom: "1px solid rgba(128,128,128,0.12)", flexShrink: 0 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", letterSpacing: "0.06em" }}>ATREYU CODE STUDIO</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#a78bfa", letterSpacing: "0.06em" }}>AERIS CODE STUDIO</span>
             <button
               onClick={newSession}
               title="New session"

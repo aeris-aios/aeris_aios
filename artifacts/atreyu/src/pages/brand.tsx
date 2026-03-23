@@ -543,7 +543,7 @@ export default function BrandKit() {
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Upload images of your best-performing ads, social posts, or emails — plus any text documents of copy you love.
-                ATREYU will analyze each one with Claude Vision to extract your aesthetic DNA.
+                AERIS will analyze each one with Claude Vision to extract your aesthetic DNA.
               </p>
               <DropZone
                 accept="image/*,.pdf,.txt,.md,.doc,.docx"
@@ -617,7 +617,7 @@ export default function BrandKit() {
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Upload your personal photos for LinkedIn posts. Tag each with a setting (office, outdoor, portrait, etc.) so ATREYU can match the right photo to each post's vibe.
+                Upload your personal photos for LinkedIn posts. Tag each with a setting (office, outdoor, portrait, etc.) so AERIS can match the right photo to each post's vibe.
               </p>
               <DropZone
                 accept="image/jpeg,image/jpg,image/png,image/webp"

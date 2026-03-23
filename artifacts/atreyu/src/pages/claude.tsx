@@ -599,8 +599,8 @@ export default function AgentStudio() {
                 <Github style={{ width: 18, height: 18 }} />
               </div>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: n.fg, letterSpacing: "0.04em" }}>Train ATREYU with New Skills</div>
-                <div style={{ fontSize: 10, color: n.sub, marginTop: 2 }}>Paste a GitHub repo link. ATREYU will analyze the codebase and learn reusable skills, patterns, and techniques.</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: n.fg, letterSpacing: "0.04em" }}>Train AERIS with New Skills</div>
+                <div style={{ fontSize: 10, color: n.sub, marginTop: 2 }}>Paste a GitHub repo link. AERIS will analyze the codebase and learn reusable skills, patterns, and techniques.</div>
               </div>
             </div>
 
@@ -631,7 +631,7 @@ export default function AgentStudio() {
               >
                 {training
                   ? <><Loader2 style={{ width: 13, height: 13, animation: "spin 1s linear infinite" }} /> Training...</>
-                  : <><Sparkles style={{ width: 13, height: 13 }} /> Train ATREYU</>}
+                  : <><Sparkles style={{ width: 13, height: 13 }} /> Train AERIS</>}
               </button>
             </div>
 
@@ -719,7 +719,7 @@ export default function AgentStudio() {
                     {skills.length === 0 ? "No skills trained yet" : "No skills match your filters"}
                   </div>
                   <div style={{ fontSize: 10, color: n.sub }}>
-                    {skills.length === 0 ? "Paste a GitHub link above to teach ATREYU new skills." : "Try a different category or search term."}
+                    {skills.length === 0 ? "Paste a GitHub link above to teach AERIS new skills." : "Try a different category or search term."}
                   </div>
                 </div>
               </div>

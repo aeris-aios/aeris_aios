@@ -234,7 +234,7 @@ export default function ContentStudioPage() {
           Content That Converts
         </h1>
         <p className="text-sm text-muted-foreground max-w-md mx-auto">
-          Describe what you want. ATREYU uses your trained skills to generate platform-ready content.
+          Describe what you want. AERIS uses your trained skills to generate platform-ready content.
         </p>
       </div>
 
@@ -323,7 +323,7 @@ export default function ContentStudioPage() {
         <div className="flex items-center gap-3 px-4 py-3 rounded-xl neu-raised-sm">
           <Sparkles className="h-4 w-4 text-violet-500 flex-shrink-0" />
           <p className="text-sm text-muted-foreground flex-1">
-            ATREYU has <span className="font-semibold text-foreground">{skillCount}</span> trained skill{skillCount !== 1 ? "s" : ""} ready to use
+            AERIS has <span className="font-semibold text-foreground">{skillCount}</span> trained skill{skillCount !== 1 ? "s" : ""} ready to use
           </p>
           <a href="/claude" className="text-xs text-primary hover:underline flex items-center gap-1 flex-shrink-0">
             Train more <ChevronRight className="h-3 w-3" />
@@ -389,7 +389,7 @@ export default function ContentStudioPage() {
           {result.skillsUsed?.length > 0 && (
             <div className="neu-card rounded-2xl p-5 space-y-3">
               <p className="hud-label flex items-center gap-1.5 text-violet-500">
-                <Sparkles className="h-3 w-3" /> Skills Applied by ATREYU
+                <Sparkles className="h-3 w-3" /> Skills Applied by AERIS
               </p>
               {result.skillsUsed.map((s, i) => (
                 <div key={i} className="flex items-start gap-2 text-sm text-muted-foreground leading-relaxed">

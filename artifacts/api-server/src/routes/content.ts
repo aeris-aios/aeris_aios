@@ -121,7 +121,7 @@ RULES:
 async function imageUrlToBase64(url: string): Promise<{ data: string; mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif" } | null> {
   try {
     const resp = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; ATREYU/1.0)" },
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; AERIS/1.0)" },
       signal: AbortSignal.timeout(12000),
     });
     if (!resp.ok) return null;
@@ -489,7 +489,7 @@ ${variants > 1 ? `\nGenerate ${variants} distinct variants, clearly labeled as V
 Write the LinkedIn post now.`;
 
   } else {
-    systemPrompt = `You are ATREYU, an elite marketing copywriter and strategist.${PLAIN_TEXT_RULES}${brandContext ? `\n${brandContext}` : ""}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}
+    systemPrompt = `You are AERIS, an elite marketing copywriter and strategist.${PLAIN_TEXT_RULES}${brandContext ? `\n${brandContext}` : ""}${styleContext ? `\n${styleContext}` : ""}${competitorBlock}
 
 Create high-converting, professional marketing content that is unmistakably ON-BRAND.${brand ? "" : "\n\nNo brand profile set — write professional content based on the brief provided."}`;
 

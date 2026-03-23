@@ -99,7 +99,7 @@ router.post("/conversations/:id/messages", async (req, res) => {
     const stream = anthropic.messages.stream({
       model: selectedModel,
       max_tokens: 8192,
-      system: `You are ATREYU, an elite AI marketing strategist and operating system. You help businesses with competitor research, market analysis, ad copy, email campaigns, landing pages, content strategy, and marketing execution. Be sharp, strategic, and direct. Provide actionable insights and high-quality marketing outputs.`,
+      system: `You are AERIS, an elite AI marketing strategist and operating system. You help businesses with competitor research, market analysis, ad copy, email campaigns, landing pages, content strategy, and marketing execution. Be sharp, strategic, and direct. Provide actionable insights and high-quality marketing outputs.`,
       messages: chatMessages,
     });
 

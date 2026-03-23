@@ -19,7 +19,7 @@ function resolveModel(alias?: string): string {
 
 /* ── Fetch key files from a public GitHub repo ─────────────────── */
 async function ingestGitHubRepo(owner: string, repo: string): Promise<{ description: string; context: string; treeSummary: string }> {
-  const headers: Record<string, string> = { "Accept": "application/vnd.github.v3+json", "User-Agent": "ATREYU-Agent" };
+  const headers: Record<string, string> = { "Accept": "application/vnd.github.v3+json", "User-Agent": "AERIS-Agent" };
 
   /* Fetch repo metadata */
   const metaRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
@@ -157,7 +157,7 @@ router.post("/skills/train", async (req, res) => {
 
     send({ stage: "analyzing", message: `Analyzing codebase with Claude...` });
 
-    const prompt = `You are ATREYU, an AI that learns reusable skills from codebases.
+    const prompt = `You are AERIS, an AI that learns reusable skills from codebases.
 
 Analyze this repository and extract distinct, reusable SKILLS — specific capabilities, patterns, techniques, or domain knowledge demonstrated in the code.
 
@@ -268,7 +268,7 @@ router.post("/jobs", async (req, res) => {
   }
 
   const systemPrompt = [
-    `You are an elite AI marketing agent running inside ATREYU, a Marketing OS.`,
+    `You are an elite AI marketing agent running inside AERIS, a Marketing OS.`,
     `You execute marketing tasks with precision: creating automations, writing campaigns, generating content, and performing analysis.`,
     `Your output should be detailed, actionable, and structured. Use markdown headers and bullet points.`,
     outputTarget ? `Your output will be saved to: ${outputTarget.toUpperCase()} module.` : "",

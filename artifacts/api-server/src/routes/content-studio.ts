@@ -164,7 +164,7 @@ router.post("/content-studio/generate", async (req, res) => {
       .map(p => `### ${p.name}\n${p.guidelines}`)
       .join("\n\n");
 
-    const systemPrompt = `You are ATREYU, an elite AI content strategist and creator. You have been trained on specific skills from real codebases and knowledge bases. Use these skills to inform and enhance the content you create.
+    const systemPrompt = `You are AERIS, an elite AI content strategist and creator. You have been trained on specific skills from real codebases and knowledge bases. Use these skills to inform and enhance the content you create.
 
 YOUR TRAINED SKILLS:
 ${skillsSummary}

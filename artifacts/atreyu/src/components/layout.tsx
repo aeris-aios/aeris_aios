@@ -311,13 +311,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           }}>
             <Link href="/" style={{ pointerEvents: "auto", display: "flex", alignItems: "center", cursor: "pointer" }}>
               <img
-                src="/atreyu-logo.png"
-                alt="ATREYU"
+                src="/aeris-logo.svg"
+                alt="AERIS"
                 style={{
                   height: 30,
                   width: "auto",
                   opacity: isLight ? 0.75 : 0.5,
-                  filter: isLight ? "none" : "brightness(3) saturate(0.3)",
+                  filter: isLight ? "none" : "brightness(2.5) saturate(0.4)",
                   userSelect: "none",
                   display: "block",
                 }}
@@ -528,7 +528,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   rows={1}
                   onChange={e => { setCmd(e.target.value); autoGrow(e.target); }}
                   onKeyDown={onCmd}
-                  placeholder="Ask ATREYU anything…"
+                  placeholder="Ask AERIS anything…"
                   style={{
                     flex: 1, background: "transparent", border: "none", outline: "none",
                     fontSize: 13, fontFamily: "inherit", lineHeight: "1.55",
