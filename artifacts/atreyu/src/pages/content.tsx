@@ -1037,6 +1037,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
               previewUrl={preview}
               savedImage={savedImage}
               formatId={fmt.id}
+              platforms={fmt.platforms}
               canvasW={fmt.canvasW}
               canvasH={fmt.canvasH}
               brandName={brandName}
