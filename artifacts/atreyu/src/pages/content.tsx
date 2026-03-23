@@ -1009,29 +1009,28 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         </div>
       )}
 
-      {/* Body — horizontal for image formats, vertical for text-only */}
-      <div className={`flex flex-1 ${!fmt.isText ? "flex-col sm:flex-row" : "flex-col"}`}>
+      {/* Body — always horizontal (image left, content right) */}
+      <div className={`flex flex-1 ${!fmt.isText ? "flex-row" : "flex-col"}`}>
 
-        {/* ── LEFT: large preview column (image formats only) ── */}
+        {/* ── LEFT: preview fills the full card height ── */}
         {!fmt.isText && (
-          <div className="sm:w-[42%] flex-shrink-0 flex flex-col items-center justify-start p-3 border-b sm:border-b-0 sm:border-r border-border/30 bg-black/[0.025] dark:bg-white/[0.02]">
+          <div className="w-[260px] flex-shrink-0 self-stretch relative overflow-hidden border-r border-border/30 bg-black/[0.03] dark:bg-white/[0.02] min-h-[320px]">
             {(preview && !streaming) ? (
               <>
-                <div className="rounded-xl overflow-hidden neu-inset-sm w-full" style={{aspectRatio:`${fmt.w}/${fmt.h}`}}>
-                  <img src={preview} alt="Post preview" className="w-full h-full object-cover" />
+                <img src={preview} alt="Post preview" className="w-full h-full object-cover" />
+                <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent text-center">
+                  <p className="text-[9px] text-white/80 leading-snug">
+                    {fmt.canvasW}×{fmt.canvasH}px · Download for full resolution
+                  </p>
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-2 text-center leading-snug">
-                  Preview · {fmt.canvasW}×{fmt.canvasH}px<br/>
-                  <span className="opacity-70">Download for full resolution</span>
-                </p>
               </>
             ) : previewLoading ? (
-              <div className="rounded-xl neu-inset-sm w-full flex items-center justify-center" style={{aspectRatio:`${fmt.w}/${fmt.h}`}}>
+              <div className="w-full h-full flex items-center justify-center">
                 <Loader2 className="h-6 w-6 animate-spin text-primary/40" />
               </div>
             ) : (
-              <div className="rounded-xl neu-inset-sm w-full flex flex-col items-center justify-center gap-2" style={{aspectRatio:`${fmt.w}/${fmt.h}`}}>
-                <ImagePlus className="h-7 w-7 text-muted-foreground/20" />
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                <ImagePlus className="h-8 w-8 text-muted-foreground/20" />
                 <span className="text-[10px] text-muted-foreground/40">Generating preview…</span>
               </div>
             )}
@@ -1042,7 +1041,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         <div className="flex flex-col flex-1 min-w-0">
 
           {/* Card header */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-border/40">
             <div className="flex items-center gap-2 flex-wrap">
               {streaming && <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
               <span className="hud-label">{totalVariants>1?`Version ${variantNum}`:fmt.label}</span>
@@ -1057,7 +1056,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <button onClick={()=>{navigator.clipboard.writeText(deepCleanText(text));setCopied(true);setTimeout(()=>setCopied(false),1800);}}
                 disabled={!text}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium neu-raised-sm disabled:opacity-40">
@@ -1076,11 +1075,11 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
 
           {/* AI Photo + Edit buttons (image formats) */}
           {!streaming && text && !fmt.isText && (
-            <div className="px-4 pb-1 pt-3 space-y-2">
+            <div className="px-6 pt-4 pb-2 space-y-2.5">
               <button
                 onClick={generateAiPhoto}
                 disabled={aiImageLoading}
-                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-violet-500/30 text-violet-500 hover:bg-violet-500/8 disabled:opacity-50 transition-colors">
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold border border-violet-500/30 text-violet-500 hover:bg-violet-500/8 disabled:opacity-50 transition-colors">
                 {aiImageLoading
                   ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating AI photo…</>
                   : aiImageUrl
@@ -1094,7 +1093,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
               {onEditGraphic && (
                 <button
                   onClick={() => onEditGraphic(text, aiImageUrl)}
-                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
                   <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
                 </button>
               )}
@@ -1103,17 +1102,17 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
 
           {/* Edit Graphic button for text-only formats */}
           {!streaming && text && fmt.isText && onEditGraphic && (
-            <div className="px-4 pb-1 pt-3">
+            <div className="px-6 pt-4 pb-2">
               <button
                 onClick={() => onEditGraphic(text, null)}
-                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold border border-primary/30 text-primary hover:bg-primary/5 transition-colors">
                 <Pencil className="h-3.5 w-3.5" /> Edit in Graphic Editor
               </button>
             </div>
           )}
 
           {/* Text content */}
-          <div className="p-5 flex-1 min-h-[120px] overflow-y-auto">
+          <div className="px-6 py-5 flex-1 min-h-[120px] overflow-y-auto">
             {text ? (
               <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap font-[inherit]">
                 {deepCleanText(text)}
@@ -1460,7 +1459,7 @@ export default function ContentStudio() {
               ))}
             </div>
           ) : (
-            <div className={`grid gap-5 ${versionCount===1?"grid-cols-1":versionCount===2?"grid-cols-1 lg:grid-cols-2":"grid-cols-1 lg:grid-cols-3"}`}>
+            <div className="grid gap-6 grid-cols-1">
               {(variants.length>0?variants:[rawText??""]).map((text,i)=>(
                 <ContentCard key={i} text={text} variantNum={i+1} totalVariants={versionCount}
                   fmt={selectedFormat!} brandName={brandName} streaming={isStreaming&&i===variants.length-1}
