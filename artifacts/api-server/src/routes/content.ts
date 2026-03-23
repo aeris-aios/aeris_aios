@@ -644,7 +644,7 @@ const KIE_ASPECT_MAP: Record<string, string> = {
 };
 
 router.post("/content/generate-image", async (req, res) => {
-  const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry } = req.body as {
+  const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry, referenceImageUrl } = req.body as {
     hook: string;
     contentStyle?: string;
     formatId?: string;
@@ -653,6 +653,7 @@ router.post("/content/generate-image", async (req, res) => {
     mood?: string;
     backgroundStyle?: string;
     industry?: string;
+    referenceImageUrl?: string;
   };
 
   if (!hook) { res.status(400).json({ error: "hook is required" }); return; }
@@ -691,6 +692,7 @@ router.post("/content/generate-image", async (req, res) => {
 
   const prompt = [
     `Ultra-high-quality social media marketing visual for "${hook}".`,
+    referenceImageUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
     styleHint,
     moodHint,
     industryHint,
@@ -705,22 +707,44 @@ router.post("/content/generate-image", async (req, res) => {
 
   const negativePrompt = "text, watermarks, logos, words, letters, numbers, people, faces, hands, fingers, cluttered backgrounds, amateur photography, blurry, low quality, distorted, oversaturated, cartoon, illustration, drawing, painting, render, 3D, CGI, stock photo watermark, busy composition";
 
+  /* ── Optionally fetch reference image for style transfer ── */
+  let referenceBase64: string | null = null;
+  if (referenceImageUrl) {
+    try {
+      const refImg = await imageUrlToBase64(referenceImageUrl);
+      if (refImg) {
+        referenceBase64 = `data:${refImg.mediaType};base64,${refImg.data}`;
+        console.log("[generate-image] style-transfer reference image fetched successfully");
+      }
+    } catch {
+      console.warn("[generate-image] could not fetch reference image, falling back to text-only");
+    }
+  }
+
   try {
     /* Submit generation task */
+    const kieBody: Record<string, unknown> = {
+      prompt,
+      model:            "flux-kontext-pro",
+      aspectRatio,
+      outputFormat:     "jpeg",
+      safetyTolerance:  2,
+      promptUpsampling: true,
+    };
+
+    /* Activate style-transfer mode when reference image is available */
+    if (referenceBase64) {
+      kieBody.imageUrl           = referenceBase64;
+      kieBody.imagePromptStrength = 0.35;
+    }
+
     const submitRes = await fetch("https://api.kie.ai/api/v1/flux/kontext/generate", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${KIE_API_KEY}`,
         "Content-Type":  "application/json",
       },
-      body: JSON.stringify({
-        prompt,
-        model:            "flux-kontext-pro",
-        aspectRatio,
-        outputFormat:     "jpeg",
-        safetyTolerance:  2,
-        promptUpsampling: true,
-      }),
+      body: JSON.stringify(kieBody),
     });
 
     if (!submitRes.ok) {
@@ -735,8 +759,8 @@ router.post("/content/generate-image", async (req, res) => {
       res.status(502).json({ error: "No taskId returned from KIE.AI" }); return;
     }
 
-    /* Poll until done — max 90 seconds (30 polls × 3s) */
-    const MAX_POLLS    = 30;
+    /* Poll until done — max 180 seconds (60 polls × 3s) */
+    const MAX_POLLS    = 60;
     const POLL_INTERVAL = 3_000;
 
     for (let i = 0; i < MAX_POLLS; i++) {
@@ -766,7 +790,7 @@ router.post("/content/generate-image", async (req, res) => {
       }
     }
 
-    res.status(504).json({ error: "Image generation timed out after 90 seconds" });
+    res.status(504).json({ error: "Image generation timed out after 180 seconds" });
   } catch (err: any) {
     console.error("[generate-image] error:", err);
     res.status(500).json({ error: err?.message ?? "Image generation error" });

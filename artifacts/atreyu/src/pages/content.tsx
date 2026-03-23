@@ -918,9 +918,10 @@ function SkeletonCard({ fmt, index, total }: { fmt: OutputFormat; index: number;
 }
 
 /* ─────────────── Content card ─────────────── */
-function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streaming, styleProfile, onEditGraphic }: {
+function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streaming, styleProfile, referenceImageUrl, onEditGraphic }: {
   text: string; variantNum: number; totalVariants: number; fmt: OutputFormat;
   brandName: string; streaming: boolean; styleProfile: StyleProfile | null;
+  referenceImageUrl?: string;
   onEditGraphic?: (text: string, aiImageUrl: string | null) => void;
 }) {
   const [copied, setCopied]                 = useState(false);
@@ -970,14 +971,15 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           hook,
-          contentStyle:    styleProfile?.contentStyle,
-          formatId:        fmt.id,
-          brandColors:     styleProfile?.colorPalette
+          contentStyle:      styleProfile?.contentStyle,
+          formatId:          fmt.id,
+          brandColors:       styleProfile?.colorPalette
             ? [styleProfile.colorPalette.primary, styleProfile.colorPalette.accent, styleProfile.colorPalette.secondary]
             : undefined,
           brandName,
-          mood:            styleProfile?.mood,
-          backgroundStyle: styleProfile?.backgroundStyle,
+          mood:              styleProfile?.mood,
+          backgroundStyle:   styleProfile?.backgroundStyle,
+          referenceImageUrl: referenceImageUrl || undefined,
         }),
       });
       if (!res.ok) {
@@ -1463,6 +1465,7 @@ export default function ContentStudio() {
                 <ContentCard key={i} text={text} variantNum={i+1} totalVariants={versionCount}
                   fmt={selectedFormat!} brandName={brandName} streaming={isStreaming&&i===variants.length-1}
                   styleProfile={styleProfile}
+                  referenceImageUrl={sourceMode==="social_import"&&profileData?.posts?.length?profileData.posts[0].imageUrl:undefined}
                   onEditGraphic={(t, aiImg) => { setEditorText(t); setEditorAiImage(aiImg); setEditorMode(true); }} />
               ))}
               {isStreaming&&variants.length<versionCount&&Array.from({length:versionCount-variants.length}).map((_,i)=>(
