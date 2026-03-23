@@ -177,13 +177,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const fsdark   = isLight ? "#b0b7ca" : "#07090e";
   const fslite   = isLight ? "#eef1f8"  : "#1a1e2e";
   const outerBg  = isLight
-    ? "linear-gradient(145deg, #b6bdcc 0%, #c4cbda 40%, #b0b8c8 100%)"
-    : "linear-gradient(145deg, #040509 0%, #070a12 50%, #03040a 100%)";
+    ? "linear-gradient(145deg, #8fa3c8 0%, #9dafd8 35%, #8fa8d0 65%, #849ec6 100%)"
+    : "linear-gradient(145deg, #060a18 0%, #0a0f22 40%, #07101e 70%, #04080f 100%)";
 
   const raisedSm  = `4px 4px 10px ${fsdark}, -4px -4px 10px ${fslite}`;
   const frameElev = isLight
-    ? `20px 20px 60px #9da4b8, -12px -12px 40px #ffffff, 0 0 0 1px rgba(255,255,255,0.6)`
-    : `20px 20px 60px #020307, -8px -8px 30px #1c2035, 0 0 0 1px rgba(255,255,255,0.04)`;
+    ? `24px 24px 70px #6e7fa0, -14px -14px 48px #d8e8ff, 0 0 0 1px rgba(255,255,255,0.7), 0 40px 120px rgba(80,100,160,0.25)`
+    : `24px 24px 70px #020307, -8px -8px 30px #1c2035, 0 0 0 1px rgba(255,255,255,0.05), 0 40px 120px rgba(0,0,0,0.6)`;
   const insetSm   = `inset 3px 3px 8px ${fsdark}, inset -3px -3px 8px ${fslite}`;
   const insetMd   = `inset 6px 6px 16px ${fsdark}, inset -6px -6px 16px ${fslite}`;
 
@@ -220,7 +220,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       position: "fixed", inset: 0,
       background: outerBg,
       display: "flex", alignItems: "stretch", justifyContent: "stretch",
-      padding: "20px", boxSizing: "border-box", overflow: "hidden",
+      padding: "28px 32px", boxSizing: "border-box", overflow: "hidden",
     }}>
 
       {/* ── THE FRAME ─────────────────────────────────────────── */}

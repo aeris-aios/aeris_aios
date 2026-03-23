@@ -805,12 +805,12 @@ router.post("/content/generate-image", async (req, res) => {
       await new Promise(r => setTimeout(r, POLL_INTERVAL));
 
       const pollRes = await fetch(
-        `https://api.kie.ai/api/v1/flux/kontext/record/${taskId}`,
+        `https://api.kie.ai/api/v1/flux/kontext/image/${taskId}`,
         { headers: { "Authorization": `Bearer ${KIE_API_KEY}` } },
       );
 
       if (!pollRes.ok) {
-        if (i % 10 === 0) console.log(`[generate-image] poll ${i+1}: HTTP ${pollRes.status}`);
+        console.log(`[generate-image] poll ${i+1}: HTTP ${pollRes.status}`);
         continue;
       }
 
@@ -827,9 +827,8 @@ router.post("/content/generate-image", async (req, res) => {
         pollData?.data?.url             ??
         pollData?.imageUrl;
 
-      if (i === 0 || i % 10 === 0) {
-        console.log(`[generate-image] poll ${i+1}: status=${status} hasUrl=${!!imageUrl} raw=${JSON.stringify(pollData).slice(0, 300)}`);
-      }
+      /* Log every poll so we can see the exact status field KIE.AI returns */
+      console.log(`[generate-image] poll ${i+1}: status=${JSON.stringify(status)} hasUrl=${!!imageUrl} raw=${JSON.stringify(pollData).slice(0, 400)}`);
 
       if ((status === "completed" || status === "success" || status === "SUCCEEDED" ||
            status === "COMPLETE"  || status === "done"    || status === "SUCCESS") && imageUrl) {
