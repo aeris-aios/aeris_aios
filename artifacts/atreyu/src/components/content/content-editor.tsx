@@ -358,7 +358,16 @@ export function ContentEditor({
             });
           });
           mainLayer.add(node);
-          if (capturedId === editorRef.current.state.selectedId) tr.nodes([node]);
+          if (capturedId === editorRef.current.state.selectedId) {
+            tr.nodes([node]);
+            tr.enabledAnchors([
+              "top-left", "top-center", "top-right",
+              "middle-left", "middle-right",
+              "bottom-left", "bottom-center", "bottom-right",
+            ]);
+            tr.keepRatio(true);
+            tr.boundBoxFunc((_, nb) => nb);
+          }
           mainLayer.batchDraw();
         }).catch(() => {});
       }

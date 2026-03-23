@@ -747,11 +747,15 @@ router.post("/content/generate-image", async (req, res) => {
       visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point.";
   }
 
-  /* When the user supplies a custom prompt, use it as the primary directive */
+  /* When the user supplies a custom prompt, use it as the primary directive
+     while retaining hook/brand/style as supplementary context */
   const prompt = userPrompt?.trim()
     ? [
         userPrompt.trim(),
+        hook ? `Context: this image supports the message "${hook}".` : "",
         validatedReferenceUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
+        styleHint,
+        moodHint,
         `Composition: clean negative space reserved for text overlay.`,
         brandName ? `Brand: ${brandName}.` : "",
         colorHint,
