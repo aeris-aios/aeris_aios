@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Copy, Check, Sparkles, Trash2, Loader2, ChevronRight, Zap } from "lucide-react";
+import { Copy, Check, Sparkles, Trash2, Loader2, ChevronRight, Zap, ImagePlus, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const API = "/api/content-studio";
@@ -83,6 +83,120 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? <><Check className="h-3 w-3" />Copied</> : <><Copy className="h-3 w-3" />Copy</>}
     </button>
+  );
+}
+
+/* ── Platform to image format mapping ─────────────────────────────── */
+const PLATFORM_FORMAT_MAP: Record<string, string> = {
+  "instagram-post":  "square",
+  "instagram-story": "vertical",
+  "instagram-reel":  "vertical",
+  "youtube-short":   "youtube_short",
+  "youtube-video":   "landscape",
+  "twitter-x":       "landscape",
+  "linkedin":        "linkedin_post",
+  "tiktok":          "vertical",
+  "blog-post":       "landscape",
+  "email-copy":      "landscape",
+  "ad-copy":         "square",
+  "website-copy":    "landscape",
+};
+
+/* ── Generate graphic button per platform ─────────────────────────── */
+function GenerateGraphicButton({ text, platformId, brandName }: {
+  text: string;
+  platformId: string;
+  brandName?: string;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { toast } = useToast();
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    setError(null);
+    setImageUrl(null);
+    setElapsed(0);
+    timerRef.current = setInterval(() => setElapsed(t => t + 1), 1000);
+
+    try {
+      /* Extract first sentence as hook */
+      const sentences = text.split(/[.!?\n]/).map(s => s.trim()).filter(Boolean);
+      const hook = (sentences[0] ?? text).slice(0, 130);
+
+      const res = await fetch("/api/content/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          hook,
+          formatId: PLATFORM_FORMAT_MAP[platformId] ?? "square",
+          brandName: brandName ?? "AERIS",
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error ?? "Image generation failed");
+      }
+
+      const { imageUrl: url } = await res.json();
+      setImageUrl(url);
+      toast({ title: "Graphic generated", description: "Your marketing visual is ready." });
+    } catch (err: any) {
+      setError(err?.message ?? "Failed to generate graphic");
+      toast({ title: "Image generation failed", description: err?.message, variant: "destructive" });
+    } finally {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = () => {
+    if (!imageUrl) return;
+    const a = document.createElement("a");
+    a.href = imageUrl;
+    a.download = `aeris-${platformId}-graphic.jpg`;
+    a.target = "_blank";
+    a.click();
+  };
+
+  return (
+    <div className="space-y-2">
+      {imageUrl && (
+        <div className="rounded-xl overflow-hidden neu-inset-sm">
+          <img src={imageUrl} alt="Generated graphic" className="w-full h-auto" />
+        </div>
+      )}
+      <div className="flex gap-2">
+        <button
+          onClick={handleGenerate}
+          disabled={loading}
+          className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border border-violet-500/30 text-violet-500 hover:bg-violet-500/8 disabled:opacity-50 transition-colors"
+        >
+          {loading ? (
+            <><Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {elapsed < 30 ? `Generating… ${elapsed}s` : `Almost there… ${elapsed}s`}
+            </>
+          ) : imageUrl ? (
+            <><ImagePlus className="h-3.5 w-3.5" />Regenerate Graphic</>
+          ) : (
+            <><ImagePlus className="h-3.5 w-3.5" />Generate Graphic</>
+          )}
+        </button>
+        {imageUrl && (
+          <button
+            onClick={handleDownload}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+          >
+            <Download className="h-3.5 w-3.5" /> Download
+          </button>
+        )}
+      </div>
+      {error && <p className="text-[10px] text-red-400 text-center">{error}</p>}
+    </div>
   );
 }
 
@@ -472,6 +586,15 @@ export default function ContentStudioPage() {
                     )}
                   </div>
                 )}
+
+                {/* Generate graphic for this platform */}
+                <div className="pt-3 border-t border-border/30">
+                  <GenerateGraphicButton
+                    text={(platform.pieces ?? []).map(p => p.text).join("\n")}
+                    platformId={platform.platform}
+                    brandName={brandVoice || undefined}
+                  />
+                </div>
               </div>
             </div>
           ))}
