@@ -77,12 +77,12 @@
   /* Neumorphic surface */
   --neu-bg: #e8ecf4;
   --neu-shadow-dark: #bfc4d4;
-  --neu-shadow-light: #ffffff;
-  --neu-raised: 8px 8px 20px var(--neu-shadow-dark), -8px -8px 20px var(--neu-shadow-light);
-  --neu-raised-sm: 4px 4px 10px var(--neu-shadow-dark), -4px -4px 10px var(--neu-shadow-light);
-  --neu-raised-lg: 12px 12px 30px var(--neu-shadow-dark), -12px -12px 30px var(--neu-shadow-light);
-  --neu-inset: inset 5px 5px 12px var(--neu-shadow-dark), inset -5px -5px 12px var(--neu-shadow-light);
-  --neu-inset-sm: inset 3px 3px 7px var(--neu-shadow-dark), inset -3px -3px 7px var(--neu-shadow-light);
+  --neu-shadow-light: #f5f7fd;
+  --neu-raised: 6px 6px 16px var(--neu-shadow-dark), -6px -6px 16px var(--neu-shadow-light);
+  --neu-raised-sm: 3px 3px 8px var(--neu-shadow-dark), -3px -3px 8px var(--neu-shadow-light);
+  --neu-raised-lg: 10px 10px 24px var(--neu-shadow-dark), -10px -10px 24px var(--neu-shadow-light);
+  --neu-inset: inset 4px 4px 10px var(--neu-shadow-dark), inset -4px -4px 10px var(--neu-shadow-light);
+  --neu-inset-sm: inset 2px 2px 6px var(--neu-shadow-dark), inset -2px -2px 6px var(--neu-shadow-light);
 
   /* UI tokens */
   --background: 225 25% 91%;

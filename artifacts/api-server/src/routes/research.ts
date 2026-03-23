@@ -124,21 +124,21 @@ router.post("/research/jobs/:id/summarize", async (req, res) => {
 const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (kw: string) => Record<string, unknown> }>> = {
   instagram: {
     trending: {
-      actorId: "apify/instagram-hashtag-scraper",
+      actorId: "apify~instagram-hashtag-scraper",
       buildInput: (kw) => ({
         hashtags: kw.split(",").map(s => s.trim().replace(/^#/, "")).filter(Boolean),
         resultsLimit: 20,
       }),
     },
     competitor: {
-      actorId: "apify/instagram-profile-scraper",
+      actorId: "apify~instagram-profile-scraper",
       buildInput: (kw) => ({
         usernames: kw.split(",").map(s => s.trim().replace(/^@/, "")).filter(Boolean),
         resultsPerPage: 12,
       }),
     },
     influencer: {
-      actorId: "apify/instagram-hashtag-scraper",
+      actorId: "apify~instagram-hashtag-scraper",
       buildInput: (kw) => ({
         hashtags: kw.split(",").map(s => s.trim().replace(/^#/, "")).filter(Boolean),
         resultsLimit: 20,
@@ -147,21 +147,21 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
   },
   tiktok: {
     trending: {
-      actorId: "clockworks/free-tiktok-scraper",
+      actorId: "clockworks~free-tiktok-scraper",
       buildInput: (kw) => ({
         hashtags: kw.split(",").map(s => s.trim().replace(/^#/, "")).filter(Boolean),
         resultsPerPage: 20,
       }),
     },
     competitor: {
-      actorId: "clockworks/free-tiktok-scraper",
+      actorId: "clockworks~free-tiktok-scraper",
       buildInput: (kw) => ({
         profiles: kw.split(",").map(s => s.trim().replace(/^@/, "")).filter(Boolean),
         resultsPerPage: 20,
       }),
     },
     influencer: {
-      actorId: "clockworks/free-tiktok-scraper",
+      actorId: "clockworks~free-tiktok-scraper",
       buildInput: (kw) => ({
         hashtags: kw.split(",").map(s => s.trim().replace(/^#/, "")).filter(Boolean),
         resultsPerPage: 20,
@@ -170,28 +170,28 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
   },
   twitter: {
     trending: {
-      actorId: "quacker/twitter-scraper",
+      actorId: "quacker~twitter-scraper",
       buildInput: (kw) => ({
         searchTerms: kw.split(",").map(s => s.trim()).filter(Boolean),
         maxTweets: 30,
       }),
     },
     competitor: {
-      actorId: "quacker/twitter-scraper",
+      actorId: "quacker~twitter-scraper",
       buildInput: (kw) => ({
         handles: kw.split(",").map(s => s.trim().replace(/^@/, "")).filter(Boolean),
         maxTweets: 30,
       }),
     },
     community: {
-      actorId: "quacker/twitter-scraper",
+      actorId: "quacker~twitter-scraper",
       buildInput: (kw) => ({
         searchTerms: kw.split(",").map(s => s.trim()).filter(Boolean),
         maxTweets: 30,
       }),
     },
     influencer: {
-      actorId: "quacker/twitter-scraper",
+      actorId: "quacker~twitter-scraper",
       buildInput: (kw) => ({
         searchTerms: kw.split(",").map(s => s.trim()).filter(Boolean),
         maxTweets: 30,
@@ -200,14 +200,14 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
   },
   reddit: {
     trending: {
-      actorId: "trudax/reddit-scraper-lite",
+      actorId: "trudax~reddit-scraper-lite",
       buildInput: (kw) => ({
         searches: kw.split(",").map(s => s.trim()).filter(Boolean),
         searchLimit: 25,
       }),
     },
     community: {
-      actorId: "trudax/reddit-scraper-lite",
+      actorId: "trudax~reddit-scraper-lite",
       buildInput: (kw) => ({
         searches: kw.split(",").map(s => s.trim()).filter(Boolean),
         searchLimit: 25,
@@ -216,7 +216,7 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
   },
   linkedin: {
     competitor: {
-      actorId: "anchor-labs/linkedin-company-research",
+      actorId: "anchor-labs~linkedin-company-research",
       buildInput: (kw) => ({
         companyUrls: kw.split(",").map(s => s.trim()).filter(Boolean),
       }),
@@ -224,14 +224,14 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
   },
   youtube: {
     trending: {
-      actorId: "streamers/youtube-scraper",
+      actorId: "streamers~youtube-scraper",
       buildInput: (kw) => ({
         searchKeywords: kw.split(",")[0]?.trim() || kw,
         maxResults: 20,
       }),
     },
     influencer: {
-      actorId: "streamers/youtube-scraper",
+      actorId: "streamers~youtube-scraper",
       buildInput: (kw) => ({
         searchKeywords: kw.split(",")[0]?.trim() || kw,
         maxResults: 20,
@@ -240,7 +240,7 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
   },
   facebook: {
     competitor: {
-      actorId: "apify/facebook-pages-scraper",
+      actorId: "apify~facebook-pages-scraper",
       buildInput: (kw) => ({
         startUrls: kw
           .split(",")
@@ -252,7 +252,7 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
   },
   google: {
     search: {
-      actorId: "apify/google-search-scraper",
+      actorId: "apify~google-search-scraper",
       buildInput: (kw) => ({
         queries: kw,
         maxPagesPerQuery: 1,
@@ -260,7 +260,7 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
       }),
     },
     trending: {
-      actorId: "apify/google-search-scraper",
+      actorId: "apify~google-search-scraper",
       buildInput: (kw) => ({
         queries: kw,
         maxPagesPerQuery: 1,
@@ -268,7 +268,7 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
       }),
     },
     reviews: {
-      actorId: "apify/google-search-scraper",
+      actorId: "apify~google-search-scraper",
       buildInput: (kw) => ({
         queries: kw.split(",").map(s => `${s.trim()} reviews`).join("\n"),
         maxPagesPerQuery: 1,
@@ -278,7 +278,7 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
   },
   trustpilot: {
     reviews: {
-      actorId: "apify/trustpilot-scraper",
+      actorId: "apify~trustpilot-scraper",
       buildInput: (kw) => ({
         startUrls: kw
           .split(",")
@@ -295,7 +295,7 @@ const ACTOR_MAP: Record<string, Record<string, { actorId: string; buildInput: (k
   },
   g2: {
     reviews: {
-      actorId: "apify/g2-scraper",
+      actorId: "apify~g2-scraper",
       buildInput: (kw) => ({
         startUrls: kw
           .split(",")
