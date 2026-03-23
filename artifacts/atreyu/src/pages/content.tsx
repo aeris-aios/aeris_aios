@@ -960,12 +960,26 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
   }, [aiImageUrl]);
 
   /* Generate an AI photo background via KIE.AI */
+  const [aiElapsed, setAiElapsed] = useState(0);
+  const aiTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const generateAiPhoto = async () => {
     if (!text || streaming || aiImageLoading) return;
     setAiImageLoading(true);
     setAiImageError(null);
+    setAiElapsed(0);
+
+    /* Start elapsed timer */
+    aiTimerRef.current = setInterval(() => setAiElapsed(t => t + 1), 1000);
+
     try {
       const { hook } = extractHook(text);
+      /* Proxy Instagram CDN URLs through our image proxy for reliability */
+      let safeReferenceUrl = referenceImageUrl;
+      if (referenceImageUrl && /cdninstagram|fbcdn|scontent/i.test(referenceImageUrl)) {
+        safeReferenceUrl = `/api/content/image-proxy?url=${encodeURIComponent(referenceImageUrl)}`;
+      }
+
       const res = await fetch("/api/content/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -979,7 +993,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
           brandName,
           mood:              styleProfile?.mood,
           backgroundStyle:   styleProfile?.backgroundStyle,
-          referenceImageUrl: referenceImageUrl || undefined,
+          referenceImageUrl: safeReferenceUrl || undefined,
         }),
       });
       if (!res.ok) {
@@ -988,11 +1002,13 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
       }
       const { imageUrl } = await res.json();
       setAiImageUrl(imageUrl);
+      toast({ title: "AI background generated", description: "Your image is ready." });
     } catch (err: any) {
       const msg = err?.message ?? "AI photo generation failed";
       setAiImageError(msg);
       toast({ title: "AI Photo failed", description: msg, variant: "destructive" });
     }
+    if (aiTimerRef.current) clearInterval(aiTimerRef.current);
     setAiImageLoading(false);
   };
 
@@ -1081,7 +1097,9 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
                 disabled={aiImageLoading}
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold border border-violet-500/30 text-violet-500 hover:bg-violet-500/8 disabled:opacity-50 transition-colors">
                 {aiImageLoading
-                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating AI photo…</>
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      {aiElapsed < 30 ? `Generating AI photo… ${aiElapsed}s` : `Taking longer than usual… ${aiElapsed}s`}
+                    </>
                   : aiImageUrl
                     ? <><ImagePlus className="h-3.5 w-3.5" />Regenerate AI background</>
                     : <><ImagePlus className="h-3.5 w-3.5" />Generate AI background photo</>
