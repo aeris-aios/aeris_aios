@@ -426,6 +426,13 @@ function normalizeItem(
   }
 }
 
+function apifyHeaders(token: string) {
+  return {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${token}`,
+  };
+}
+
 async function callApifyActor(
   platform: string,
   intent: string,
@@ -433,55 +440,75 @@ async function callApifyActor(
 ): Promise<{ url?: string; title?: string; content: string; rawData: string }[]> {
   const token = process.env.APIFY_API_KEY;
   if (!token) {
+    console.warn("[Apify] No APIFY_API_KEY set — using simulation");
     return simulatePlatformResults(platform, keywords);
   }
 
   const config = getActorConfig(platform, intent);
-  if (!config) return [];
+  if (!config) {
+    console.warn(`[Apify] No actor configured for ${platform}/${intent}`);
+    return [];
+  }
 
   const { actorId, buildInput } = config;
   const input = buildInput(keywords);
 
+  console.log(`[Apify] Starting run: ${actorId} for ${platform}/${intent} — input:`, JSON.stringify(input));
+
   const runRes = await fetch(
-    `https://api.apify.com/v2/acts/${actorId}/runs?token=${token}`,
+    `https://api.apify.com/v2/acts/${actorId}/runs`,
     {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: apifyHeaders(token),
       body: JSON.stringify(input),
     }
   );
 
   if (!runRes.ok) {
-    console.error(`[Apify] Failed to start run for ${platform}/${intent}:`, await runRes.text());
+    const errText = await runRes.text();
+    console.error(`[Apify] Failed to start run for ${platform}/${intent} (${runRes.status}):`, errText);
     return [];
   }
 
   const runData = (await runRes.json()) as { data?: { id: string } };
   const runId = runData.data?.id;
-  if (!runId) return [];
+  if (!runId) {
+    console.error(`[Apify] No runId returned for ${platform}/${intent}:`, JSON.stringify(runData));
+    return [];
+  }
+
+  console.log(`[Apify] Run started: ${runId} for ${platform}/${intent}`);
 
   for (let attempt = 0; attempt < 36; attempt++) {
-    await new Promise(r => setTimeout(r, 5000));
+    await new Promise(r => setTimeout(r, attempt === 0 ? 3000 : 5000));
 
     const statusRes = await fetch(
-      `https://api.apify.com/v2/actor-runs/${runId}?token=${token}`
+      `https://api.apify.com/v2/actor-runs/${runId}`,
+      { headers: apifyHeaders(token) }
     );
     const statusData = (await statusRes.json()) as { data?: { status: string } };
     const status = statusData.data?.status;
 
+    console.log(`[Apify] Run ${runId} (${platform}) status: ${status} (attempt ${attempt + 1})`);
+
     if (status === "SUCCEEDED") break;
     if (status === "FAILED" || status === "ABORTED" || status === "TIMED-OUT") {
-      console.error(`[Apify] Run ${runId} ended with status: ${status}`);
+      console.error(`[Apify] Run ${runId} (${platform}) ended with: ${status}`);
       return [];
     }
   }
 
   const itemsRes = await fetch(
-    `https://api.apify.com/v2/actor-runs/${runId}/dataset/items?token=${token}&limit=50`
+    `https://api.apify.com/v2/actor-runs/${runId}/dataset/items?limit=50`,
+    { headers: apifyHeaders(token) }
   );
   const items = (await itemsRes.json()) as Record<string, unknown>[];
-  if (!Array.isArray(items)) return [];
+  if (!Array.isArray(items)) {
+    console.error(`[Apify] Unexpected dataset response for ${runId}:`, items);
+    return [];
+  }
 
+  console.log(`[Apify] Got ${items.length} items from ${platform}/${intent}`);
   return items.map(item => normalizeItem(item, platform));
 }
 
