@@ -174,8 +174,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   /* ── Palette ─────────────────────────────────────────────── */
   /* Light: neutral near-white neumorphic (no blue tint)
      Dark:  charcoal neumorphic                          */
-  /* Textured frame backgrounds — subtle cross-hatch + light-source gradient
-     creates a material-like surface with perceived depth                    */
+  /* frameColor — plain hex used for SVG fills and small element backgrounds
+     frameBg    — textured gradient only for the main frame div              */
+  const frameColor = isLight ? "#eaeaee" : "#1e1e24";
   const frameBg  = isLight
     ? [
         "repeating-linear-gradient(135deg, rgba(0,0,0,0.013) 0px, rgba(0,0,0,0.013) 1px, transparent 0px, transparent 6px)",
@@ -312,7 +313,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                 <stop offset="42%"  stopColor={fslite} stopOpacity="0"    />
               </linearGradient>
             </defs>
-            <path d={svgPocket} fill={frameBg} />
+            <path d={svgPocket} fill={frameColor} />
             <path d={svgPocket} fill="url(#topNotchGrad)" style={{ pointerEvents: "none" }} />
           </svg>
 
@@ -355,7 +356,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <Clock />
               <button onClick={toggleTheme} style={{
                 width: 26, height: 26, borderRadius: 7,
-                background: frameBg, boxShadow: raisedSm,
+                background: frameColor, boxShadow: raisedSm,
                 border: "none", cursor: "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
               }}>
@@ -392,7 +393,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   >
                     <div style={{
                       width: ICON_SZ, height: ICON_SZ, borderRadius: "28%",
-                      background: frameBg,
+                      background: frameColor,
                       boxShadow: isActive ? insetSm : raisedSm,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       position: "relative", overflow: "hidden",
@@ -480,7 +481,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   <stop offset="42%"  stopColor={fslite} stopOpacity="0"    />
                 </linearGradient>
               </defs>
-              <path d={svgBotPocket} fill={frameBg} />
+              <path d={svgBotPocket} fill={frameColor} />
               <path d={svgBotPocket} fill="url(#botNotchGrad)" style={{ pointerEvents: "none" }} />
             </svg>
           )}
@@ -499,7 +500,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   padding: "7px 22px",
                   marginBottom: 40,
                   borderRadius: 20, border: "none", cursor: "pointer",
-                  background: frameBg,
+                  background: frameColor,
                   boxShadow: raisedSm,
                   display: "flex", alignItems: "center", justifyContent: "center",
                   pointerEvents: "auto",
@@ -527,7 +528,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <div style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "0 16px", minHeight: 66, borderRadius: 20,
-                background: frameBg,
+                background: frameColor,
                 boxShadow: insetSm,
                 width: "100%", position: "relative", overflow: "hidden",
                 transition: "box-shadow 0.2s ease",
@@ -566,7 +567,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   title="Minimize"
                   style={{
                     width: 22, height: 22, borderRadius: 7, border: "none",
-                    background: frameBg, boxShadow: raisedSm,
+                    background: frameColor, boxShadow: raisedSm,
                     cursor: "pointer", flexShrink: 0,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     opacity: 0.4, transition: "opacity 0.15s",
