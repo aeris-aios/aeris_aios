@@ -804,9 +804,14 @@ router.post("/content/generate-image", async (req, res) => {
     }
     console.log("[generate-image] taskId:", taskId, "| styleTransfer:", !!validatedReferenceUrl);
 
-    /* Poll until done — max 90 seconds (30 polls × 3s) */
-    const MAX_POLLS     = 30;
-    const POLL_INTERVAL = 3_000;
+    /*
+     * Poll via GET /api/v1/flux/kontext/record-info?taskId=<id>
+     * successFlag: 1 = done, 0 = processing/failed
+     * image at: data.response.resultImageUrl
+     * Docs recommend 30s intervals; we use 5s for better UX (max 5 min total).
+     */
+    const MAX_POLLS     = 60;
+    const POLL_INTERVAL = 5_000;
     let consecutiveErrors = 0;
 
     for (let i = 0; i < MAX_POLLS; i++) {
@@ -815,8 +820,8 @@ router.post("/content/generate-image", async (req, res) => {
       let pollRes: Response;
       try {
         pollRes = await fetch(
-          `https://api.kie.ai/api/v1/flux/kontext/image/${taskId}`,
-          { headers: { "Authorization": `Bearer ${KIE_API_KEY}` }, signal: AbortSignal.timeout(10_000) },
+          `https://api.kie.ai/api/v1/flux/kontext/record-info?taskId=${encodeURIComponent(taskId)}`,
+          { headers: { "Authorization": `Bearer ${KIE_API_KEY}` }, signal: AbortSignal.timeout(15_000) },
         );
       } catch (fetchErr) {
         console.log(`[generate-image] poll ${i+1}: network error`);
@@ -828,12 +833,9 @@ router.post("/content/generate-image", async (req, res) => {
       }
 
       if (!pollRes.ok) {
-        console.log(`[generate-image] poll ${i+1}: HTTP ${pollRes.status}`);
+        const errBody = await pollRes.text().catch(() => "(unreadable)");
+        console.log(`[generate-image] poll ${i+1}: HTTP ${pollRes.status} body=${errBody}`);
         consecutiveErrors++;
-        /* If first poll returns 404, the endpoint may be wrong — fail fast */
-        if (i === 0 && pollRes.status === 404) {
-          res.status(502).json({ error: "KIE.AI image endpoint not found. The API may have changed." }); return;
-        }
         if (consecutiveErrors >= 5) {
           res.status(502).json({ error: "KIE.AI image service is not responding. Please try again later." }); return;
         }
@@ -842,38 +844,28 @@ router.post("/content/generate-image", async (req, res) => {
 
       consecutiveErrors = 0;
       const pollData = await pollRes.json();
+      const data = pollData?.data;
 
-      const status =
-        pollData?.data?.status     ?? pollData?.status ??
-        pollData?.data?.taskStatus ?? pollData?.taskStatus;
-      const imageUrl =
-        pollData?.data?.imageUrl       ?? pollData?.data?.resultImageUrl ??
-        pollData?.data?.outputImageUrl ?? pollData?.data?.url ??
-        pollData?.data?.output?.url    ?? pollData?.imageUrl ??
-        pollData?.output?.url          ?? pollData?.url;
+      const successFlag = data?.successFlag;
+      const imageUrl    = data?.response?.resultImageUrl ?? data?.response?.originImageUrl;
+      const errorCode   = data?.errorCode;
+      const errorMsg    = data?.errorMessage ?? "";
 
-      console.log(`[generate-image] poll ${i+1}: status=${JSON.stringify(status)} hasUrl=${!!imageUrl}`);
+      console.log(`[generate-image] poll ${i+1}: successFlag=${successFlag} errorCode=${errorCode} hasUrl=${!!imageUrl}`);
 
-      /* Success: known status + URL present */
-      const successStatuses = ["completed","success","succeeded","complete","done","ready","finished","processed"];
-      if (status && successStatuses.includes(String(status).toLowerCase()) && imageUrl) {
-        console.log("[generate-image] completed at poll", i+1);
+      /* Success */
+      if (successFlag === 1 && imageUrl) {
+        console.log("[generate-image] completed at poll", i+1, "url:", imageUrl);
         res.json({ imageUrl }); return;
       }
 
-      /* Fallback: if imageUrl is present even without a recognized status, use it */
-      if (imageUrl && typeof imageUrl === "string" && imageUrl.startsWith("http")) {
-        console.log("[generate-image] imageUrl found without recognized status, using it (poll", i+1, ")");
-        res.json({ imageUrl }); return;
+      /* Hard failure */
+      if (errorCode) {
+        console.error("[generate-image] KIE task failed:", errorCode, errorMsg);
+        res.status(502).json({ error: `Image generation failed${errorMsg ? `: ${errorMsg}` : ""}` }); return;
       }
 
-      /* Fail: known failure status */
-      const failStatuses = ["failed","error","cancelled","rejected"];
-      if (status && failStatuses.includes(String(status).toLowerCase())) {
-        const detail = pollData?.data?.error ?? pollData?.error ?? "";
-        console.error("[generate-image] KIE task failed:", detail);
-        res.status(502).json({ error: `Image generation failed${detail ? `: ${detail}` : ""}` }); return;
-      }
+      /* successFlag=0 with no errorCode = still processing — keep polling */
     }
 
     res.status(504).json({ error: "Image generation timed out. KIE.AI may be overloaded — please try again." });
