@@ -1398,7 +1398,7 @@ export default function ContentStudio() {
   /* ── Generate ── */
   const handleGenerate = async () => {
     if (!formatId) return;
-    setData(""); setCarouselData(null); setVariants([]); setGenerated(true);
+    setSavedImages({}); setData(""); setCarouselData(null); setVariants([]); setGenerated(true);
     const fmt = FORMATS.find(f=>f.id===formatId)!;
     await stream("/api/content/generate", {
       type:          fmt.contentType,
@@ -1432,6 +1432,7 @@ export default function ContentStudio() {
     setGenerated(false); setVariants([]); setCarouselData(null); setData("");
     setProfileData(null); setStyleProfile(null); setProfileLoading(false); setProfileError(null);
     setEditorMode(false); setEditorText(""); setEditorAiImage(null);
+    setSavedImages({}); setEditorVariantIndex(0);
     analysisTriggered.current = false;
   };
 
