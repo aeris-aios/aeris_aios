@@ -174,7 +174,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   /* ── Palette ─────────────────────────────────────────────── */
   /* Light: neutral near-white neumorphic (no blue tint)
      Dark:  charcoal neumorphic                          */
-  const frameBg  = isLight ? "#eaeaee" : "#1e1e24";
+  /* Textured frame backgrounds — subtle cross-hatch + light-source gradient
+     creates a material-like surface with perceived depth                    */
+  const frameBg  = isLight
+    ? [
+        "repeating-linear-gradient(135deg, rgba(0,0,0,0.013) 0px, rgba(0,0,0,0.013) 1px, transparent 0px, transparent 6px)",
+        "repeating-linear-gradient(45deg,  rgba(0,0,0,0.013) 0px, rgba(0,0,0,0.013) 1px, transparent 0px, transparent 6px)",
+        "radial-gradient(ellipse at 28% 18%, rgba(255,255,255,0.60) 0%, rgba(0,0,0,0.04) 70%)",
+        "#eaeaee",
+      ].join(", ")
+    : [
+        "repeating-linear-gradient(135deg, rgba(255,255,255,0.013) 0px, rgba(255,255,255,0.013) 1px, transparent 0px, transparent 6px)",
+        "repeating-linear-gradient(45deg,  rgba(255,255,255,0.013) 0px, rgba(255,255,255,0.013) 1px, transparent 0px, transparent 6px)",
+        "radial-gradient(ellipse at 28% 18%, rgba(50,50,68,0.75) 0%, rgba(0,0,0,0.35) 80%)",
+        "#1e1e24",
+      ].join(", ");
   const fsdark   = isLight ? "#c0c0c8" : "#0f0f13";
   const fslite   = isLight ? "#ffffff"  : "#2d2d36";
   const outerBg  = isLight
@@ -242,8 +256,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div style={{
           position: "absolute", inset: 0, borderRadius: 32, zIndex: 100,
           boxShadow: isLight
-            ? "inset 1px 1px 0 rgba(255,255,255,0.18), inset -1px -1px 0 rgba(140,150,175,0.3)"
-            : "inset 1px 1px 0 rgba(255,255,255,0.06), inset -1px -1px 0 rgba(0,0,0,0.5)",
+            ? "inset 0 0 40px rgba(0,0,0,0.07), inset 2px 2px 0 rgba(255,255,255,0.50), inset -2px -2px 0 rgba(120,135,165,0.25)"
+            : "inset 0 0 50px rgba(0,0,0,0.35), inset 1px 1px 0 rgba(255,255,255,0.07), inset -2px -2px 0 rgba(0,0,0,0.60)",
           pointerEvents: "none",
         }} />
 
