@@ -140,54 +140,57 @@
 }
 
 /* ─── DARK MODE ──────────────────────────────────────────── */
+/* Charcoal/dark-gray neumorphic palette — neutral, no blue tint */
 .dark {
-  --button-outline: rgba(255,255,255,.10);
-  --badge-outline: rgba(255,255,255,.05);
-  --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255,255,255,.03);
-  --elevate-2: rgba(255,255,255,.07);
+  --button-outline: rgba(255,255,255,.08);
+  --badge-outline: rgba(255,255,255,.04);
+  --opaque-button-border-intensity: 8;
+  --elevate-1: rgba(255,255,255,.025);
+  --elevate-2: rgba(255,255,255,.06);
 
-  --neu-bg: #0f111a;
-  --neu-shadow-dark: #090b12;
-  --neu-shadow-light: #191c2a;
-  --neu-raised: 6px 6px 16px var(--neu-shadow-dark), -6px -6px 16px var(--neu-shadow-light);
-  --neu-raised-sm: 3px 3px 8px var(--neu-shadow-dark), -3px -3px 8px var(--neu-shadow-light);
-  --neu-raised-lg: 10px 10px 24px var(--neu-shadow-dark), -10px -10px 24px var(--neu-shadow-light);
-  --neu-inset: inset 4px 4px 10px var(--neu-shadow-dark), inset -4px -4px 10px var(--neu-shadow-light);
-  --neu-inset-sm: inset 2px 2px 6px var(--neu-shadow-dark), inset -2px -2px 6px var(--neu-shadow-light);
+  /* Charcoal neumorphic surface — true dark gray, not navy */
+  --neu-bg: #1e1e24;
+  --neu-shadow-dark: #0f0f13;
+  --neu-shadow-light: #2d2d36;
+  --neu-raised: 6px 6px 18px var(--neu-shadow-dark), -6px -6px 18px var(--neu-shadow-light);
+  --neu-raised-sm: 3px 3px 9px var(--neu-shadow-dark), -3px -3px 9px var(--neu-shadow-light);
+  --neu-raised-lg: 12px 12px 28px var(--neu-shadow-dark), -12px -12px 28px var(--neu-shadow-light);
+  --neu-inset: inset 4px 4px 12px var(--neu-shadow-dark), inset -4px -4px 12px var(--neu-shadow-light);
+  --neu-inset-sm: inset 2px 2px 7px var(--neu-shadow-dark), inset -2px -2px 7px var(--neu-shadow-light);
 
-  --background: 228 27% 8%;
-  --foreground: 220 20% 95%;
-  --border: 228 20% 18%;
+  /* Charcoal UI tokens — neutral hue 240° at very low saturation */
+  --background: 240 5% 11%;       /* #1a1a1e */
+  --foreground: 240 10% 90%;      /* #e2e2e8 */
+  --border: 240 4% 22%;           /* #333338 */
 
-  --card: 228 27% 10%;
-  --card-foreground: 220 20% 95%;
-  --card-border: 228 20% 18%;
+  --card: 240 5% 13%;             /* #1f1f24 */
+  --card-foreground: 240 10% 90%;
+  --card-border: 240 4% 22%;
 
-  --sidebar: 228 27% 8%;
-  --sidebar-foreground: 220 20% 70%;
-  --sidebar-border: 228 20% 18%;
+  --sidebar: 240 5% 11%;
+  --sidebar-foreground: 240 8% 68%; /* #a8a8b3 */
+  --sidebar-border: 240 4% 22%;
   --sidebar-primary: 217 91% 58%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 228 20% 14%;
-  --sidebar-accent-foreground: 220 20% 95%;
+  --sidebar-accent: 240 4% 16%;   /* #262629 */
+  --sidebar-accent-foreground: 240 10% 90%;
   --sidebar-ring: 217 91% 58%;
 
-  --popover: 228 27% 10%;
-  --popover-foreground: 220 20% 95%;
-  --popover-border: 228 20% 18%;
+  --popover: 240 5% 14%;          /* #222227 */
+  --popover-foreground: 240 10% 90%;
+  --popover-border: 240 4% 22%;
 
   --primary: 217 91% 58%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 228 20% 14%;
-  --secondary-foreground: 220 20% 95%;
-  --muted: 228 20% 14%;
-  --muted-foreground: 220 15% 72%;
+  --secondary: 240 4% 16%;        /* #262629 */
+  --secondary-foreground: 240 10% 90%;
+  --muted: 240 4% 16%;
+  --muted-foreground: 240 6% 65%; /* #a0a0a8 */
   --accent: 187 100% 42%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --input: 228 20% 14%;
+  --input: 240 4% 16%;
   --ring: 217 91% 58%;
 
   --chart-1: 217 91% 58%;
