@@ -184,7 +184,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const raisedSm  = `4px 4px 10px ${fsdark}, -4px -4px 10px ${fslite}`;
   const frameElev = isLight
-    ? `24px 24px 70px #6e7fa0, -14px -14px 48px #d8e8ff, 0 0 0 1px rgba(255,255,255,0.7), 0 40px 120px rgba(80,100,160,0.25)`
+    ? `28px 28px 80px #8294b8, 0 40px 120px rgba(80,100,160,0.3)`
     : `20px 20px 60px #090909, -10px -10px 34px #2a2a32, 0 0 0 1px rgba(255,255,255,0.06), 0 40px 100px rgba(0,0,0,0.7)`;
   const insetSm   = `inset 3px 3px 8px ${fsdark}, inset -3px -3px 8px ${fslite}`;
   const insetMd   = `inset 6px 6px 16px ${fsdark}, inset -6px -6px 16px ${fslite}`;
@@ -245,7 +245,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <div style={{
           position: "absolute", inset: 0, borderRadius: 32, zIndex: 100,
           boxShadow: isLight
-            ? "inset 1px 1px 0 rgba(255,255,255,0.9), inset -1px -1px 0 rgba(160,168,188,0.4)"
+            ? "inset 1px 1px 0 rgba(255,255,255,0.18), inset -1px -1px 0 rgba(140,150,175,0.3)"
             : "inset 1px 1px 0 rgba(255,255,255,0.06), inset -1px -1px 0 rgba(0,0,0,0.5)",
           pointerEvents: "none",
         }} />
