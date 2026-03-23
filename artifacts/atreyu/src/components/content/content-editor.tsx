@@ -172,11 +172,11 @@ export function ContentEditor({
     /* ── Background layer ── */
     bgLayer.destroyChildren();
 
-    new Konva.Rect({
+    bgLayer.add(new Konva.Rect({
       x: 0, y: 0, width: W, height: H,
       fill: editor.state.backgroundColor,
       listening: false,
-    }).addTo(bgLayer);
+    }));
 
     if (editor.state.backgroundImage) {
       loadImg(proxyImg(editor.state.backgroundImage)).then((img) => {
@@ -190,11 +190,11 @@ export function ContentEditor({
           cropH = Math.round(img.width / canAR);
           cropY = Math.round((img.height - cropH) / 2);
         }
-        new Konva.Image({
+        bgLayer.add(new Konva.Image({
           image: img, x: 0, y: 0, width: W, height: H,
           crop: { x: cropX, y: cropY, width: cropW, height: cropH },
           listening: false,
-        }).addTo(bgLayer);
+        }));
         bgLayer.batchDraw();
       }).catch(() => {});
     }
