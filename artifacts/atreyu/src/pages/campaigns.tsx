@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useListCampaigns, useCreateCampaign, useDeleteCampaign } from "@workspace/api-client-react";
 import { Megaphone, Plus, Calendar, Target, Users, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -24,6 +24,8 @@ const schema = z.object({
 export default function Campaigns() {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+
+  useEffect(() => { return () => setOpen(false); }, []);
   const { data: campaigns, isLoading } = useListCampaigns();
   const { mutate: createCampaign, isPending } = useCreateCampaign();
   const { mutate: deleteCampaign } = useDeleteCampaign();

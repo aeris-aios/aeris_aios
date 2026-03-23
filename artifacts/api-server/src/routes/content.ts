@@ -643,7 +643,7 @@ const KIE_ASPECT_MAP: Record<string, string> = {
   linkedin_post: "4:3",
 };
 
-router.post("/generate-image", async (req, res) => {
+router.post("/content/generate-image", async (req, res) => {
   const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry } = req.body as {
     hook: string;
     contentStyle?: string;

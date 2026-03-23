@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useListResearchJobs, useDeleteResearchJob, useGetResearchJobResults } from "@workspace/api-client-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -394,6 +394,13 @@ export default function ResearchLab() {
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [justLaunched, setJustLaunched] = useState<number | null>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    return () => {
+      setWizardOpen(false);
+      setViewResultsId(null);
+    };
+  }, []);
 
   const { data: jobs, isLoading } = useListResearchJobs({
     query: {

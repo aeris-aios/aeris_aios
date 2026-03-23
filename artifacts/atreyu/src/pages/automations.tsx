@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useListAutomations, useCreateAutomation, useDeleteAutomation, useRunAutomation, useToggleAutomation } from "@workspace/api-client-react";
 import { Zap, Plus, Trash2, Play, Clock, ArrowRight } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -26,6 +26,8 @@ const schema = z.object({
 export default function Automations() {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+
+  useEffect(() => { return () => setOpen(false); }, []);
   const { toast } = useToast();
   
   const { data: automations, isLoading } = useListAutomations();

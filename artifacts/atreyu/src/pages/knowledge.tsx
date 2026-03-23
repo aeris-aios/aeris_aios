@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useListKnowledgeItems, useCreateKnowledgeItem, useDeleteKnowledgeItem } from "@workspace/api-client-react";
 import { Library, Plus, Trash2, Link as LinkIcon, FileText, Globe, Search, ChevronDown, ChevronUp, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -31,6 +31,8 @@ export default function KnowledgeBase() {
   const [filterType, setFilterType] = useState<string>("all");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => { return () => setOpen(false); }, []);
   const { toast } = useToast();
   const { data: items, isLoading } = useListKnowledgeItems();
   const { mutate: createItem, isPending } = useCreateKnowledgeItem();
