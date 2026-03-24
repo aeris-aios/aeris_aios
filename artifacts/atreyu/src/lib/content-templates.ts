@@ -87,14 +87,13 @@ export function pickTemplate(
     typ === "bold" &&
     (bg === "photographic" || layout === "fullbleed");
 
-  if (isNewsHeadline) return "newsheadline";
-  if (hasBackgroundImage) return "photo";
-
   const isEditorial =
     (typ === "serif" || layout === "editorial" || layout === "left-aligned") && !isDark;
 
+  if (isNewsHeadline) return "newsheadline";
   if (isDark) return "cinematic";
   if (isEditorial) return "editorial";
+  if (hasBackgroundImage) return "photo";
   return "modern";
 }
 
