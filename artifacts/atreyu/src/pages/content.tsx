@@ -1551,7 +1551,7 @@ export default function ContentStudio() {
           </div>
 
           {isStreaming && variants.length<versionCount ? (
-            <div className={`flex gap-5 overflow-x-auto pb-2 ${versionCount===1?"justify-center":""}`}>
+            <div className="flex gap-5 overflow-x-auto pb-2 justify-center">
               {Array.from({length:versionCount}).map((_,i)=>(
                 <div key={i} className="flex-shrink-0"
                   style={{width:versionCount===1?"100%":versionCount===2?"48%":"32%"}}>
