@@ -63,10 +63,21 @@ interface StyleLayout {
   overlayOpacity: number;
 }
 
+interface StyleDesign {
+  decorativeElements: string[];
+  accentLineThickness: number;
+  hasDividerLine: boolean;
+  textTreatment: "plain" | "heavy-shadow" | "outlined" | "pill-bg";
+  hasFrameBorder: boolean;
+  frameBorderThickness: number;
+  gradientDirection: "none" | "top-bottom" | "bottom-top" | "radial";
+}
+
 interface StyleProfile {
   colorPalette: { primary: string; secondary: string; accent: string; text: string };
   typography?: StyleTypography;
   layout?: StyleLayout;
+  design?: StyleDesign;
   mood: string;
   backgroundStyle: string;
   typographyStyle: string;
@@ -231,8 +242,33 @@ async function exportToImage(
   const mainLayer = new Konva.Layer({ listening: false });
   stage.add(bgLayer, mainLayer);
 
-  /* Background colour fill */
+  /* Background colour fill (solid base) */
   bgLayer.add(new Konva.Rect({ x: 0, y: 0, width: W, height: H, fill: result.backgroundColor }));
+
+  /* Background gradient overlay */
+  const gDir = result.gradientDirection;
+  if (gDir && gDir !== "none" && result.gradientColors) {
+    const [c1, c2] = result.gradientColors;
+    const gradRect = new Konva.Rect({ x: 0, y: 0, width: W, height: H });
+    if (gDir === "radial") {
+      gradRect.setAttrs({
+        fillRadialGradientStartPoint: { x: W / 2, y: H / 2 },
+        fillRadialGradientEndPoint:   { x: W / 2, y: H / 2 },
+        fillRadialGradientStartRadius: 0,
+        fillRadialGradientEndRadius:   Math.max(W, H) * 0.7,
+        fillRadialGradientColorStops:  [0, c1, 1, c2],
+      });
+    } else {
+      const start = { x: 0, y: gDir === "bottom-top" ? H : 0 };
+      const end   = { x: 0, y: gDir === "bottom-top" ? 0 : H };
+      gradRect.setAttrs({
+        fillLinearGradientStartPoint: start,
+        fillLinearGradientEndPoint:   end,
+        fillLinearGradientColorStops: [0, c1, 1, c2],
+      });
+    }
+    bgLayer.add(gradRect);
+  }
 
   /* Background image (AI-generated photo) */
   const imageUrl = result.backgroundImage;
@@ -289,6 +325,7 @@ async function exportToImage(
         opacity: te.opacity, rotation: te.rotation,
         shadowColor: te.shadowColor, shadowBlur: te.shadowBlur,
         shadowOffsetX: te.shadowOffsetX, shadowOffsetY: te.shadowOffsetY,
+        stroke: te.stroke || undefined, strokeWidth: te.strokeWidth,
       }));
     }
   }

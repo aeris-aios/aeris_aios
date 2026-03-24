@@ -33,6 +33,9 @@ export interface TextElement extends EditorElement {
   shadowBlur: number;
   shadowOffsetX: number;
   shadowOffsetY: number;
+  /** Outline / stroke (for "outlined" text treatment) */
+  stroke?: string;
+  strokeWidth?: number;
   /** Role helps identify special elements */
   role: "hook" | "supporting" | "brand" | "custom";
 }
@@ -132,11 +135,38 @@ export interface StyleLayout {
   overlayOpacity: number;   /* 0 = none, 0.2-0.4 = typical for photo posts */
 }
 
+/** Fine-grained visual DNA — decorative elements, text treatment, gradients */
+export interface StyleDesign {
+  /** Which recurring decorative marks appear on this account's graphics */
+  decorativeElements: string[];
+  /* "top-line" | "bottom-line" | "left-bar" | "horizontal-rule"
+     | "circle-accent" | "corner-mark" | "frame-border" | "quote-marks" */
+
+  /** How the accent lines are sized (fraction of canvas width: 0.003 = thin, 0.015 = thick) */
+  accentLineThickness: number;
+
+  /** Thin line separating headline from body text */
+  hasDividerLine: boolean;
+
+  /** How text is visually treated */
+  textTreatment: "plain" | "heavy-shadow" | "outlined" | "pill-bg";
+
+  /** Whether a thin border rectangle frames the entire graphic */
+  hasFrameBorder: boolean;
+
+  /** Frame border thickness as fraction of canvas width */
+  frameBorderThickness: number;
+
+  /** Background gradient type — "none" = solid/photo, no gradient */
+  gradientDirection: "none" | "top-bottom" | "bottom-top" | "radial";
+}
+
 export interface StyleProfile {
   colorPalette: { primary: string; secondary: string; accent: string; text: string };
   /* New structured fields (returned by updated Claude Vision prompt) */
   typography?: StyleTypography;
   layout?: StyleLayout;
+  design?: StyleDesign;
   /* Legacy enum fields (kept for backward compatibility with existing data) */
   mood: string;
   backgroundStyle: string;

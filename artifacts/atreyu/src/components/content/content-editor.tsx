@@ -339,6 +339,7 @@ export function ContentEditor({
           listening: true,
           shadowColor: textEl.shadowColor, shadowBlur: textEl.shadowBlur,
           shadowOffsetX: textEl.shadowOffsetX, shadowOffsetY: textEl.shadowOffsetY,
+          stroke: textEl.stroke || undefined, strokeWidth: textEl.strokeWidth,
         });
 
         node.on("click tap", () => { if (!el.locked) editorRef.current.select(el.id); });

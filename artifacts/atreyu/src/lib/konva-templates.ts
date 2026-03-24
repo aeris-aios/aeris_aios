@@ -8,6 +8,7 @@ import type {
   TextElement,
   RectElement,
   StyleProfile,
+  StyleDesign,
 } from "@/types/content-editor";
 import {
   isDarkColor,
@@ -642,6 +643,9 @@ export interface TemplateResult {
   backgroundColor: string;
   backgroundImage: string | null;
   templateName: string;
+  /** Background gradient (applied by renderer over the backgroundColor fill) */
+  gradientDirection?: "none" | "top-bottom" | "bottom-top" | "radial";
+  gradientColors?: [string, string];  /* [startColor, endColor] */
 }
 
 /* ═══════════════════════════════════════════
@@ -681,6 +685,24 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
   const textPosX        = lay?.textPositionX ?? 0.08;
   const textWidthR      = lay?.textWidthRatio ?? 0.84;
 
+  /* Design — fine-grained visual DNA from the new design block */
+  const des            = styleProfile?.design;
+  const decElems       = des?.decorativeElements ?? [] as string[];
+  const lineThickPx    = Math.max(2, Math.round(W * (des?.accentLineThickness ?? 0.005)));
+  const hasDivider     = des?.hasDividerLine ?? false;
+  const textTreatment  = des?.textTreatment ?? "plain";
+  const hasFrameEl     = (des?.hasFrameBorder ?? false) || decElems.includes("frame-border");
+  const frameBorderPx  = Math.max(2, Math.round(W * (des?.frameBorderThickness ?? 0.006)));
+  const gradientDir    = (des?.gradientDirection ?? "none") as "none"|"top-bottom"|"bottom-top"|"radial";
+
+  /* Map decorative element flags from both old layout fields and new design.decorativeElements */
+  const hasTopLine     = hasTopBar || decElems.includes("top-line");
+  const hasBottomLine  = decElems.includes("bottom-line");
+  const hasHRule       = hasDivider || decElems.includes("horizontal-rule");
+  const hasQuotes      = decElems.includes("quote-marks");
+  const hasCircle      = decElems.includes("circle-accent");
+  const hasCornerMark  = decElems.includes("corner-mark");
+
   /* ── Derived values ── */
   const isPhoto   = !!backgroundImageUrl || overlayOpacity > 0;
   const isDark    = isDarkColor(pal.primary) || styleProfile?.backgroundStyle === "dark";
@@ -712,34 +734,44 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
   const subColor    = isPhoto || isDark ? hexA("#FFFFFF", 0.6) : hexA(pal.text || "#1A1A1A", 0.55);
   const accentColor = pal.accent || "#6366f1";
 
-  /* ── Shadows for photo backgrounds ── */
-  const shadow = isPhoto
-    ? { shadowColor: "rgba(0,0,0,0.85)", shadowBlur: 20, shadowOffsetX: 0, shadowOffsetY: 0 }
+  /* ── Shadows & stroke for text — driven by textTreatment ── */
+  const heavyShadow = isPhoto || textTreatment === "heavy-shadow";
+  const shadow = heavyShadow
+    ? { shadowColor: "rgba(0,0,0,0.92)", shadowBlur: 32, shadowOffsetX: 0, shadowOffsetY: 3 }
     : { shadowColor: "rgba(0,0,0,0)", shadowBlur: 0, shadowOffsetX: 0, shadowOffsetY: 0 };
+  const strokeProps = textTreatment === "outlined"
+    ? { stroke: isDark || isPhoto ? "#000000" : "#FFFFFF", strokeWidth: Math.max(2, Math.round(fontWeight / 200)) }
+    : {} as Record<string, unknown>;
 
   const elements: AnyEditorElement[] = [];
 
-  /* ═══ DECORATIONS — driven by layout params ═══ */
+  /* ═══ DECORATIONS — driven by layout + design params ═══ */
 
-  /* Top accent bar */
-  if (hasTopBar) {
+  /* ── Top accent line (replaces old top bar logic) ── */
+  if (hasTopLine) {
     elements.push(makeRect({
       role: "decoration",
-      x: 0, y: 0, width: W,
-      height: fontWeight >= 700 ? 6 : 3,
-      fill: accentColor,
-      zIndex: 30,
+      x: 0, y: 0, width: W, height: lineThickPx,
+      fill: accentColor, zIndex: 30,
     }));
   }
 
-  /* Left accent bar */
-  if (hasLeftBar && !hasBottomStrip) {
+  /* ── Bottom accent line ── */
+  if (hasBottomLine) {
+    elements.push(makeRect({
+      role: "decoration",
+      x: 0, y: H - lineThickPx, width: W, height: lineThickPx,
+      fill: accentColor, zIndex: 30,
+    }));
+  }
+
+  /* ── Left accent bar ── */
+  if ((hasLeftBar || decElems.includes("left-bar")) && !hasBottomStrip) {
     const barX = Math.round(PAD * 0.55);
     elements.push(makeRect({
       role: "decoration",
-      x: barX, y: H * 0.10, width: Math.round(W * 0.007), height: H * 0.77,
-      fill: accentColor,
-      zIndex: 5,
+      x: barX, y: Math.round(H * 0.10), width: lineThickPx, height: Math.round(H * 0.77),
+      fill: accentColor, zIndex: 5,
     }));
   }
 
@@ -776,6 +808,73 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
     elements.push(makeRect({
       role: "decoration", x: cardX, y: cardY, width: Math.round(W * 0.009), height: cardH,
       fill: accentColor, cornerRadius: cr, zIndex: 4,
+    }));
+  }
+
+  /* ── Decorative quote marks (behind headline text) ── */
+  if (hasQuotes && hook) {
+    const qSize = Math.min(Math.round(hookSize * 3.5), 300);
+    elements.push(makeText({
+      role: "custom",
+      text: "\u201C",
+      x: Math.round(PAD * 0.5), y: Math.round(H * textPosY) - Math.round(qSize * 0.45),
+      width: qSize, height: qSize,
+      fontSize: qSize, fontFamily, fontStyle: "",
+      fill: hexA(accentColor, 0.12),
+      align: "left", lineHeight: 1, letterSpacing: 0,
+      shadowColor: "rgba(0,0,0,0)", shadowBlur: 0, shadowOffsetX: 0, shadowOffsetY: 0,
+      zIndex: 6, draggable: false, locked: true,
+    }));
+  }
+
+  /* ── Circle accent mark ── */
+  if (hasCircle) {
+    const circleR = Math.round(W * 0.045);
+    const circleX = hasBottomStrip
+      ? W - PAD - circleR * 2
+      : PAD * 0.4;
+    const circleY = hasBottomStrip
+      ? Math.round(H * (stripStartY - 0.06))
+      : Math.round(H * 0.05);
+    elements.push(makeRect({
+      role: "decoration",
+      x: circleX, y: circleY,
+      width: circleR * 2, height: circleR * 2,
+      fill: hexA(accentColor, 0.85),
+      cornerRadius: circleR,
+      zIndex: 18,
+    }));
+  }
+
+  /* ── Corner mark (small geometric accent at top-right or bottom-right) ── */
+  if (hasCornerMark) {
+    const cmSize = Math.round(W * 0.05);
+    const cmThick = lineThickPx;
+    /* Vertical part */
+    elements.push(makeRect({
+      role: "decoration",
+      x: W - PAD * 0.8 - cmThick, y: Math.round(H * 0.04),
+      width: cmThick, height: cmSize,
+      fill: accentColor, zIndex: 27,
+    }));
+    /* Horizontal part */
+    elements.push(makeRect({
+      role: "decoration",
+      x: W - PAD * 0.8 - cmSize, y: Math.round(H * 0.04),
+      width: cmSize, height: cmThick,
+      fill: accentColor, zIndex: 27,
+    }));
+  }
+
+  /* ── Frame border (thin stroke rect around entire canvas) ── */
+  if (hasFrameEl) {
+    const fp = frameBorderPx;
+    elements.push(makeRect({
+      role: "decoration",
+      x: fp, y: fp, width: W - fp * 2, height: H - fp * 2,
+      fill: "transparent",
+      stroke: accentColor, strokeWidth: fp,
+      zIndex: 50,
     }));
   }
 
@@ -819,6 +918,20 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
       }));
     }
   } else {
+    /* Pill background behind hook text when textTreatment === "pill-bg" */
+    if (textTreatment === "pill-bg") {
+      const pillPadX = Math.round(hookSize * 0.4);
+      const pillPadY = Math.round(hookSize * 0.18);
+      elements.push(makeRect({
+        role: "card",
+        x: textX - pillPadX, y: hookY - pillPadY,
+        width: textWidth + pillPadX * 2, height: hookSize * 3 + pillPadY * 2,
+        fill: hexA(isDark || isPhoto ? "#000000" : pal.secondary, 0.62),
+        cornerRadius: Math.round(hookSize * 0.22),
+        zIndex: 19, locked: true, draggable: false,
+      }));
+    }
+
     /* Standard hook text */
     elements.push(makeText({
       role: "hook",
@@ -828,12 +941,30 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
       fontSize: hookSize, fontFamily, fontStyle,
       fill: textColor, align: textAlign,
       lineHeight: lineHt, letterSpacing: letterSp,
-      ...shadow, zIndex: 20,
+      ...shadow, ...strokeProps, zIndex: 20,
     }));
+
+    /* Horizontal divider rule between hook and supporting text */
+    if (hasHRule && supporting) {
+      const ruleY = hookY + hookSize * 3 + Math.round(hookSize * 0.12);
+      const ruleW = textAlign === "center"
+        ? Math.round(textWidth * 0.35)
+        : Math.round(textWidth * 0.22);
+      const ruleX = textAlign === "center"
+        ? textX + Math.round((textWidth - ruleW) / 2)
+        : textX;
+      elements.push(makeRect({
+        role: "decoration",
+        x: ruleX, y: ruleY,
+        width: ruleW, height: lineThickPx,
+        fill: accentColor, zIndex: 17,
+      }));
+    }
 
     /* Supporting text */
     if (supporting) {
-      const supY = hookY + hookSize * 3 + Math.round(hookSize * 0.3);
+      const supY = hookY + hookSize * 3
+        + (hasHRule ? Math.round(hookSize * 0.55) : Math.round(hookSize * 0.3));
       elements.push(makeText({
         role: "supporting",
         text: supporting,
@@ -876,10 +1007,17 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
 
   _uid = 0;
 
+  /* Gradient colors derived from palette */
+  const gradientColors: [string, string] = gradientDir === "bottom-top"
+    ? [hexA(pal.secondary, 0.9), pal.primary]
+    : [pal.primary, hexA(isDark ? "#000000" : pal.secondary, 0.85)];
+
   return {
     elements,
     backgroundColor,
     backgroundImage: backgroundImageUrl ?? null,
     templateName: "adaptive",
+    gradientDirection: !isPhoto && gradientDir !== "none" ? gradientDir : "none",
+    gradientColors,
   };
 }

@@ -442,6 +442,16 @@ Return ONLY valid JSON — no markdown, no explanation, just the raw JSON:
     "overlayOpacity": 0.0
   },
 
+  "design": {
+    "decorativeElements": ["top-line", "bottom-line", "left-bar", "horizontal-rule", "circle-accent", "corner-mark", "frame-border", "quote-marks"],
+    "accentLineThickness": 0.005,
+    "hasDividerLine": false,
+    "textTreatment": "plain | heavy-shadow | outlined | pill-bg",
+    "hasFrameBorder": false,
+    "frameBorderThickness": 0.006,
+    "gradientDirection": "none | top-bottom | bottom-top | radial"
+  },
+
   "backgroundStyle": "photographic | dark | gradient | light | solid",
   "highlightPhrase": "",
   "mood": "2-4 word description",
@@ -451,9 +461,27 @@ Return ONLY valid JSON — no markdown, no explanation, just the raw JSON:
   "backgroundImagePrompt": "Flux prompt (60-90 words) for a PEOPLE-FREE background. ALWAYS start with 'No people, no faces, no humans — '. Describe the SETTING/ENVIRONMENT not the people. End with 'photorealistic, cinematic, no text, no watermarks, no people, no faces.'"
 }
 
-MEASUREMENT GUIDE for typography and layout values:
+MEASUREMENT GUIDE for typography, layout, and design values:
 - backgroundStyle: "photographic" = real photos used as backgrounds (celebrity news, luxury lifestyle). "dark" = pure dark/black solid backgrounds. "gradient" = gradient color backgrounds. "light" = white/light clean minimal backgrounds. "solid" = flat solid color background matching brand color.
 - fontWeight: 100-900. Thin minimalist accounts = 300. Normal = 400. Bold CEO/news accounts = 800-900.
+
+DESIGN BLOCK GUIDE — look carefully for recurring visual marks used across most posts:
+- decorativeElements: List only elements that appear consistently (>50% of posts). Options:
+  • "top-line" = thin colored horizontal line pinned to the very top edge of the graphic
+  • "bottom-line" = thin colored horizontal line pinned to the very bottom edge
+  • "left-bar" = vertical colored bar on the left side (editorial, news style)
+  • "horizontal-rule" = thin horizontal rule between headline and body text (not a strip)
+  • "circle-accent" = circular dot, ring, or badge used as brand/accent mark
+  • "corner-mark" = small geometric accent element in a corner
+  • "frame-border" = thin rectangular outline border around the entire graphic
+  • "quote-marks" = large decorative " " quotation characters behind the headline text
+  Return an empty array [] if none of these appear consistently.
+- accentLineThickness: Size of decorative lines as fraction of canvas width. Hairline = 0.002. Thin = 0.004-0.006. Medium = 0.008-0.012. Thick = 0.015-0.025.
+- hasDividerLine: true if a thin separator line visually splits the headline from the body text on most posts.
+- textTreatment: Pick ONE that best describes how text looks. "plain" = clean text no special effect. "heavy-shadow" = very strong dark shadow under text (photo post readability). "outlined" = text has a visible stroke/outline. "pill-bg" = text sits on a colored or frosted rectangle/pill background.
+- hasFrameBorder: true if a thin border rectangle appears around the entire canvas edge on most posts.
+- frameBorderThickness: Size of frame border as fraction of canvas width. 0.003-0.008 is typical.
+- gradientDirection: Does the BACKGROUND use a gradient? "none" = solid color or photo background (no gradient). "top-bottom" = gradient flows from top to bottom. "bottom-top" = darker at top, lighter/transparent at bottom. "radial" = radial center glow or vignette.
 - fontSizeRatio: How large is text relative to image? 0.7 = small elegant. 1.0 = standard. 1.4 = large bold headlines. 1.8 = massive impact text.
 - textTransform: "uppercase" if the account uses ALL CAPS text on graphics. "none" otherwise.
 - lineHeight: 0.9-1.0 = tight (bold headlines). 1.2 = standard. 1.5+ = airy/minimal.
