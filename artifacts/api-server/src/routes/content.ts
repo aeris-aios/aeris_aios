@@ -422,11 +422,11 @@ Return ONLY valid JSON — no markdown wrapper, no explanation, no code block. J
   "contentStyle": "1-2 sentences describing the overall aesthetic that a designer would follow to replicate this look",
   "designNotes": "bullet-point list of specific recurring visual elements: overlay styles, shapes, borders, patterns, spacing philosophy",
   "copyTone": "2-3 word description of the written voice (e.g. aspirational and direct, casual and relatable, premium and minimal)",
-  "backgroundImagePrompt": "A Flux image generation prompt (50-80 words) that recreates ONLY the background aesthetic of these posts — no text, no people, no faces. Focus on: background color/gradient, textures, shapes, lighting atmosphere, and abstract graphic elements. Write it as a direct prompt, e.g.: 'Deep navy blue radial gradient background, soft golden geometric accent lines, subtle luxury texture, premium minimal graphic design, abstract, no text, no faces, no people.'"
+  "backgroundImagePrompt": "A Flux image generation prompt (60-90 words) for a PEOPLE-FREE background image that captures the visual STYLE of this account. CRITICAL RULES: (1) ALWAYS start with 'No people, no faces, no humans — ' (2) If the account uses photos of real people, describe the SETTING/ENVIRONMENT/OBJECTS in those photos instead of the person: e.g. luxury cars on a race track, a modern glass office building exterior, a dramatic city skyline at night, abstract wealth symbols. (3) Describe: scene type, lighting, color temperature, cinematic style, depth, mood. (4) End with: 'photorealistic, cinematic, no text, no watermarks, no people, no faces.'"
 }
 
 For colorPalette: pick actual hex colors from the dominant visual palette. If photos are lifestyle/product with no text overlays, sample the dominant tones of those photos. Ensure text color is readable against primary.
-For backgroundImagePrompt: Study ONLY the background layer of each post (ignore text overlays). If the account uses solid colored backgrounds, describe the exact color and any subtle texture. If lifestyle photography, describe the scene atmosphere. Always end with: no text, no watermarks, no faces, no people.`,
+For backgroundImagePrompt: Focus on the SETTING/ENVIRONMENT/OBJECTS — not the human subjects. If the account posts Elon Musk, describe Tesla factories or electric cars. If they post Steve Jobs, describe a sleek Apple store or modern tech office. If they post billionaires, describe luxury yachts, private jets, or penthouses. For abstract or graphic accounts, describe the graphic design style. ALWAYS begin with 'No people, no faces, no humans — '.`,
           },
         ],
       }],
@@ -806,21 +806,30 @@ router.post("/content/generate-image", async (req, res) => {
   const aspectRatio = KIE_ASPECT_MAP[formatId ?? ""] ?? "1:1";
 
   /* ── Validate reference image URL for style transfer ── */
-  /* Instagram CDN URLs are temporary and expire — KIE.AI can't fetch them.  */
-  /* Proxy through our server to get a stable base64 version instead.        */
+  /* Instagram CDN URLs are temporary and may be proxied through our server.  */
+  /* Detect both: direct CDN URLs and frontend-proxied /api/content/image-proxy paths. */
   let validatedReferenceUrl: string | null = null;
   if (referenceImageUrl) {
-    if (!isSafeExternalUrl(referenceImageUrl)) {
+    /* Frontend converts CDN URLs to /api/content/image-proxy?url=... (relative path).
+       Extract the real target URL and fetch it directly — skip the SSRF check on the
+       proxy path itself since we control that endpoint. */
+    const PROXY_PREFIX = "/api/content/image-proxy?url=";
+    let targetUrl = referenceImageUrl;
+    if (referenceImageUrl.startsWith(PROXY_PREFIX)) {
+      try {
+        targetUrl = decodeURIComponent(referenceImageUrl.slice(PROXY_PREFIX.length));
+      } catch { targetUrl = ""; }
+    }
+
+    if (!targetUrl || !isSafeExternalUrl(targetUrl)) {
       console.warn("[generate-image] referenceImageUrl failed SSRF validation, skipping style transfer");
     } else {
-      /* For Instagram/social CDN URLs, proxy to base64 so KIE.AI can access */
-      const b64 = await imageUrlToBase64(referenceImageUrl);
+      const b64 = await imageUrlToBase64(targetUrl);
       if (b64) {
-        /* Convert to data URI for KIE.AI */
         validatedReferenceUrl = `data:${b64.mediaType};base64,${b64.data}`;
-        console.log("[generate-image] reference image proxied to base64 for style transfer");
+        console.log("[generate-image] reference image fetched for style transfer");
       } else {
-        console.warn("[generate-image] failed to proxy reference image, skipping style transfer");
+        console.warn("[generate-image] failed to fetch reference image, skipping style transfer");
       }
     }
   }
@@ -848,8 +857,11 @@ router.post("/content/generate-image", async (req, res) => {
     case "light":
       visualApproach = "Bright, airy, and clean. Soft diffused light, white space, minimal and premium.";
       break;
+    case "photographic":
+      visualApproach = "Cinematic empty scene — luxury environment or dramatic landscape with no people. Wide angle, bokeh depth of field, high contrast, moody atmosphere. No humans, no faces.";
+      break;
     default:
-      visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point.";
+      visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point. No people, no faces.";
   }
 
   /* When the user supplies a custom prompt, use it as the primary directive
@@ -868,14 +880,21 @@ router.post("/content/generate-image", async (req, res) => {
       ].filter(Boolean).join(" ")
     /* Claude-generated style-matched background prompt (most accurate) */
     : backgroundImagePrompt?.trim()
-    ? [
-        backgroundImagePrompt.trim(),
-        validatedReferenceUrl ? "Precisely match the visual style, color palette, texture, and atmosphere from the reference image." : "",
-        brandColors?.length ? `Exact brand colors: ${brandColors.slice(0, 3).join(", ")}.` : "",
-        designNotes ? `Design details: ${designNotes}` : "",
-        `Composition: generous negative space in the center and top third for text overlay.`,
-        `Absolutely no text, no watermarks, no logos, no letters, no words, no people, no faces.`,
-      ].filter(Boolean).join(" ")
+    ? (() => {
+        /* Always guarantee "no people" leads the prompt — FLUX respects early negative constraints */
+        const NO_PEOPLE = "No people, no faces, no humans, no persons —";
+        const base = backgroundImagePrompt.trim();
+        const alreadyNegated = /^no people|^no faces|^no humans/i.test(base);
+        const safeBase = alreadyNegated ? base : `${NO_PEOPLE} ${base}`;
+        return [
+          safeBase,
+          validatedReferenceUrl ? "Match the visual style, color palette, texture, and atmosphere from the reference image — no people." : "",
+          brandColors?.length ? `Brand colors: ${brandColors.slice(0, 3).join(", ")}.` : "",
+          designNotes ? `Design details: ${designNotes}` : "",
+          `Composition: generous empty space in center and top third for text overlay.`,
+          `Photorealistic, cinematic, no text, no watermarks, no logos, no words, no people, no faces, no hands.`,
+        ].filter(Boolean).join(" ");
+      })()
     : [
         `Ultra-high-quality social media marketing visual for "${hook}".`,
         validatedReferenceUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
