@@ -120,12 +120,16 @@ export function splitHeadline(
     }
   }
 
-  const commaIdx = text.indexOf(",");
-  if (commaIdx > 10 && commaIdx < text.length * 0.55) {
-    return {
-      accentLine: text.slice(0, commaIdx).trim(),
-      bodyLine: text.slice(commaIdx + 1).trim(),
-    };
+  const clauseMatch = text.match(/[,;:\u2014\u2013]|-{2}/);
+  if (clauseMatch && clauseMatch.index !== undefined) {
+    const idx = clauseMatch.index;
+    if (idx > 10 && idx < text.length * 0.6) {
+      const delimLen = clauseMatch[0].length;
+      return {
+        accentLine: text.slice(0, idx).trim(),
+        bodyLine: text.slice(idx + delimLen).trim(),
+      };
+    }
   }
 
   const words = text.split(/\s+/);
