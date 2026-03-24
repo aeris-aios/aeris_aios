@@ -987,12 +987,10 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
 
     try {
       const { hook } = extractHook(text);
-      /* Proxy Instagram CDN URLs through our image proxy for reliability */
-      let safeReferenceUrl = referenceImageUrl;
-      if (referenceImageUrl && /cdninstagram|fbcdn|scontent/i.test(referenceImageUrl)) {
-        safeReferenceUrl = `/api/content/image-proxy?url=${encodeURIComponent(referenceImageUrl)}`;
-      }
-
+      /* DO NOT pass referenceImageUrl — Instagram posts contain text overlays
+         that FLUX reproduces in the background image. The competitor's style
+         is already communicated via contentStyle, mood, colors, designNotes,
+         and backgroundImagePrompt extracted by Claude Vision. */
       const res = await fetch("/api/content/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1006,7 +1004,6 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
           brandName,
           mood:                  styleProfile?.mood,
           backgroundStyle:       styleProfile?.backgroundStyle,
-          referenceImageUrl:     safeReferenceUrl || undefined,
           designNotes:           styleProfile?.designNotes,
           backgroundImagePrompt: styleProfile?.backgroundImagePrompt,
         }),

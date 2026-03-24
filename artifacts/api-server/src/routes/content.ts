@@ -696,17 +696,20 @@ const KIE_ASPECT_MAP: Record<string, string> = {
 /* ── Provider-specific generators ── */
 
 async function generateWithReplicate(
-  prompt: string, aspectRatio: string, referenceBase64: string | null, apiKey: string,
+  prompt: string, aspectRatio: string, _referenceBase64: string | null, apiKey: string,
 ): Promise<string> {
+  /* NOTE: We intentionally DO NOT pass reference images to FLUX Kontext for
+     background generation. Instagram post images contain text overlays (like
+     @advicefromceo bold headlines) and FLUX reproduces that text as part of
+     style transfer — making the background unusable (text baked into image).
+     Instead, the style info is encoded in the text prompt via contentStyle,
+     mood, colors, and designNotes extracted by Claude Vision. */
   const input: Record<string, unknown> = {
     prompt,
     aspect_ratio: aspectRatio,
     output_format: "jpg",
     safety_tolerance: 2,
   };
-  if (referenceBase64) {
-    input.input_image = referenceBase64;
-  }
 
   const submitRes = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions", {
     method: "POST",
@@ -769,6 +772,7 @@ async function generateWithIdeogram(
     body: JSON.stringify({
       image_request: {
         prompt,
+        negative_prompt: "text, words, letters, numbers, watermarks, logos, signatures, captions, headlines, titles, labels, annotations, speech bubbles, any written content",
         model: "V_2",
         aspect_ratio: ideogramAR[aspectRatio] ?? "ASPECT_1_1",
         magic_prompt_option: "AUTO",
@@ -868,8 +872,9 @@ router.post("/content/generate-image", async (req, res) => {
       visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point. No people, no faces.";
   }
 
-  /* Absolute no-text prefix — Flux weights the beginning of the prompt heavily */
-  const NO_TEXT_PREFIX = "PURE PHOTOGRAPHIC IMAGE ONLY — absolutely zero text, zero words, zero letters, zero numbers, zero symbols anywhere in the image.";
+  /* Absolute no-text prefix — FLUX and Ideogram weight the beginning of the prompt heavily.
+     This MUST be the first thing in the prompt. Repeated at end for reinforcement. */
+  const NO_TEXT_PREFIX = "BACKGROUND IMAGE ONLY. Do NOT include any text, words, letters, numbers, symbols, captions, titles, headlines, or any written content whatsoever in this image. This image will be used as a background — text will be added separately as an overlay. Generate ONLY a photograph or scene with ZERO text anywhere.";
 
   /* When the user supplies a custom prompt, use it as the primary directive
      while retaining hook/brand/style as supplementary context */
