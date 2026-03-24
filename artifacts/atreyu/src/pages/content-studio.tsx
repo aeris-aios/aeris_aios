@@ -112,6 +112,7 @@ function GenerateGraphicButton({ text, platformId, brandName }: {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
+  const [provider, setProvider] = useState<"auto" | "replicate" | "ideogram" | "kie">("auto");
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
 
@@ -134,6 +135,7 @@ function GenerateGraphicButton({ text, platformId, brandName }: {
           hook,
           formatId: PLATFORM_FORMAT_MAP[platformId] ?? "square",
           brandName: brandName ?? "AERIS",
+          provider,
         }),
       });
 
@@ -170,6 +172,20 @@ function GenerateGraphicButton({ text, platformId, brandName }: {
           <img src={imageUrl} alt="Generated graphic" className="w-full h-auto" />
         </div>
       )}
+      {/* Provider selector */}
+      <div className="flex gap-1">
+        {([
+          { id: "auto", label: "Auto" },
+          { id: "replicate", label: "FLUX" },
+          { id: "ideogram", label: "Ideogram" },
+          { id: "kie", label: "KIE" },
+        ] as const).map(p => (
+          <button key={p.id} onClick={() => setProvider(p.id)}
+            className={`flex-1 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+              provider === p.id ? "bg-violet-500/20 text-violet-500 border border-violet-500/30" : "text-muted-foreground hover:text-foreground"
+            }`}>{p.label}</button>
+        ))}
+      </div>
       <div className="flex gap-2">
         <button
           onClick={handleGenerate}

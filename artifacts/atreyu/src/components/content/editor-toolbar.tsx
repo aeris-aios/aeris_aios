@@ -72,6 +72,7 @@ export function EditorToolbar({
   const [exportQuality, setExportQuality] = useState(0.92);
   const [aiPromptOpen, setAiPromptOpen] = useState(false);
   const [userPrompt, setUserPrompt] = useState("");
+  const [aiProvider, setAiProvider] = useState<"auto" | "replicate" | "ideogram" | "kie">("auto");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -96,7 +97,10 @@ export function EditorToolbar({
             ? [styleProfile.colorPalette.primary, styleProfile.colorPalette.accent]
             : undefined,
           brandName,
+          mood: styleProfile?.mood,
+          backgroundStyle: styleProfile?.backgroundStyle,
           userPrompt: customPrompt?.trim() || undefined,
+          provider: aiProvider,
         }),
       });
       if (!res.ok) {
@@ -379,6 +383,28 @@ export function EditorToolbar({
             Upload Image
           </button>
         </div>
+
+        {/* Provider selector */}
+        {aiPromptOpen && !aiLoading && (
+          <div className="space-y-1.5">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">AI Provider</p>
+            <div className="flex gap-1">
+              {([
+                { id: "auto", label: "Auto", desc: "Best available" },
+                { id: "replicate", label: "FLUX", desc: "Style transfer" },
+                { id: "ideogram", label: "Ideogram", desc: "Text on image" },
+                { id: "kie", label: "KIE", desc: "Fallback" },
+              ] as const).map(p => (
+                <button key={p.id} onClick={() => setAiProvider(p.id)}
+                  className={`flex-1 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${
+                    aiProvider === p.id ? "bg-primary text-primary-foreground" : "neu-raised-sm text-muted-foreground hover:text-foreground"
+                  }`} title={p.desc}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* AI prompt input — expands when "AI Generate" is toggled */}
         {aiPromptOpen && !aiLoading && (

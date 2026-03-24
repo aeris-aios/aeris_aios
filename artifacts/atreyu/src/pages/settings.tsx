@@ -90,7 +90,10 @@ export default function Settings() {
 
   const integrations = [
     { key: "apify_api_key", label: "Apify API Key", desc: "Powers research job scraping across 10+ platforms" },
-    { key: "kie_ai_api_key", label: "KIE.AI API Key", desc: "AI image generation for content graphics" },
+    { key: "replicate_api_key", label: "Replicate API Key", desc: "FLUX Kontext — best style transfer from reference images (recommended)" },
+    { key: "ideogram_api_key", label: "Ideogram API Key", desc: "AI image generation with readable text embedded in images" },
+    { key: "higgsfield_api_key", label: "Higgsfield API Key", desc: "Photo and video generation" },
+    { key: "kie_ai_api_key", label: "KIE.AI API Key", desc: "AI image generation fallback" },
     { key: "meta_ads_token", label: "Meta Ads Access Token", desc: "Facebook/Instagram ad campaign publishing" },
     { key: "meta_ad_account_id", label: "Meta Ad Account ID", desc: "Your Meta Ads account identifier" },
     { key: "google_ads_developer_token", label: "Google Ads Developer Token", desc: "Google Ads campaign management" },

@@ -1,10 +1,18 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { contentAssetsTable, brandProfilesTable, styleExamplesTable, knowledgeItemsTable } from "@workspace/db";
+import { contentAssetsTable, brandProfilesTable, styleExamplesTable, knowledgeItemsTable, settingsTable } from "@workspace/db";
 import { eq, isNull, and } from "drizzle-orm";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 
 const router: IRouter = Router();
+
+/* Helper: read a setting value from the DB */
+async function getSettingValue(key: string): Promise<string | null> {
+  try {
+    const [row] = await db.select().from(settingsTable).where(eq(settingsTable.key, key));
+    return row?.value ?? null;
+  } catch { return null; }
+}
 
 const MODEL_MAP: Record<string, string> = {
   sonnet: "claude-sonnet-4-6",
@@ -679,8 +687,93 @@ const KIE_ASPECT_MAP: Record<string, string> = {
   linkedin_post: "4:3",
 };
 
+/* ── Provider-specific generators ── */
+
+async function generateWithReplicate(
+  prompt: string, aspectRatio: string, referenceBase64: string | null, apiKey: string,
+): Promise<string> {
+  const input: Record<string, unknown> = {
+    prompt,
+    aspect_ratio: aspectRatio,
+    output_format: "jpg",
+    safety_tolerance: 2,
+  };
+  if (referenceBase64) {
+    input.input_image = referenceBase64;
+  }
+
+  const submitRes = await fetch("https://api.replicate.com/v1/predictions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "black-forest-labs/flux-kontext-pro", input }),
+  });
+
+  if (!submitRes.ok) {
+    const err = await submitRes.text();
+    console.error("[replicate] submit failed:", err);
+    throw new Error(`Replicate error: ${err.slice(0, 200)}`);
+  }
+
+  const prediction = await submitRes.json();
+  const pollUrl = prediction.urls?.get ?? `https://api.replicate.com/v1/predictions/${prediction.id}`;
+
+  /* Poll until done — max 90s */
+  for (let i = 0; i < 30; i++) {
+    await new Promise(r => setTimeout(r, 3_000));
+    const pollRes = await fetch(pollUrl, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!pollRes.ok) continue;
+    const data = await pollRes.json();
+    console.log(`[replicate] poll ${i + 1}: status=${data.status}`);
+
+    if (data.status === "succeeded" && data.output) {
+      const url = Array.isArray(data.output) ? data.output[0] : data.output;
+      if (url) return url;
+    }
+    if (data.status === "failed" || data.status === "canceled") {
+      throw new Error(data.error ?? "Replicate generation failed");
+    }
+  }
+  throw new Error("Replicate generation timed out");
+}
+
+async function generateWithIdeogram(
+  prompt: string, aspectRatio: string, apiKey: string,
+): Promise<string> {
+  /* Map aspect ratios to Ideogram format */
+  const ideogramAR: Record<string, string> = {
+    "1:1": "ASPECT_1_1", "3:4": "ASPECT_3_4", "4:3": "ASPECT_4_3",
+    "9:16": "ASPECT_9_16", "16:9": "ASPECT_16_9",
+  };
+
+  const res = await fetch("https://api.ideogram.ai/generate", {
+    method: "POST",
+    headers: { "Api-Key": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      image_request: {
+        prompt,
+        model: "V_2",
+        aspect_ratio: ideogramAR[aspectRatio] ?? "ASPECT_1_1",
+        magic_prompt_option: "AUTO",
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    console.error("[ideogram] failed:", err);
+    throw new Error(`Ideogram error: ${err.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  const url = data?.data?.[0]?.url ?? data?.data?.[0]?.url;
+  if (!url) throw new Error("Ideogram returned no image URL");
+  return url;
+}
+
 router.post("/content/generate-image", async (req, res) => {
-  const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry, referenceImageUrl, userPrompt } = req.body as {
+  const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry, referenceImageUrl, userPrompt, provider } = req.body as {
     hook: string;
     contentStyle?: string;
     formatId?: string;
@@ -691,6 +784,7 @@ router.post("/content/generate-image", async (req, res) => {
     industry?: string;
     referenceImageUrl?: string;
     userPrompt?: string;
+    provider?: "replicate" | "ideogram" | "kie" | "auto";
   };
 
   if (!hook) { res.status(400).json({ error: "hook is required" }); return; }
@@ -778,114 +872,85 @@ router.post("/content/generate-image", async (req, res) => {
 
   const negativePrompt = "text, watermarks, logos, words, letters, numbers, people, faces, hands, fingers, cluttered backgrounds, amateur photography, blurry, low quality, distorted, oversaturated, cartoon, illustration, drawing, painting, render, 3D, CGI, stock photo watermark, busy composition";
 
+  /* ── Determine which provider to use ── */
+  const REPLICATE_KEY = process.env.REPLICATE_API_KEY ?? await getSettingValue("replicate_api_key");
+  const IDEOGRAM_KEY  = process.env.IDEOGRAM_API_KEY  ?? await getSettingValue("ideogram_api_key");
+  const KIE_KEY       = KIE_API_KEY;
+
+  let selectedProvider = provider ?? "auto";
+  if (selectedProvider === "auto") {
+    /* Prefer Replicate (best style transfer), then Ideogram, then KIE */
+    if (REPLICATE_KEY) selectedProvider = "replicate";
+    else if (IDEOGRAM_KEY) selectedProvider = "ideogram";
+    else if (KIE_KEY) selectedProvider = "kie";
+    else { res.status(500).json({ error: "No image generation API configured. Add a Replicate, Ideogram, or KIE.AI key in Settings > Integrations." }); return; }
+  }
+
+  console.log(`[generate-image] provider=${selectedProvider} hasRef=${!!validatedReferenceUrl}`);
+
   try {
-    /* Submit generation task */
-    const kieBody: Record<string, unknown> = {
-      prompt,
-      model:            "flux-kontext-pro",
-      aspectRatio,
-      outputFormat:     "jpeg",
-      safetyTolerance:  2,
-      promptUpsampling: true,
-    };
+    let imageUrl: string;
 
-    /* Activate style-transfer mode when a validated reference URL is available */
-    if (validatedReferenceUrl) {
-      kieBody.imageUrl            = validatedReferenceUrl;
-      kieBody.imagePromptStrength = 0.35;
-    }
+    if (selectedProvider === "replicate") {
+      if (!REPLICATE_KEY) { res.status(500).json({ error: "Replicate API key not configured" }); return; }
+      imageUrl = await generateWithReplicate(prompt, aspectRatio, validatedReferenceUrl, REPLICATE_KEY);
+    } else if (selectedProvider === "ideogram") {
+      if (!IDEOGRAM_KEY) { res.status(500).json({ error: "Ideogram API key not configured" }); return; }
+      imageUrl = await generateWithIdeogram(prompt, aspectRatio, IDEOGRAM_KEY);
+    } else {
+      /* KIE.AI fallback */
+      if (!KIE_KEY) { res.status(500).json({ error: "KIE_AI_API_KEY not configured" }); return; }
 
-    const submitRes = await fetch("https://api.kie.ai/api/v1/flux/kontext/generate", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${KIE_API_KEY}`,
-        "Content-Type":  "application/json",
-      },
-      body: JSON.stringify(kieBody),
-    });
+      const kieBody: Record<string, unknown> = {
+        prompt, model: "flux-kontext-pro", aspectRatio,
+        outputFormat: "jpeg", safetyTolerance: 2, promptUpsampling: true,
+      };
+      if (validatedReferenceUrl) {
+        kieBody.imageUrl = validatedReferenceUrl;
+        kieBody.imagePromptStrength = 0.35;
+      }
 
-    if (!submitRes.ok) {
-      const errText = await submitRes.text();
-      console.error("[generate-image] KIE submit failed:", errText);
-      res.status(502).json({ error: `Image generation failed: ${errText}` }); return;
-    }
+      const submitRes = await fetch("https://api.kie.ai/api/v1/flux/kontext/generate", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${KIE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify(kieBody),
+      });
+      if (!submitRes.ok) {
+        const errText = await submitRes.text();
+        throw new Error(`KIE.AI error: ${errText.slice(0, 200)}`);
+      }
 
-    const submitData = await submitRes.json();
-    console.log("[generate-image] KIE submit response:", JSON.stringify(submitData));
-    const taskId = submitData?.data?.taskId ?? submitData?.taskId;
-    if (!taskId) {
-      res.status(502).json({ error: "No taskId returned from KIE.AI" }); return;
-    }
-    console.log("[generate-image] taskId:", taskId, "| styleTransfer:", !!validatedReferenceUrl);
+      const submitData = await submitRes.json();
+      const taskId = submitData?.data?.taskId ?? submitData?.taskId;
+      if (!taskId) throw new Error("No taskId returned from KIE.AI");
 
-    /*
-     * Poll via GET /api/v1/flux/kontext/record-info?taskId=<id>
-     * successFlag: 1 = done, 0 = processing/failed
-     * image at: data.response.resultImageUrl
-     * Docs recommend 30s intervals; we use 5s for better UX (max 5 min total).
-     */
-    const MAX_POLLS     = 60;
-    const POLL_INTERVAL = 5_000;
-    let consecutiveErrors = 0;
-
-    for (let i = 0; i < MAX_POLLS; i++) {
-      await new Promise(r => setTimeout(r, POLL_INTERVAL));
-
-      let pollRes: Response;
-      try {
-        pollRes = await fetch(
-          `https://api.kie.ai/api/v1/flux/kontext/record-info?taskId=${encodeURIComponent(taskId)}`,
-          { headers: { "Authorization": `Bearer ${KIE_API_KEY}` }, signal: AbortSignal.timeout(15_000) },
-        );
-      } catch (fetchErr) {
-        console.log(`[generate-image] poll ${i+1}: network error`);
-        consecutiveErrors++;
-        if (consecutiveErrors >= 5) {
-          res.status(502).json({ error: "Cannot reach KIE.AI image service. Please try again later." }); return;
+      /* Poll KIE.AI — max 90s */
+      let found = false;
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 3_000));
+        try {
+          const pollRes = await fetch(
+            `https://api.kie.ai/api/v1/flux/kontext/record-info?taskId=${encodeURIComponent(taskId)}`,
+            { headers: { Authorization: `Bearer ${KIE_KEY}` }, signal: AbortSignal.timeout(10_000) },
+          );
+          if (!pollRes.ok) continue;
+          const pd = await pollRes.json();
+          const url = pd?.data?.response?.resultImageUrl ?? pd?.data?.response?.originImageUrl;
+          if (pd?.data?.successFlag === 1 && url) { imageUrl = url; found = true; break; }
+          if (pd?.data?.errorCode) throw new Error(pd.data.errorMessage ?? "KIE generation failed");
+        } catch (e: any) {
+          if (e?.message?.includes("KIE generation")) throw e;
         }
-        continue;
       }
-
-      if (!pollRes.ok) {
-        const errBody = await pollRes.text().catch(() => "(unreadable)");
-        console.log(`[generate-image] poll ${i+1}: HTTP ${pollRes.status} body=${errBody}`);
-        consecutiveErrors++;
-        if (consecutiveErrors >= 5) {
-          res.status(502).json({ error: "KIE.AI image service is not responding. Please try again later." }); return;
-        }
-        continue;
-      }
-
-      consecutiveErrors = 0;
-      const pollData = await pollRes.json();
-      const data = pollData?.data;
-
-      const successFlag = data?.successFlag;
-      const imageUrl    = data?.response?.resultImageUrl ?? data?.response?.originImageUrl;
-      const errorCode   = data?.errorCode;
-      const errorMsg    = data?.errorMessage ?? "";
-
-      console.log(`[generate-image] poll ${i+1}: successFlag=${successFlag} errorCode=${errorCode} hasUrl=${!!imageUrl}`);
-
-      /* Success */
-      if (successFlag === 1 && imageUrl) {
-        console.log("[generate-image] completed at poll", i+1, "url:", imageUrl);
-        res.json({ imageUrl }); return;
-      }
-
-      /* Hard failure */
-      if (errorCode) {
-        console.error("[generate-image] KIE task failed:", errorCode, errorMsg);
-        res.status(502).json({ error: `Image generation failed${errorMsg ? `: ${errorMsg}` : ""}` }); return;
-      }
-
-      /* successFlag=0 with no errorCode = still processing — keep polling */
+      if (!found) throw new Error("KIE.AI generation timed out");
+      imageUrl = imageUrl!;
     }
 
-    res.status(504).json({ error: "Image generation timed out. KIE.AI may be overloaded — please try again." });
+    console.log(`[generate-image] success via ${selectedProvider}`);
+    res.json({ imageUrl, provider: selectedProvider });
   } catch (err: any) {
-    console.error("[generate-image] error:", err);
-    res.status(500).json({ error: err?.message ?? "Image generation error" });
+    console.error(`[generate-image] ${selectedProvider} error:`, err?.message);
+    res.status(502).json({ error: err?.message ?? "Image generation failed" });
   }
 });
 
