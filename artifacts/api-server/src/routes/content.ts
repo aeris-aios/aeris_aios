@@ -405,29 +405,68 @@ router.post("/content/analyze-style", async (req, res) => {
           ...imageBlocks,
           {
             type: "text",
-            text: `You are an elite visual brand analyst. Analyze these ${validImages.length} posts from @${username} on ${platform}.
+            text: `You are an elite visual brand analyst and graphic designer. Analyze these ${validImages.length} posts from @${username} on ${platform}.
 
-Return ONLY valid JSON — no markdown wrapper, no explanation, no code block. Just the raw JSON object:
+Your job: extract EXACT design parameters so a template engine can recreate this account's visual style programmatically. Do NOT classify into categories — measure the actual values.
+
+Return ONLY valid JSON — no markdown, no explanation, just the raw JSON:
 {
   "colorPalette": {
-    "primary":   "#hexcode",
-    "secondary": "#hexcode",
-    "accent":    "#hexcode",
-    "text":      "#hexcode"
+    "primary":   "#hexcode (dominant background color)",
+    "secondary": "#hexcode (secondary tone)",
+    "accent":    "#hexcode (highlight/CTA color — the color used for emphasis text, buttons, or visual accents)",
+    "text":      "#hexcode (primary text color)"
   },
-  "mood": "2-4 word description (e.g. warm and aspirational)",
-  "backgroundStyle": "one of: solid | gradient | dark | light | textured | photographic",
-  "typographyStyle": "one of: serif | sans-serif | bold | minimal | script",
-  "layoutStyle": "one of: centered | left-aligned | editorial | fullbleed | split",
-  "contentStyle": "1-2 sentences describing the overall aesthetic that a designer would follow to replicate this look",
-  "designNotes": "bullet-point list of specific recurring visual elements: overlay styles, shapes, borders, patterns, spacing philosophy",
-  "copyTone": "2-3 word description of the written voice (e.g. aspirational and direct, casual and relatable, premium and minimal)",
-  "highlightPhrase": "The 2-5 power words this account consistently uses in ACCENT COLOR on their posts (e.g. for news/CEO accounts: a dollar figure like '$2 BILLION', a status word like 'BILLIONAIRE', or a key emotional phrase like 'WIFE AND KIDS'). Return empty string if the account does not use accent-colored text highlights.",
-  "backgroundImagePrompt": "A Flux image generation prompt (60-90 words) for a PEOPLE-FREE background image that captures the visual STYLE of this account. CRITICAL RULES: (1) ALWAYS start with 'No people, no faces, no humans — ' (2) If the account uses photos of real people, describe the SETTING/ENVIRONMENT/OBJECTS in those photos instead of the person: e.g. luxury cars on a race track, a modern glass office building exterior, a dramatic city skyline at night, abstract wealth symbols. (3) Describe: scene type, lighting, color temperature, cinematic style, depth, mood. (4) End with: 'photorealistic, cinematic, no text, no watermarks, no people, no faces.'"
+
+  "typography": {
+    "fontWeight": 400,
+    "fontSizeRatio": 1.0,
+    "textTransform": "uppercase | none | capitalize",
+    "lineHeight": 1.2,
+    "letterSpacing": 0,
+    "fontCategory": "sans-serif | serif | display | mono",
+    "textAlign": "left | center | right"
+  },
+
+  "layout": {
+    "textPositionY": 0.3,
+    "textPositionX": 0.08,
+    "textWidthRatio": 0.84,
+    "hasBottomStrip": false,
+    "stripStartY": 0.6,
+    "stripOpacity": 0.82,
+    "hasTopAccentBar": false,
+    "hasLeftAccentBar": false,
+    "hasCardBackground": false,
+    "cardCornerRadius": 0,
+    "overlayOpacity": 0.0
+  },
+
+  "highlightPhrase": "",
+  "mood": "2-4 word description",
+  "contentStyle": "1-2 sentences describing the aesthetic a designer would follow",
+  "designNotes": "bullet-point list of recurring visual elements",
+  "copyTone": "2-3 word description of written voice",
+  "backgroundImagePrompt": "Flux prompt (60-90 words) for a PEOPLE-FREE background. ALWAYS start with 'No people, no faces, no humans — '. Describe the SETTING/ENVIRONMENT not the people. End with 'photorealistic, cinematic, no text, no watermarks, no people, no faces.'"
 }
 
-For colorPalette: pick actual hex colors from the dominant visual palette. If photos are lifestyle/product with no text overlays, sample the dominant tones of those photos. Ensure text color is readable against primary.
-For backgroundImagePrompt: Focus on the SETTING/ENVIRONMENT/OBJECTS — not the human subjects. If the account posts Elon Musk, describe Tesla factories or electric cars. If they post Steve Jobs, describe a sleek Apple store or modern tech office. If they post billionaires, describe luxury yachts, private jets, or penthouses. For abstract or graphic accounts, describe the graphic design style. ALWAYS begin with 'No people, no faces, no humans — '.`,
+MEASUREMENT GUIDE for typography and layout values:
+- fontWeight: 100-900. Thin minimalist accounts = 300. Normal = 400. Bold CEO/news accounts = 800-900.
+- fontSizeRatio: How large is text relative to image? 0.7 = small elegant. 1.0 = standard. 1.4 = large bold headlines. 1.8 = massive impact text.
+- textTransform: "uppercase" if the account uses ALL CAPS text on graphics. "none" otherwise.
+- lineHeight: 0.9-1.0 = tight (bold headlines). 1.2 = standard. 1.5+ = airy/minimal.
+- letterSpacing: -2 to -1 = tight tracking (bold). 0 = normal. 1-3 = spaced out (luxury/minimal).
+- textPositionY: 0.0 = top. 0.3 = upper third. 0.5 = middle. 0.65-0.75 = bottom anchored (news/CEO style). Measure where the PRIMARY text sits on their graphics.
+- textWidthRatio: 0.5 = narrow column. 0.84 = standard. 0.95 = edge-to-edge.
+- hasBottomStrip: true if the account overlays a dark strip at the bottom for text (like @advicefromceo).
+- stripStartY: Where the dark strip begins (0.0 = top, 1.0 = bottom). Typical: 0.55-0.65.
+- stripOpacity: How dark the strip is. 0.7-0.9 typical.
+- overlayOpacity: Full-image dark overlay. 0 = no overlay. 0.2-0.4 = typical for photo posts with text.
+- hasCardBackground: true if text sits on a white/colored card floating over the background.
+- highlightPhrase: The 2-5 power words consistently shown in ACCENT COLOR (e.g. "$2 BILLION", "BILLIONAIRE"). Empty string if no accent text is used.
+
+For colorPalette: pick actual hex colors from the visual palette. Sample from the graphics, not just photos. Ensure text color is readable against primary.
+For backgroundImagePrompt: Describe the SETTING, not the people. If account shows Elon Musk, describe Tesla factories. If billionaires, describe luxury yachts or penthouses. ALWAYS begin with 'No people, no faces, no humans — '.`,
           },
         ],
       }],

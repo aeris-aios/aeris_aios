@@ -642,73 +642,60 @@ export interface TemplateResult {
 }
 
 /* ═══════════════════════════════════════════
-   ADAPTIVE TEMPLATE — driven entirely by StyleProfile fields
-   Replaces the rigid 5-template picker with a single function
-   that adapts font size, position, alignment, colors, decorations,
-   and layout based on ALL extracted style signals.
+   ADAPTIVE TEMPLATE — driven by numeric design parameters from Claude Vision.
+   No enum-to-template lookup. Every value from the style profile directly
+   controls the corresponding visual property on the Konva canvas.
 ═══════════════════════════════════════════ */
 export function generateTemplate(params: TemplateParams): TemplateResult {
   const { text, canvasWidth: W, canvasHeight: H, brandName, styleProfile, backgroundImageUrl } =
     params;
   const pal = styleProfile?.colorPalette ?? DEFAULT_PALETTE;
   const { hook, supporting } = extractHook(text);
-
-  /* ── Extract style signals with sensible defaults ── */
-  const typ    = styleProfile?.typographyStyle ?? "sans-serif";
-  const layout = styleProfile?.layoutStyle ?? "centered";
-  const bg     = styleProfile?.backgroundStyle ?? "gradient";
   const highlight = styleProfile?.highlightPhrase;
 
-  const isBold       = typ === "bold";
-  const isSerif      = typ === "serif";
-  const isMinimal    = typ === "minimal";
-  const isScript     = typ === "script";
-  const isCentered   = layout === "centered";
-  const isLeftAlign  = layout === "left-aligned" || layout === "editorial";
-  const isFullbleed  = layout === "fullbleed" || layout === "split";
-  const isDark       = bg === "dark" || isDarkColor(pal.primary);
-  const isPhoto      = bg === "photographic" || !!backgroundImageUrl;
-  const isLight      = bg === "light" || bg === "solid" || (!isDark && !isPhoto);
-  const hasOverlay   = isPhoto || isBold;
+  /* ── Read numeric design params (new format) with fallback to old enums ── */
+  const typo = styleProfile?.typography;
+  const lay  = styleProfile?.layout;
 
-  /* ── Adaptive font sizing — driven by typography style ── */
+  /* Typography — use numeric values when available, derive from enums otherwise */
+  const fontWeight   = typo?.fontWeight ?? (styleProfile?.typographyStyle === "bold" ? 800 : 400);
+  const fontSizeR    = typo?.fontSizeRatio ?? (fontWeight >= 700 ? 1.3 : styleProfile?.typographyStyle === "minimal" ? 0.85 : 1.0);
+  const textTransform = typo?.textTransform ?? (fontWeight >= 700 ? "uppercase" : "none");
+  const lineHt       = typo?.lineHeight ?? (fontWeight >= 700 ? 1.05 : 1.22);
+  const letterSp     = typo?.letterSpacing ?? (fontWeight >= 700 ? -1 : 0);
+  const fontCat      = typo?.fontCategory ?? (styleProfile?.typographyStyle === "serif" ? "serif" : "sans-serif");
+  const textAlignRaw = typo?.textAlign ?? (styleProfile?.layoutStyle === "centered" ? "center" : styleProfile?.layoutStyle === "left-aligned" || styleProfile?.layoutStyle === "editorial" ? "left" : "center");
+
+  /* Layout — use numeric values when available, derive from enums otherwise */
+  const hasBottomStrip  = lay?.hasBottomStrip ?? (fontWeight >= 700 && (styleProfile?.backgroundStyle === "photographic" || styleProfile?.layoutStyle === "fullbleed"));
+  const stripStartY     = lay?.stripStartY ?? 0.58;
+  const stripOpacity    = lay?.stripOpacity ?? 0.82;
+  const hasTopBar       = lay?.hasTopAccentBar ?? (fontWeight >= 600 || styleProfile?.layoutStyle === "editorial");
+  const hasLeftBar      = lay?.hasLeftAccentBar ?? (styleProfile?.layoutStyle === "editorial" || styleProfile?.layoutStyle === "left-aligned");
+  const hasCard         = lay?.hasCardBackground ?? (styleProfile?.backgroundStyle === "light" || styleProfile?.backgroundStyle === "solid" || styleProfile?.backgroundStyle === "gradient");
+  const overlayOpacity  = lay?.overlayOpacity ?? (!!backgroundImageUrl ? 0.35 : 0);
+  const textPosY        = lay?.textPositionY ?? (hasBottomStrip ? stripStartY + 0.02 : 0.25);
+  const textPosX        = lay?.textPositionX ?? 0.08;
+  const textWidthR      = lay?.textWidthRatio ?? 0.84;
+
+  /* ── Derived values ── */
+  const isPhoto   = !!backgroundImageUrl || overlayOpacity > 0;
+  const isDark    = isDarkColor(pal.primary) || styleProfile?.backgroundStyle === "dark";
   const hookSizeBase = Math.min(Math.round(W * 0.065), 90);
-  const hookSize = isBold
-    ? Math.min(Math.round(hookSizeBase * 1.35), 120)  /* Bold: 35% larger */
-    : isMinimal
-    ? Math.round(hookSizeBase * 0.85)                  /* Minimal: 15% smaller */
-    : isScript
-    ? Math.round(hookSizeBase * 1.1)                   /* Script: 10% larger */
-    : hookSizeBase;
+  const hookSize  = Math.min(Math.round(hookSizeBase * fontSizeR), 140);
+  const supSize   = Math.round(hookSize * (fontWeight >= 700 ? 0.65 : 0.33));
+  const brandSize = Math.round(W * 0.02);
+  const PAD       = Math.round(W * textPosX);
+  const textAlign = textAlignRaw as "left" | "center" | "right";
+  const textX     = PAD;
+  const textWidth = Math.round(W * textWidthR);
+  const fontFamily = fontCat === "serif" ? SERIF_FONT : SYSTEM_FONT;
+  const fontStyle  = fontWeight >= 600 ? "bold" : "";
 
-  const supSize  = Math.round(hookSize * (isBold ? 0.65 : isMinimal ? 0.4 : 0.33));
-  const brandSize = Math.round(W * (isBold ? 0.022 : 0.018));
-  const PAD = Math.round(W * (isMinimal ? 0.12 : 0.08));
-
-  /* ── Adaptive alignment — driven by layout style ── */
-  const textAlign: "left" | "center" | "right" =
-    isCentered ? "center" : isLeftAlign || isFullbleed ? "left" : "center";
-
-  const textX     = textAlign === "center" ? PAD : PAD + (isLeftAlign ? W * 0.04 : 0);
-  const textWidth = W - textX - PAD;
-
-  /* ── Adaptive colors — use palette, not hardcoded ── */
+  /* ── Colors from palette ── */
   const textColor   = isPhoto || isDark ? "#FFFFFF" : (pal.text || "#1A1A1A");
   const subColor    = isPhoto || isDark ? hexA("#FFFFFF", 0.6) : hexA(pal.text || "#1A1A1A", 0.55);
   const accentColor = pal.accent || "#6366f1";
-
-  /* ── Adaptive positioning — driven by layout + typography ── */
-  const isBoldBottomAnchored = isBold && (isPhoto || isFullbleed);
-  const hookY = isBoldBottomAnchored
-    ? H * 0.58 + H * 0.42 * 0.06  /* Bottom strip — like advicefromceo */
-    : isCentered
-    ? H * 0.28
-    : isLeftAlign
-    ? H * 0.16
-    : H * 0.25;
-
-  /* ── Font family ── */
-  const fontFamily = isSerif || isScript ? SERIF_FONT : SYSTEM_FONT;
 
   /* ── Shadows for photo backgrounds ── */
   const shadow = isPhoto
@@ -717,21 +704,21 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
 
   const elements: AnyEditorElement[] = [];
 
-  /* ═══ DECORATIONS — adapted to style ═══ */
+  /* ═══ DECORATIONS — driven by layout params ═══ */
 
-  /* Top accent bar — present for bold/editorial/cinematic styles */
-  if (isBold || isDark || isLeftAlign) {
+  /* Top accent bar */
+  if (hasTopBar) {
     elements.push(makeRect({
       role: "decoration",
       x: 0, y: 0, width: W,
-      height: isBold ? 6 : 3,
+      height: fontWeight >= 700 ? 6 : 3,
       fill: accentColor,
       zIndex: 30,
     }));
   }
 
-  /* Left accent bar — editorial/left-aligned only */
-  if (isLeftAlign && !isBold) {
+  /* Left accent bar */
+  if (hasLeftBar && !hasBottomStrip) {
     const barX = Math.round(PAD * 0.55);
     elements.push(makeRect({
       role: "decoration",
@@ -741,94 +728,97 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
     }));
   }
 
-  /* Photo overlays — dark scrim for text readability */
-  if (isPhoto) {
+  /* Full-image dark overlay (for photo backgrounds) */
+  if (overlayOpacity > 0) {
     elements.push(makeRect({
       role: "overlay", x: 0, y: 0, width: W, height: H,
-      fill: isBoldBottomAnchored ? "rgba(0,0,0,0.18)" : "rgba(0,0,0,0.35)",
+      fill: `rgba(0,0,0,${hasBottomStrip ? Math.min(overlayOpacity, 0.2) : overlayOpacity})`,
       zIndex: 5, locked: true, draggable: false,
     }));
   }
 
-  /* Bold bottom-anchored strip (advicefromceo / news headline style) */
-  if (isBoldBottomAnchored) {
-    const stripY = Math.round(H * 0.58);
+  /* Bottom dark strip */
+  if (hasBottomStrip) {
+    const sy = Math.round(H * stripStartY);
     elements.push(makeRect({
-      role: "overlay", x: 0, y: stripY, width: W, height: H - stripY,
-      fill: "rgba(0,0,0,0.82)",
+      role: "overlay", x: 0, y: sy, width: W, height: H - sy,
+      fill: `rgba(0,0,0,${stripOpacity})`,
       zIndex: 8, locked: true, draggable: false,
     }));
   }
 
-  /* Card background — for modern/light/non-photo styles */
-  if (isLight && !isPhoto && !isBold && !isLeftAlign) {
+  /* Card background */
+  if (hasCard && !isPhoto && !hasBottomStrip) {
+    const cr = lay?.cardCornerRadius ?? Math.round(W * 0.028);
     const cardX = Math.round(W * 0.075);
     const cardY = Math.round(H * 0.09);
     const cardW = W - cardX * 2;
     const cardH = Math.round(H * 0.76);
     elements.push(makeRect({
       role: "card", x: cardX, y: cardY, width: cardW, height: cardH,
-      fill: "#FFFFFF", cornerRadius: Math.round(W * 0.028), zIndex: 3,
+      fill: "#FFFFFF", cornerRadius: cr, zIndex: 3,
     }));
     elements.push(makeRect({
       role: "decoration", x: cardX, y: cardY, width: Math.round(W * 0.009), height: cardH,
-      fill: accentColor, cornerRadius: Math.round(W * 0.028), zIndex: 4,
+      fill: accentColor, cornerRadius: cr, zIndex: 4,
     }));
   }
 
   /* ═══ TEXT ELEMENTS — all individually selectable/editable ═══ */
 
-  /* Highlight phrase as separate accent-colored text node */
-  if (isBoldBottomAnchored && highlight) {
+  const applyTransform = (t: string) => textTransform === "uppercase" ? t.toUpperCase() : t;
+  const hookY = Math.round(H * textPosY);
+
+  /* Highlight phrase as separate accent-colored text node (bottom strip style) */
+  if (hasBottomStrip && highlight) {
     const { accentLine, bodyLine } = splitHeadline(hook, highlight);
-    const stripY = Math.round(H * 0.58);
+    const sy = Math.round(H * stripStartY);
     const inset = Math.round(PAD * 0.9);
 
     if (accentLine) {
       elements.push(makeText({
         role: "hook",
-        text: accentLine.toUpperCase(),
-        x: inset, y: stripY + Math.round((H - stripY) * 0.06),
+        text: applyTransform(accentLine),
+        x: inset, y: sy + Math.round((H - sy) * 0.06),
         width: W - inset * 2, height: hookSize * 2.2,
-        fontSize: hookSize, fontFamily: SYSTEM_FONT, fontStyle: "bold",
-        fill: accentColor, align: "left",
-        lineHeight: 1.05, letterSpacing: -1,
+        fontSize: hookSize, fontFamily, fontStyle,
+        fill: accentColor, align: textAlign,
+        lineHeight: lineHt, letterSpacing: letterSp,
         ...shadow, zIndex: 20,
       }));
     }
 
     if (bodyLine) {
       const bodyY = accentLine
-        ? stripY + Math.round((H - stripY) * 0.06) + hookSize * 2.0
-        : stripY + Math.round((H - stripY) * 0.08);
+        ? sy + Math.round((H - sy) * 0.06) + hookSize * 2.0
+        : sy + Math.round((H - sy) * 0.08);
       elements.push(makeText({
         role: "supporting",
-        text: bodyLine.toUpperCase(),
+        text: applyTransform(bodyLine),
         x: inset, y: bodyY,
         width: W - inset * 2, height: supSize * 2.2,
-        fontSize: Math.round(hookSize * 0.88), fontFamily: SYSTEM_FONT, fontStyle: "bold",
-        fill: "#FFFFFF", align: "left",
-        lineHeight: 1.05, letterSpacing: -1,
+        fontSize: Math.round(hookSize * 0.88), fontFamily, fontStyle,
+        fill: "#FFFFFF", align: textAlign,
+        lineHeight: lineHt, letterSpacing: letterSp,
         ...shadow, zIndex: 20,
       }));
     }
   } else {
-    /* Standard hook text — single element */
+    /* Standard hook text */
     elements.push(makeText({
       role: "hook",
-      text: isBold ? hook.toUpperCase() : hook,
+      text: applyTransform(hook),
       x: textX, y: hookY,
       width: textWidth, height: hookSize * 3,
-      fontSize: hookSize, fontFamily, fontStyle: isBold || !isMinimal ? "bold" : "",
+      fontSize: hookSize, fontFamily, fontStyle,
       fill: textColor, align: textAlign,
-      lineHeight: isBold ? 1.05 : isMinimal ? 1.4 : 1.22,
-      letterSpacing: isBold ? -1 : 0,
+      lineHeight: lineHt, letterSpacing: letterSp,
       ...shadow, zIndex: 20,
     }));
 
     /* Supporting text */
     if (supporting) {
-      const supY = hookY + hookSize * 3 + (isBold ? 10 : isMinimal ? 40 : 20);
+      const supY = hookY + hookSize * 3 + Math.round(hookSize * 0.3);
       elements.push(makeText({
         role: "supporting",
         text: supporting,
@@ -836,7 +826,7 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
         width: textWidth, height: supSize * 4,
         fontSize: supSize, fontFamily,
         fill: subColor, align: textAlign,
-        lineHeight: isMinimal ? 1.8 : 1.5,
+        lineHeight: Math.max(lineHt, 1.3),
         ...shadow, zIndex: 15,
       }));
     }
@@ -845,29 +835,25 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
   /* Brand badge */
   elements.push(makeText({
     role: "brand",
-    text: isBold || isFullbleed ? `@${brandName.toLowerCase()}` : brandName.toUpperCase(),
+    text: fontWeight >= 700 ? `@${brandName.toLowerCase()}` : brandName.toUpperCase(),
     x: PAD, y: H - H * 0.08,
     width: W - PAD * 2, height: brandSize * 2,
     fontSize: brandSize, fontStyle: "bold",
     fill: isPhoto || isDark
-      ? hexA("#FFFFFF", isBoldBottomAnchored ? 0.55 : 0.7)
+      ? hexA("#FFFFFF", hasBottomStrip ? 0.55 : 0.7)
       : hexA(accentColor, 0.8),
-    align: isCentered && !isBoldBottomAnchored ? "center" : "left",
-    letterSpacing: isBold ? 1 : 0,
+    align: textAlign === "center" && !hasBottomStrip ? "center" : "left",
+    letterSpacing: fontWeight >= 700 ? 1 : 0,
     ...shadow, zIndex: 25,
   }));
 
   /* ═══ BACKGROUND COLOR ═══ */
   let backgroundColor: string;
-  if (isPhoto || isBoldBottomAnchored) {
+  if (isPhoto || hasBottomStrip) {
     backgroundColor = "#0A0A0A";
   } else if (isDark) {
     backgroundColor = isDarkColor(pal.primary) ? pal.primary : "#0B0B12";
-  } else if (isMinimal) {
-    backgroundColor = "#FFFFFF";
-  } else if (isSerif && luminance(pal.primary) > 0.75) {
-    backgroundColor = pal.primary;
-  } else if (isLight) {
+  } else if (hasCard) {
     backgroundColor = isDarkColor(pal.primary) ? "#EEF0F6" : pal.primary;
   } else {
     backgroundColor = pal.primary;

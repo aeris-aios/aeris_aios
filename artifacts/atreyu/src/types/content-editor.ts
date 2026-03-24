@@ -106,8 +106,38 @@ export type EditorAction =
   | { type: "REDO" };
 
 /* ── Style profile (shared with existing code) ── */
+/* New format: Claude Vision returns numeric design parameters instead of enum labels.
+   The template engine uses these values directly — no category-to-template lookup. */
+export interface StyleTypography {
+  fontWeight: number;       /* 100-900 */
+  fontSizeRatio: number;    /* 0.7 = small, 1.0 = standard, 1.4+ = large */
+  textTransform: string;    /* "uppercase" | "none" | "capitalize" */
+  lineHeight: number;       /* 0.9 = tight, 1.2 = standard, 1.5+ = airy */
+  letterSpacing: number;    /* -2 to 3 */
+  fontCategory: string;     /* "sans-serif" | "serif" | "display" | "mono" */
+  textAlign: string;        /* "left" | "center" | "right" */
+}
+
+export interface StyleLayout {
+  textPositionY: number;    /* 0.0 = top, 0.5 = middle, 0.7 = bottom */
+  textPositionX: number;    /* left padding ratio, typically 0.08 */
+  textWidthRatio: number;   /* 0.5 = narrow, 0.84 = standard, 0.95 = edge-to-edge */
+  hasBottomStrip: boolean;
+  stripStartY: number;      /* where dark strip begins, 0.55-0.65 typical */
+  stripOpacity: number;     /* 0.7-0.9 */
+  hasTopAccentBar: boolean;
+  hasLeftAccentBar: boolean;
+  hasCardBackground: boolean;
+  cardCornerRadius: number;
+  overlayOpacity: number;   /* 0 = none, 0.2-0.4 = typical for photo posts */
+}
+
 export interface StyleProfile {
   colorPalette: { primary: string; secondary: string; accent: string; text: string };
+  /* New structured fields (returned by updated Claude Vision prompt) */
+  typography?: StyleTypography;
+  layout?: StyleLayout;
+  /* Legacy enum fields (kept for backward compatibility with existing data) */
   mood: string;
   backgroundStyle: string;
   typographyStyle: string;
