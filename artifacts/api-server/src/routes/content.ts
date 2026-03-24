@@ -905,7 +905,7 @@ router.post("/content/generate-image", async (req, res) => {
       visualApproach = "Bright, airy, and clean. Soft diffused light, white space, minimal and premium.";
       break;
     case "photographic":
-      visualApproach = "Cinematic empty scene — luxury environment or dramatic landscape with no people. Wide angle, bokeh depth of field, high contrast, moody atmosphere. No humans, no faces. Keep the bottom 50% of the image relatively dark and clear — a dark text overlay will be placed there.";
+      visualApproach = "Cinematic empty scene — luxury environment or dramatic landscape with no people. Wide angle, bokeh depth of field, high contrast, moody atmosphere. No humans, no faces. Rich, detailed content filling the entire frame from top to bottom.";
       break;
     default:
       visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point. No people, no faces.";
