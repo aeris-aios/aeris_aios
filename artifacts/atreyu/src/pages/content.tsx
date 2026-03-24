@@ -12,6 +12,9 @@ import { useSSE } from "@/hooks/use-sse";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { ContentEditor } from "@/components/content/content-editor";
+import { generateTemplate } from "@/lib/konva-templates";
+import type { TextElement, RectElement } from "@/types/content-editor";
+import Konva from "konva";
 
 /* ─────────────── Image proxy ────────────────────────────────────────
    Instagram / social CDN URLs are CORS-blocked in the browser.
@@ -36,8 +39,34 @@ type OutputFormat = {
   isText?: boolean; isCarousel?: boolean;
 };
 
+interface StyleTypography {
+  fontWeight: number;
+  fontSizeRatio: number;
+  textTransform: string;
+  lineHeight: number;
+  letterSpacing: number;
+  fontCategory: string;
+  textAlign: string;
+}
+
+interface StyleLayout {
+  textPositionY: number;
+  textPositionX: number;
+  textWidthRatio: number;
+  hasBottomStrip: boolean;
+  stripStartY: number;
+  stripOpacity: number;
+  hasTopAccentBar: boolean;
+  hasLeftAccentBar: boolean;
+  hasCardBackground: boolean;
+  cardCornerRadius: number;
+  overlayOpacity: number;
+}
+
 interface StyleProfile {
   colorPalette: { primary: string; secondary: string; accent: string; text: string };
+  typography?: StyleTypography;
+  layout?: StyleLayout;
   mood: string;
   backgroundStyle: string;
   typographyStyle: string;
@@ -159,36 +188,7 @@ function extractHook(text: string): { hook: string; supporting: string } {
   return { hook, supporting };
 }
 
-/* ── Canvas text wrapping ── */
-function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
-  const lines: string[] = [];
-  const words = text.split(" ");
-  let line = "";
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = word; }
-    else line = test;
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-
-/* ── Rounded rectangle path ── */
-function rrect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x+w, y,   x+w, y+r);
-  ctx.lineTo(x+w, y+h-r);
-  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
-  ctx.lineTo(x+r, y+h);
-  ctx.quadraticCurveTo(x, y+h,   x, y+h-r);
-  ctx.lineTo(x, y+r);
-  ctx.quadraticCurveTo(x, y,     x+r, y);
-  ctx.closePath();
-}
-
-/* ── Hex to rgba helper ── */
+/* ── Hex to rgba helper (used by CarouselPreview) ── */
 function hexA(hex: string, alpha: number): string {
   const h = hex.replace("#","").padEnd(6,"0");
   const r = parseInt(h.substring(0,2),16);
@@ -197,498 +197,111 @@ function hexA(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-/* ════════════════════════════════════════════
-   TEMPLATE 1: CINEMATIC  (dark profiles)
-   Deep dark, centered, glowing accent
-════════════════════════════════════════════ */
-function renderCinematic(
-  ctx: CanvasRenderingContext2D,
-  W: number, H: number, PAD: number,
-  pal: StyleProfile["colorPalette"],
-  hook: string, supporting: string,
-  brandName: string, variantNum: number,
-) {
-  const SF = "-apple-system,'Helvetica Neue',Arial,sans-serif";
-
-  /* BG: deep dark solid */
-  const bgBase = isDarkColor(pal.primary) ? pal.primary : "#0B0B12";
-  ctx.fillStyle = bgBase; ctx.fillRect(0,0,W,H);
-
-  /* Radial glow — accent at centre */
-  const glow = ctx.createRadialGradient(W/2, H*0.44, 0, W/2, H*0.44, W*0.78);
-  glow.addColorStop(0,   hexA(pal.accent, 0.14));
-  glow.addColorStop(1,   "rgba(0,0,0,0)");
-  ctx.fillStyle = glow; ctx.fillRect(0,0,W,H);
-
-  /* Subtle vignette */
-  const vig = ctx.createRadialGradient(W/2,H/2,W*0.25, W/2,H/2,W*0.85);
-  vig.addColorStop(0, "rgba(0,0,0,0)");
-  vig.addColorStop(1, "rgba(0,0,0,0.5)");
-  ctx.fillStyle = vig; ctx.fillRect(0,0,W,H);
-
-  /* Arc decoration — bottom-left */
-  ctx.strokeStyle = hexA(pal.accent, 0.18);
-  ctx.lineWidth   = Math.round(W * 0.038);
-  ctx.beginPath(); ctx.arc(-W*0.05, H*1.06, W*0.45, 0, Math.PI*2); ctx.stroke();
-
-  /* Arc decoration — top-right smaller */
-  ctx.strokeStyle = hexA(pal.accent, 0.10);
-  ctx.lineWidth   = Math.round(W * 0.018);
-  ctx.beginPath(); ctx.arc(W*1.05, -H*0.04, W*0.30, 0, Math.PI*2); ctx.stroke();
-
-  /* Thin top accent bar */
-  const topGrd = ctx.createLinearGradient(0,0,W,0);
-  topGrd.addColorStop(0,   "rgba(0,0,0,0)");
-  topGrd.addColorStop(0.3, pal.accent);
-  topGrd.addColorStop(0.7, pal.accent);
-  topGrd.addColorStop(1,   "rgba(0,0,0,0)");
-  ctx.fillStyle = topGrd; ctx.fillRect(0, 0, W, 3);
-
-  /* ── Hook text ── */
-  const hookSize = Math.min(Math.round(W * 0.065), 90);
-  const maxHookW = W - PAD * 2.4;
-  ctx.textBaseline = "top"; ctx.textAlign = "center";
-
-  /* Measure hook lines */
-  ctx.font = `700 ${hookSize}px ${SF}`;
-  const hookLines = wrapCanvasText(ctx, hook, maxHookW);
-
-  /* Vertical centering of text block */
-  const hookLineH = hookSize * 1.22;
-  const supSize   = Math.round(hookSize * 0.33);
-  const sepGap    = hookSize * 0.55;
-  const supLineH  = supSize * 1.5;
-  const supLines  = supporting ? wrapCanvasText(ctx, supporting, maxHookW) : [];
-  const totalH    = hookLines.length * hookLineH + (supporting ? sepGap + supLines.length * supLineH : 0);
-  let y = (H * 0.88 - totalH) / 2;  /* top of text block, excluding footer */
-  y = Math.max(H * 0.12, y);
-
-  /* Hook lines — bold white */
-  ctx.font = `700 ${hookSize}px ${SF}`;
-  hookLines.forEach((line, i) => {
-    ctx.fillStyle = i === 0 ? "#FFFFFF" : hexA("#FFFFFF", 0.88);
-    ctx.fillText(line, W/2, y);
-    y += hookLineH;
-  });
-
-  /* Separator pill */
-  if (supporting) {
-    y += hookSize * 0.18;
-    const pillW = Math.round(W * 0.09), pillH = 3;
-    rrect(ctx, W/2 - pillW/2, y, pillW, pillH, pillH/2);
-    ctx.fillStyle = pal.accent; ctx.fill();
-    y += hookSize * 0.32;
-
-    /* Supporting text */
-    ctx.font = `300 ${supSize}px ${SF}`;
-    supLines.slice(0,2).forEach(line => {
-      ctx.fillStyle = hexA("#FFFFFF", 0.52);
-      ctx.fillText(line, W/2, y);
-      y += supLineH;
-    });
-  }
-
-  /* ── Footer ── */
-  const footH = Math.round(H * 0.10);
-  const footY = H - footH;
-
-  /* Gradient overlay for readability */
-  const footGrd = ctx.createLinearGradient(0, footY - footH*0.4, 0, H);
-  footGrd.addColorStop(0, "rgba(0,0,0,0)");
-  footGrd.addColorStop(1, "rgba(0,0,0,0.82)");
-  ctx.fillStyle = footGrd; ctx.fillRect(0, footY - footH*0.4, W, footH*1.4);
-
-  /* Brand name */
-  const bfSize = Math.round(footH * 0.33);
-  ctx.font = `600 ${bfSize}px ${SF}`;
-  ctx.fillStyle = "#FFFFFF";
-  ctx.textAlign = "left"; ctx.textBaseline = "middle";
-  ctx.fillText(brandName.toUpperCase(), PAD, footY + footH/2);
-
-  /* Accent dot */
-  ctx.fillStyle = pal.accent;
-  ctx.beginPath(); ctx.arc(PAD * 0.55, footY + footH/2, bfSize * 0.2, 0, Math.PI*2); ctx.fill();
-
-  /* Variant tag */
-  if (variantNum > 1) {
-    ctx.font = `400 ${bfSize * 0.82}px ${SF}`;
-    ctx.fillStyle = hexA("#FFFFFF", 0.45);
-    ctx.textAlign = "right";
-    ctx.fillText(`V${variantNum}`, W - PAD, footY + footH/2);
-  }
-}
-
-/* ════════════════════════════════════════════
-   TEMPLATE 2: EDITORIAL  (serif / light profiles)
-   Cream background, left-aligned, thick accent bar
-════════════════════════════════════════════ */
-function renderEditorial(
-  ctx: CanvasRenderingContext2D,
-  W: number, H: number, PAD: number,
-  pal: StyleProfile["colorPalette"],
-  hook: string, supporting: string,
-  brandName: string, variantNum: number,
-) {
-  const SANS = "-apple-system,'Helvetica Neue',Arial,sans-serif";
-  const SERIF = "Georgia,'Times New Roman',serif";
-
-  /* BG: clean off-white/cream */
-  const bgColor = (!isDarkColor(pal.primary) && luminance(pal.primary) > 0.75)
-    ? pal.primary : "#FAF9F6";
-  ctx.fillStyle = bgColor; ctx.fillRect(0,0,W,H);
-
-  /* Fine dot grid */
-  ctx.fillStyle = hexA("#000000", 0.035);
-  const dotSpacing = Math.round(W * 0.028);
-  for (let gx = dotSpacing; gx < W; gx += dotSpacing) {
-    for (let gy = dotSpacing; gy < H; gy += dotSpacing) {
-      ctx.beginPath(); ctx.arc(gx, gy, 1, 0, Math.PI*2); ctx.fill();
-    }
-  }
-
-  /* Left accent bar */
-  const barX = Math.round(PAD * 0.55);
-  const barW = Math.round(W * 0.007);
-  const barY1 = H * 0.10, barY2 = H * 0.87;
-  ctx.fillStyle = pal.accent;
-  ctx.fillRect(barX, barY1, barW, barY2 - barY1);
-
-  /* Small accent top-left square */
-  const sqSize = Math.round(W * 0.025);
-  ctx.fillStyle = pal.accent;
-  ctx.fillRect(barX, barY1 - sqSize, sqSize, sqSize);
-
-  /* ── Hook text ── */
-  const hookSize = Math.min(Math.round(W * 0.066), 86);
-  const textLeft = barX + barW + Math.round(W * 0.045);
-  const maxW     = W - textLeft - PAD;
-
-  ctx.font = `800 ${hookSize}px ${SERIF}`;
-  const hookLines = wrapCanvasText(ctx, hook, maxW);
-  const hookLineH = hookSize * 1.15;
-
-  /* Position hook vertically — start at ~16% from top */
-  let y = Math.round(H * 0.16);
-
-  ctx.textAlign    = "left";
-  ctx.textBaseline = "top";
-  hookLines.forEach(line => {
-    ctx.font = `800 ${hookSize}px ${SERIF}`;
-    ctx.fillStyle = "#1A1A1A";
-    ctx.fillText(line, textLeft, y);
-    y += hookLineH;
-  });
-
-  /* Hairline rule after hook */
-  y += hookSize * 0.40;
-  ctx.fillStyle = hexA(pal.accent, 0.45);
-  ctx.fillRect(textLeft, y, W - textLeft - PAD, 1);
-  y += hookSize * 0.45;
-
-  /* Supporting */
-  if (supporting) {
-    const supSize = Math.round(hookSize * 0.33);
-    ctx.font = `400 ${supSize}px ${SANS}`;
-    const supLines = wrapCanvasText(ctx, supporting, maxW);
-    supLines.slice(0, 3).forEach(line => {
-      ctx.fillStyle = hexA("#1A1A1A", 0.55);
-      ctx.fillText(line, textLeft, y);
-      y += supSize * 1.65;
-    });
-  }
-
-  /* ── Footer ── */
-  const footY = H * 0.89;
-  ctx.fillStyle = hexA(pal.accent, 0.35);
-  ctx.fillRect(textLeft, footY, W - textLeft - PAD, 1);
-
-  const bfSize = Math.round(W * 0.022);
-  ctx.font = `600 ${bfSize}px ${SANS}`;
-  ctx.fillStyle = hexA(pal.accent, 0.9);
-  ctx.textAlign = "right"; ctx.textBaseline = "top";
-  ctx.fillText(
-    variantNum > 1 ? `— ${brandName.toUpperCase()}  ·  V${variantNum}` : `— ${brandName.toUpperCase()}`,
-    W - PAD,
-    footY + bfSize * 0.6,
-  );
-}
-
-/* ════════════════════════════════════════════
-   TEMPLATE 3: MODERN CARD  (default)
-   Pastel gradient BG, floating white card, clean hierarchy
-════════════════════════════════════════════ */
-function renderModern(
-  ctx: CanvasRenderingContext2D,
-  W: number, H: number, PAD: number,
-  pal: StyleProfile["colorPalette"],
-  hook: string, supporting: string,
-  brandName: string, variantNum: number,
-  isGradient: boolean,
-) {
-  const SF = "-apple-system,'Helvetica Neue',Arial,sans-serif";
-
-  /* BG: very light gradient */
-  const bgLight = isDarkColor(pal.primary) ? "#EEF0F6" : pal.primary;
-  const bgSecond = isDarkColor(pal.secondary) ? "#E0E4F0" : (pal.secondary || "#E8ECF4");
-  const bgGrd = ctx.createLinearGradient(0, 0, W, H);
-  bgGrd.addColorStop(0, bgLight);
-  bgGrd.addColorStop(1, bgSecond);
-  ctx.fillStyle = bgGrd; ctx.fillRect(0,0,W,H);
-
-  /* Large decorative circle — bottom-right */
-  ctx.fillStyle = hexA(pal.accent, 0.07);
-  ctx.beginPath(); ctx.arc(W*0.92, H*0.88, W*0.55, 0, Math.PI*2); ctx.fill();
-
-  /* Small circle — top-left */
-  ctx.fillStyle = hexA(pal.accent, 0.05);
-  ctx.beginPath(); ctx.arc(W*0.06, H*0.08, W*0.18, 0, Math.PI*2); ctx.fill();
-
-  /* ── White card ── */
-  const cardX  = Math.round(W * 0.075);
-  const cardY  = Math.round(H * 0.09);
-  const cardW  = W - cardX * 2;
-  const cardH  = Math.round(H * 0.76);
-  const radius = Math.round(W * 0.028);
-
-  /* Shadow layers */
-  [
-    {o:0.06, dx:0, dy:W*0.008},
-    {o:0.04, dx:0, dy:W*0.016},
-    {o:0.02, dx:0, dy:W*0.030},
-  ].forEach(s => {
-    ctx.fillStyle = `rgba(0,0,0,${s.o})`;
-    rrect(ctx, cardX+s.dx, cardY+s.dy, cardW, cardH, radius); ctx.fill();
-  });
-
-  /* Card fill */
-  ctx.fillStyle = "#FFFFFF";
-  rrect(ctx, cardX, cardY, cardW, cardH, radius); ctx.fill();
-
-  /* Left accent border */
-  const borderW = Math.round(W * 0.009);
-  ctx.fillStyle = pal.accent;
-  rrect(ctx, cardX, cardY, borderW, cardH, radius); ctx.fill();
-
-  /* Card inner padding */
-  const CP  = Math.round(cardW * 0.085);
-  const CX  = cardX + borderW + CP;
-  const CW  = cardW - borderW - CP * 2;
-
-  /* Brand tag */
-  const tagSize = Math.round(W * 0.020);
-  ctx.font = `700 ${tagSize}px ${SF}`;
-  ctx.fillStyle = pal.accent;
-  ctx.textAlign = "left"; ctx.textBaseline = "top";
-  ctx.fillText(brandName.toUpperCase(), CX, cardY + CP * 0.8);
-
-  /* Hook text */
-  const hookSize = Math.min(Math.round(W * 0.058), 78);
-  ctx.font = `700 ${hookSize}px ${SF}`;
-  const maxHW = CW;
-  const hookLines = wrapCanvasText(ctx, hook, maxHW);
-  const hookLineH = hookSize * 1.22;
-
-  let y = cardY + CP * 0.8 + tagSize * 1.8;
-  hookLines.forEach(line => {
-    ctx.font = `700 ${hookSize}px ${SF}`;
-    ctx.fillStyle = "#111111";
-    ctx.fillText(line, CX, y);
-    y += hookLineH;
-  });
-
-  /* Supporting */
-  if (supporting) {
-    y += hookSize * 0.30;
-    const supSize = Math.round(hookSize * 0.34);
-    ctx.font = `400 ${supSize}px ${SF}`;
-    const supLines = wrapCanvasText(ctx, supporting, CW);
-    supLines.slice(0,2).forEach(line => {
-      ctx.fillStyle = hexA("#1A1A1A", 0.50);
-      ctx.fillText(line, CX, y);
-      y += supSize * 1.65;
-    });
-  }
-
-  /* Bottom rule inside card */
-  const ruleY = cardY + cardH - Math.round(cardH * 0.10);
-  ctx.fillStyle = hexA(pal.accent, 0.18);
-  ctx.fillRect(cardX + borderW, ruleY, cardW - borderW, 1);
-
-  /* Bottom label inside card */
-  const blSize = Math.round(W * 0.018);
-  ctx.font = `500 ${blSize}px ${SF}`;
-  ctx.fillStyle = hexA(pal.accent, 0.85);
-  ctx.textAlign = "left"; ctx.textBaseline = "middle";
-  ctx.fillText(variantNum > 1 ? `V${variantNum}` : "", cardX + borderW + CP, ruleY + Math.round(cardH*0.05));
-
-  /* Footer below card */
-  const ftSize = Math.round(W * 0.018);
-  ctx.font = `400 ${ftSize}px ${SF}`;
-  ctx.fillStyle = hexA("#1A1A1A", 0.32);
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.fillText(`MADE WITH AERIS`, W/2, cardY + cardH + (H - cardY - cardH) * 0.5);
-}
-
-/* ════════════════════════════════════════════
-   TEMPLATE 4: PHOTO  (AI-generated background already drawn on canvas)
-   Adds cinematic overlays + white text on top of whatever is on the canvas.
-════════════════════════════════════════════ */
-function renderPhotoTemplate(
-  ctx: CanvasRenderingContext2D,
-  W: number, H: number, PAD: number,
-  pal: StyleProfile["colorPalette"],
-  hook: string, supporting: string,
-  brandName: string, variantNum: number,
-) {
-  const SF = "-apple-system,'Helvetica Neue',Arial,sans-serif";
-
-  /* Cinematic radial vignette */
-  const vig = ctx.createRadialGradient(W/2, H/2, W*0.2, W/2, H/2, W*0.9);
-  vig.addColorStop(0, "rgba(0,0,0,0)");
-  vig.addColorStop(1, "rgba(0,0,0,0.58)");
-  ctx.fillStyle = vig; ctx.fillRect(0,0,W,H);
-
-  /* Bottom gradient for footer readability */
-  const footGrd = ctx.createLinearGradient(0, H * 0.72, 0, H);
-  footGrd.addColorStop(0, "rgba(0,0,0,0)");
-  footGrd.addColorStop(1, "rgba(0,0,0,0.88)");
-  ctx.fillStyle = footGrd; ctx.fillRect(0, H * 0.72, W, H * 0.28);
-
-  /* Top gradient for top readability */
-  const topGrd = ctx.createLinearGradient(0, 0, 0, H * 0.18);
-  topGrd.addColorStop(0, "rgba(0,0,0,0.38)");
-  topGrd.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = topGrd; ctx.fillRect(0, 0, W, H * 0.18);
-
-  /* Thin top accent bar */
-  ctx.fillStyle = pal.accent; ctx.fillRect(0, 0, W, 4);
-
-  /* Hook text — centred, white, shadowed */
-  const hookSize  = Math.min(Math.round(W * 0.065), 90);
-  const maxHookW  = W - PAD * 2.4;
-  ctx.textBaseline = "top"; ctx.textAlign = "center";
-  ctx.font = `700 ${hookSize}px ${SF}`;
-  const hookLines = wrapCanvasText(ctx, hook, maxHookW);
-  const hookLineH = hookSize * 1.22;
-  const supSize   = Math.round(hookSize * 0.33);
-  const sepGap    = hookSize * 0.55;
-  const supLineH  = supSize * 1.5;
-  const supLines  = supporting ? wrapCanvasText(ctx, supporting, maxHookW) : [];
-  const totalTH   = hookLines.length * hookLineH + (supporting ? sepGap + supLines.length * supLineH : 0);
-  let y = (H * 0.86 - totalTH) / 2;
-  y = Math.max(H * 0.12, y);
-
-  ctx.save();
-  ctx.shadowColor = "rgba(0,0,0,0.85)";
-  ctx.shadowBlur  = 20;
-  ctx.font = `700 ${hookSize}px ${SF}`;
-  hookLines.forEach((line, i) => {
-    ctx.fillStyle = i === 0 ? "#FFFFFF" : "rgba(255,255,255,0.9)";
-    ctx.fillText(line, W/2, y);
-    y += hookLineH;
-  });
-
-  if (supporting) {
-    y += hookSize * 0.18;
-    const pillW = Math.round(W * 0.09), pillH = 3;
-    rrect(ctx, W/2 - pillW/2, y, pillW, pillH, pillH/2);
-    ctx.fillStyle = pal.accent; ctx.fill();
-    y += hookSize * 0.32;
-    ctx.shadowBlur = 14;
-    ctx.font = `300 ${supSize}px ${SF}`;
-    supLines.slice(0, 2).forEach(line => {
-      ctx.fillStyle = "rgba(255,255,255,0.78)";
-      ctx.fillText(line, W/2, y);
-      y += supLineH;
-    });
-  }
-  ctx.restore();
-
-  /* Footer */
-  const footH  = Math.round(H * 0.10);
-  const footY  = H - footH;
-  const bfSize = Math.round(footH * 0.33);
-  ctx.font = `600 ${bfSize}px ${SF}`;
-  ctx.fillStyle = "#FFFFFF";
-  ctx.textAlign = "left"; ctx.textBaseline = "middle";
-  ctx.fillText(brandName.toUpperCase(), PAD, footY + footH / 2);
-
-  ctx.fillStyle = pal.accent;
-  ctx.beginPath(); ctx.arc(PAD * 0.55, footY + footH / 2, bfSize * 0.2, 0, Math.PI*2); ctx.fill();
-
-  if (variantNum > 1) {
-    ctx.font = `400 ${bfSize * 0.82}px ${SF}`;
-    ctx.fillStyle = "rgba(255,255,255,0.45)";
-    ctx.textAlign = "right";
-    ctx.fillText(`V${variantNum}`, W - PAD, footY + footH / 2);
-  }
-}
-
-/* ════════════════════════════════════════════
-   MAIN EXPORT — picks template, renders, returns PNG Blob
-════════════════════════════════════════════ */
+/* ═════════════════════════════════════════════════════════════════
+   EXPORT TO IMAGE — Konva-based renderer (matches the editor exactly)
+   Uses generateTemplate() so typography, layout, and font selection
+   are identical to what the user sees in the graphic editor.
+═════════════════════════════════════════════════════════════════ */
 async function exportToImage(
   text: string, fmt: OutputFormat, brandName: string,
-  variantNum: number, styleProfile?: StyleProfile,
+  _variantNum: number, styleProfile?: StyleProfile,
   bgImageUrl?: string,
 ): Promise<Blob> {
   const W = fmt.canvasW, H = fmt.canvasH;
-  const canvas = document.createElement("canvas");
-  canvas.width = W; canvas.height = H;
-  const ctx = canvas.getContext("2d")!;
 
-  const pal: StyleProfile["colorPalette"] = styleProfile?.colorPalette ?? {
-    primary: "#E8ECF4", secondary: "#D6DDF0", accent: "#6366f1", text: "#1A1A1A",
-  };
+  /* Use generateTemplate() — the same path the editor uses — so the
+     preview card is always pixel-identical to the Konva editor. */
+  const result = generateTemplate({
+    text,
+    canvasWidth: W,
+    canvasHeight: H,
+    brandName,
+    styleProfile: styleProfile ?? null,
+    backgroundImageUrl: bgImageUrl ?? null,
+  });
 
-  const { hook, supporting } = extractHook(text);
-  const PAD = Math.round(W * 0.08);
+  /* Offscreen Konva stage */
+  const container = document.createElement("div");
+  container.style.cssText =
+    "position:absolute;left:-99999px;top:-99999px;width:1px;height:1px;overflow:hidden;pointer-events:none;";
+  document.body.appendChild(container);
 
-  if (bgImageUrl) {
-    /* Draw AI photo as cover-fill background */
+  const stage = new Konva.Stage({ container, width: W, height: H });
+  const bgLayer   = new Konva.Layer({ listening: false });
+  const mainLayer = new Konva.Layer({ listening: false });
+  stage.add(bgLayer, mainLayer);
+
+  /* Background colour fill */
+  bgLayer.add(new Konva.Rect({ x: 0, y: 0, width: W, height: H, fill: result.backgroundColor }));
+
+  /* Background image (AI-generated photo) */
+  const imageUrl = result.backgroundImage;
+  if (imageUrl) {
     await new Promise<void>((resolve) => {
-      const img = new Image();
+      const img = new window.Image();
       img.crossOrigin = "anonymous";
       img.onload = () => {
         const imgAR = img.width / img.height;
         const canAR = W / H;
-        let sx = 0, sy = 0, sw = img.width, sh = img.height;
+        let cropX = 0, cropY = 0, cropW = img.width, cropH = img.height;
         if (imgAR > canAR) {
-          sw = Math.round(img.height * canAR);
-          sx = Math.round((img.width - sw) / 2);
+          cropW = Math.round(img.height * canAR);
+          cropX = Math.round((img.width - cropW) / 2);
         } else {
-          sh = Math.round(img.width / canAR);
-          sy = Math.round((img.height - sh) / 2);
+          cropH = Math.round(img.width / canAR);
+          cropY = Math.round((img.height - cropH) / 2);
         }
-        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, W, H);
+        bgLayer.add(new Konva.Image({
+          image: img as unknown as HTMLImageElement,
+          x: 0, y: 0, width: W, height: H,
+          crop: { x: cropX, y: cropY, width: cropW, height: cropH },
+        }));
+        bgLayer.batchDraw();
         resolve();
       };
       img.onerror = () => resolve();
-      img.src = `/api/content/image-proxy?url=${encodeURIComponent(bgImageUrl)}`;
+      /* Proxy CORS-blocked CDN URLs */
+      img.src = imageUrl.startsWith("http")
+        ? `/api/content/image-proxy?url=${encodeURIComponent(imageUrl)}`
+        : imageUrl;
     });
-    renderPhotoTemplate(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
-  } else {
-    /* Original typographic templates */
-    const bg  = styleProfile?.backgroundStyle ?? "gradient";
-    const typ = styleProfile?.typographyStyle ?? "sans-serif";
-    const isDark      = bg === "dark" || isDarkColor(pal.primary);
-    const isEditorial = (typ === "serif" || styleProfile?.layoutStyle === "editorial" || styleProfile?.layoutStyle === "left-aligned") && !isDark;
-    const isGradient  = bg === "gradient" && !isDark;
-    if (isDark) {
-      renderCinematic(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
-    } else if (isEditorial) {
-      renderEditorial(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum);
-    } else {
-      renderModern(ctx, W, H, PAD, pal, hook, supporting, brandName, variantNum, isGradient);
-    }
   }
 
-  return new Promise(r => canvas.toBlob(b => r(b!), "image/png", 1.0));
-}
+  /* Render template elements sorted by zIndex */
+  const sorted = [...result.elements].sort((a, b) => a.zIndex - b.zIndex);
+  for (const el of sorted) {
+    if (!el.visible) continue;
+    if (el.type === "rect") {
+      const re = el as RectElement;
+      mainLayer.add(new Konva.Rect({
+        x: re.x, y: re.y, width: re.width, height: re.height,
+        fill: re.fill, cornerRadius: re.cornerRadius,
+        stroke: re.stroke, strokeWidth: re.strokeWidth,
+        opacity: re.opacity, rotation: re.rotation,
+      }));
+    } else if (el.type === "text") {
+      const te = el as TextElement;
+      mainLayer.add(new Konva.Text({
+        x: te.x, y: te.y, width: te.width,
+        text: te.text, fontSize: te.fontSize, fontFamily: te.fontFamily,
+        fontStyle: te.fontStyle, fill: te.fill, align: te.align,
+        lineHeight: te.lineHeight, letterSpacing: te.letterSpacing,
+        opacity: te.opacity, rotation: te.rotation,
+        shadowColor: te.shadowColor, shadowBlur: te.shadowBlur,
+        shadowOffsetX: te.shadowOffsetX, shadowOffsetY: te.shadowOffsetY,
+      }));
+    }
+  }
+  mainLayer.batchDraw();
 
-/* Legacy alias kept for wrapLines calls inside CarouselPreview */
-function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number, _lineH: number, maxLines: number): string[] {
-  return wrapCanvasText(ctx, text, maxW).slice(0, maxLines);
+  /* Export */
+  const blob = await (stage.toBlob({ mimeType: "image/png", quality: 1 }) as Promise<Blob>);
+
+  /* Cleanup */
+  stage.destroy();
+  document.body.removeChild(container);
+
+  return blob;
 }
 
 async function downloadVariant(
