@@ -702,10 +702,10 @@ async function generateWithReplicate(
     input.input_image = referenceBase64;
   }
 
-  const submitRes = await fetch("https://api.replicate.com/v1/predictions", {
+  const submitRes = await fetch("https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions", {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "black-forest-labs/flux-kontext-pro", input }),
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "Prefer": "wait" },
+    body: JSON.stringify({ input }),
   });
 
   if (!submitRes.ok) {
@@ -715,6 +715,16 @@ async function generateWithReplicate(
   }
 
   const prediction = await submitRes.json();
+
+  /* Prefer: wait — Replicate may return a completed prediction immediately */
+  if (prediction.status === "succeeded" && prediction.output) {
+    const url = Array.isArray(prediction.output) ? prediction.output[0] : prediction.output;
+    if (url) return url;
+  }
+  if (prediction.status === "failed" || prediction.status === "canceled") {
+    throw new Error(prediction.error ?? "Replicate generation failed");
+  }
+
   const pollUrl = prediction.urls?.get ?? `https://api.replicate.com/v1/predictions/${prediction.id}`;
 
   /* Poll until done — max 90s */
