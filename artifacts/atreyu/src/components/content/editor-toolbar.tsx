@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import {
   Type, ImagePlus, Image as ImageIcon, Download, Undo2, Redo2,
   Trash2, Loader2, Plus, Upload, Palette, AlignLeft, AlignCenter,
-  AlignRight, Bold, Italic, ChevronDown, ChevronUp, Sparkles,
+  AlignRight, Bold, Italic, ChevronDown, ChevronUp, Sparkles, Pencil,
 } from "lucide-react";
 import type {
   AnyEditorElement,
@@ -24,6 +24,7 @@ interface EditorToolbarProps {
   brandName: string;
   text: string;
   onExport: (format: "png" | "jpeg", quality: number) => void;
+  onEditSelectedText?: () => void;
 }
 
 /* ── Collapsible panel wrapper ── */
@@ -65,6 +66,7 @@ export function EditorToolbar({
   brandName,
   text,
   onExport,
+  onEditSelectedText,
 }: EditorToolbarProps) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -92,16 +94,18 @@ export function EditorToolbar({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           hook,
-          contentStyle: styleProfile?.contentStyle,
-          formatId: format.id,
-          brandColors: styleProfile?.colorPalette
+          contentStyle:          styleProfile?.contentStyle,
+          formatId:              format.id,
+          brandColors:           styleProfile?.colorPalette
             ? [styleProfile.colorPalette.primary, styleProfile.colorPalette.accent]
             : undefined,
           brandName,
-          mood: styleProfile?.mood,
-          backgroundStyle: styleProfile?.backgroundStyle,
-          userPrompt: customPrompt?.trim() || undefined,
-          provider: aiProvider,
+          mood:                  styleProfile?.mood,
+          backgroundStyle:       styleProfile?.backgroundStyle,
+          designNotes:           styleProfile?.designNotes,
+          backgroundImagePrompt: styleProfile?.backgroundImagePrompt,
+          userPrompt:            customPrompt?.trim() || undefined,
+          provider:              aiProvider,
         }),
       });
       if (!res.ok) {
@@ -237,9 +241,19 @@ export function EditorToolbar({
 
         {textEl && (
           <div className="space-y-3 pt-2 border-t border-border/40">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
-              Selected: {textEl.role}
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
+                Selected: {textEl.role}
+              </p>
+              {onEditSelectedText && (
+                <button
+                  onClick={onEditSelectedText}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                >
+                  <Pencil className="h-3 w-3" /> Edit Text
+                </button>
+              )}
+            </div>
 
             {/* Font size */}
             <div className="flex items-center gap-2">

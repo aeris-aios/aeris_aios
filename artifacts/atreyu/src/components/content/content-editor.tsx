@@ -39,6 +39,8 @@ export interface ContentEditorProps {
   onSave?: (dataUrl: string) => void;
 }
 
+const SNAP_THRESHOLD = 10; /* canvas units — distance at which element center snaps to canvas center */
+
 export function ContentEditor({
   text,
   format,
@@ -82,10 +84,14 @@ export function ContentEditor({
   const konvaContainerRef = useRef<HTMLDivElement>(null);
 
   /* Konva objects — created once, mutated on state changes */
-  const stageRef    = useRef<Konva.Stage | null>(null);
-  const bgLayerRef  = useRef<Konva.Layer | null>(null);
-  const mainLayerRef = useRef<Konva.Layer | null>(null);
-  const trRef       = useRef<Konva.Transformer | null>(null);
+  const stageRef      = useRef<Konva.Stage | null>(null);
+  const bgLayerRef    = useRef<Konva.Layer | null>(null);
+  const mainLayerRef  = useRef<Konva.Layer | null>(null);
+  const guideLayerRef = useRef<Konva.Layer | null>(null);
+  const trRef         = useRef<Konva.Transformer | null>(null);
+
+  /* Map of element-id → inline-text-edit trigger (populated during render) */
+  const editTriggersRef = useRef<Map<string, () => void>>(new Map());
 
   const [containerWidth, setContainerWidth] = useState(600);
 
@@ -104,6 +110,69 @@ export function ContentEditor({
   const displayW = W * scale;
   const displayH = H * scale;
 
+  /* ── Guide line helpers (center snap visual) ── */
+  const drawGuides = useCallback((showV: boolean, showH: boolean) => {
+    const gl = guideLayerRef.current;
+    if (!gl) return;
+    gl.destroyChildren();
+
+    const lineProps = { stroke: "#6366f1", strokeWidth: 1, dash: [6, 4], opacity: 0.85, listening: false };
+
+    if (showV) {
+      gl.add(new Konva.Line({ points: [W / 2, 0, W / 2, H], ...lineProps }));
+    }
+    if (showH) {
+      gl.add(new Konva.Line({ points: [0, H / 2, W, H / 2], ...lineProps }));
+    }
+    if (showV || showH) {
+      /* Center crosshair dot */
+      gl.add(new Konva.Circle({ x: W / 2, y: H / 2, radius: 4, fill: "#6366f1", opacity: 0.9, listening: false }));
+    }
+    gl.batchDraw();
+  }, [W, H]);
+
+  const clearGuides = useCallback(() => {
+    const gl = guideLayerRef.current;
+    if (!gl) return;
+    gl.destroyChildren();
+    gl.batchDraw();
+  }, []);
+
+  /* ── Attach snap + drag behavior to any node ── */
+  const attachSnapDrag = useCallback((
+    node: Konva.Node,
+    getSize: () => { w: number; h: number },
+    onDragEnd: (x: number, y: number) => void,
+  ) => {
+    node.on("dragmove", () => {
+      const { w, h } = getSize();
+      const nodeCX = node.x() + w / 2;
+      const nodeCY = node.y() + h / 2;
+      const centerX = W / 2;
+      const centerY = H / 2;
+
+      let newX = node.x(), newY = node.y();
+      let showV = false, showH = false;
+
+      if (Math.abs(nodeCX - centerX) < SNAP_THRESHOLD) {
+        newX = centerX - w / 2;
+        showV = true;
+      }
+      if (Math.abs(nodeCY - centerY) < SNAP_THRESHOLD) {
+        newY = centerY - h / 2;
+        showH = true;
+      }
+      if (showV || showH) node.position({ x: newX, y: newY });
+      drawGuides(showV, showH);
+      if (!showV && !showH) clearGuides();
+    });
+
+    node.on("dragend", () => {
+      clearGuides();
+      onDragEnd(node.x(), node.y());
+    });
+  }, [W, H, drawGuides, clearGuides]);
+
   /* ── Create Konva Stage once when container mounts ── */
   useEffect(() => {
     const container = konvaContainerRef.current;
@@ -111,8 +180,10 @@ export function ContentEditor({
 
     const stage = new Konva.Stage({ container, width: displayW, height: displayH });
 
-    const bgLayer   = new Konva.Layer({ listening: false });
-    const mainLayer = new Konva.Layer();
+    const bgLayer    = new Konva.Layer({ listening: false });
+    const mainLayer  = new Konva.Layer();
+    const guideLayer = new Konva.Layer({ listening: false });
+
     const tr = new Konva.Transformer({
       keepRatio: true,
       boundBoxFunc: (_, newBox) => ({
@@ -122,20 +193,22 @@ export function ContentEditor({
       }),
     });
     mainLayer.add(tr);
+
     stage.add(bgLayer);
     stage.add(mainLayer);
+    stage.add(guideLayer); /* guides always on top */
 
     /* Deselect on empty stage click */
     stage.on("click tap", (e) => {
       if (e.target === stage) editorRef.current.select(null);
     });
 
-    stageRef.current    = stage;
-    bgLayerRef.current  = bgLayer;
-    mainLayerRef.current = mainLayer;
-    trRef.current       = tr;
+    stageRef.current      = stage;
+    bgLayerRef.current    = bgLayer;
+    mainLayerRef.current  = mainLayer;
+    guideLayerRef.current = guideLayer;
+    trRef.current         = tr;
 
-    /* Apply initial styling */
     Object.assign(stage.container().style, {
       borderRadius: "12px",
       overflow: "hidden",
@@ -144,10 +217,11 @@ export function ContentEditor({
 
     return () => {
       stage.destroy();
-      stageRef.current     = null;
-      bgLayerRef.current   = null;
-      mainLayerRef.current = null;
-      trRef.current        = null;
+      stageRef.current      = null;
+      bgLayerRef.current    = null;
+      mainLayerRef.current  = null;
+      guideLayerRef.current = null;
+      trRef.current         = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); /* intentionally empty — stage is created once */
@@ -170,6 +244,9 @@ export function ContentEditor({
     const mainLayer = mainLayerRef.current;
     const tr        = trRef.current;
     if (!stage || !bgLayer || !mainLayer || !tr) return;
+
+    /* Clear inline-edit trigger registry for this render pass */
+    editTriggersRef.current.clear();
 
     /* ── Background layer ── */
     bgLayer.destroyChildren();
@@ -207,7 +284,6 @@ export function ContentEditor({
     toDestroy.forEach((c) => c.destroy());
     tr.nodes([]);
 
-    /* Sort elements by zIndex */
     const sorted = [...editor.state.elements].sort((a, b) => a.zIndex - b.zIndex);
 
     for (const el of sorted) {
@@ -225,7 +301,13 @@ export function ContentEditor({
           listening: !el.locked,
         });
         node.on("click tap", () => { if (!el.locked) editorRef.current.select(el.id); });
-        node.on("dragend", () => editorRef.current.updateElement(el.id, { x: node.x(), y: node.y() }));
+
+        attachSnapDrag(
+          node,
+          () => ({ w: node.width() * node.scaleX(), h: node.height() * node.scaleY() }),
+          (x, y) => editorRef.current.updateElement(el.id, { x, y }),
+        );
+
         node.on("transformend", () => {
           const sx = node.scaleX(), sy = node.scaleY();
           node.scaleX(1); node.scaleY(1);
@@ -259,7 +341,13 @@ export function ContentEditor({
         });
 
         node.on("click tap", () => { if (!el.locked) editorRef.current.select(el.id); });
-        node.on("dragend", () => editorRef.current.updateElement(el.id, { x: node.x(), y: node.y() }));
+
+        attachSnapDrag(
+          node,
+          () => ({ w: node.width() * node.scaleX(), h: node.height() * node.scaleY() }),
+          (x, y) => editorRef.current.updateElement(el.id, { x, y }),
+        );
+
         node.on("transformend", () => {
           const sx = node.scaleX();
           node.scaleX(1); node.scaleY(1);
@@ -270,8 +358,8 @@ export function ContentEditor({
           });
         });
 
-        /* Double-click: inline textarea edit */
-        node.on("dblclick dbltap", () => {
+        /* ── Inline textarea edit (double-click on canvas OR toolbar button) ── */
+        const openInlineEdit = () => {
           const container = stage.container();
           const pos = node.absolutePosition();
           const currentScale = stageRef.current?.scaleX() ?? 1;
@@ -285,9 +373,9 @@ export function ContentEditor({
           textarea.value = textEl.text;
 
           Object.assign(textarea.style, {
-            position: "absolute",
-            top:  `${container.offsetTop  + pos.y * currentScale}px`,
-            left: `${container.offsetLeft + pos.x * currentScale}px`,
+            position:   "absolute",
+            top:        `${container.offsetTop  + pos.y * currentScale}px`,
+            left:       `${container.offsetLeft + pos.x * currentScale}px`,
             width:      `${textEl.width   * currentScale}px`,
             minHeight:  `${textEl.height  * currentScale}px`,
             fontSize:   `${textEl.fontSize * currentScale}px`,
@@ -296,16 +384,29 @@ export function ContentEditor({
             fontStyle:  textEl.fontStyle?.includes("italic") ? "italic" : "normal",
             textAlign:  textEl.align,
             color:      textEl.fill,
-            background: "rgba(0,0,0,0.6)",
+            background: "rgba(0,0,0,0.72)",
             border:     "2px solid #6366f1",
             borderRadius: "4px",
-            padding: "4px", margin: "0",
-            overflow: "hidden", resize: "none", outline: "none",
+            padding:    "6px",
+            margin:     "0",
+            overflow:   "hidden",
+            resize:     "none",
+            outline:    "none",
             lineHeight: String(textEl.lineHeight),
-            zIndex: "1000",
+            zIndex:     "1000",
+            boxSizing:  "border-box",
+            letterSpacing: `${textEl.letterSpacing ?? 0}px`,
           } as Partial<CSSStyleDeclaration>);
 
+          /* Auto-grow height */
+          const autoGrow = () => {
+            textarea.style.height = "auto";
+            textarea.style.height = `${textarea.scrollHeight}px`;
+          };
+          textarea.addEventListener("input", autoGrow);
+          autoGrow();
           textarea.focus();
+          textarea.select();
 
           const finishEdit = () => {
             editorRef.current.updateElement(el.id, { text: textarea.value });
@@ -318,9 +419,15 @@ export function ContentEditor({
           textarea.addEventListener("blur", finishEdit, { once: true });
           textarea.addEventListener("keydown", (e) => {
             if (e.key === "Escape") { textarea.value = textEl.text; textarea.blur(); }
+            /* Shift+Enter = newline; plain Enter = commit */
             if (e.key === "Enter" && !e.shiftKey) textarea.blur();
           });
-        });
+        };
+
+        node.on("dblclick dbltap", openInlineEdit);
+
+        /* Register trigger so the toolbar "Edit" button can also open it */
+        editTriggersRef.current.set(el.id, openInlineEdit);
 
         mainLayer.add(node);
 
@@ -335,7 +442,7 @@ export function ContentEditor({
       /* ── Image element ── */
       if (el.type === "image") {
         const imgEl = el as ImageElement;
-        if (imgEl.role === "background") continue; /* handled in bg layer */
+        if (imgEl.role === "background") continue;
         const capturedId = el.id;
         loadImg(proxyImg(imgEl.src)).then((img) => {
           const node = new Konva.Image({
@@ -346,7 +453,13 @@ export function ContentEditor({
             draggable: imgEl.draggable && !imgEl.locked,
           });
           node.on("click tap", () => { if (!imgEl.locked) editorRef.current.select(capturedId); });
-          node.on("dragend", () => editorRef.current.updateElement(capturedId, { x: node.x(), y: node.y() }));
+
+          attachSnapDrag(
+            node,
+            () => ({ w: node.width() * node.scaleX(), h: node.height() * node.scaleY() }),
+            (x, y) => editorRef.current.updateElement(capturedId, { x, y }),
+          );
+
           node.on("transformend", () => {
             const sx = node.scaleX(), sy = node.scaleY();
             node.scaleX(1); node.scaleY(1);
@@ -374,7 +487,13 @@ export function ContentEditor({
     }
 
     mainLayer.batchDraw();
-  }, [editor.state, W, H, scale]); /* re-render when editor state changes */
+  }, [editor.state, W, H, scale, attachSnapDrag]); /* re-render when editor state changes */
+
+  /* ── Toolbar triggers inline edit on selected text element ── */
+  const handleEditSelectedText = useCallback(() => {
+    const id = editorRef.current.state.selectedId;
+    if (id) editTriggersRef.current.get(id)?.();
+  }, []);
 
   /* ── Keyboard shortcuts ── */
   useEffect(() => {
@@ -456,8 +575,8 @@ export function ContentEditor({
         </div>
 
         <p className="text-[10px] text-muted-foreground text-center">
-          Click to select &middot; Double-click text to edit &middot; Drag to move &middot;
-          Delete key to remove &middot; {"\u2318"}Z undo &middot; {"\u2318"}Shift+Z redo
+          Click to select &middot; <strong>Double-click text to edit</strong> &middot; Drag to move &middot;
+          Near center: snaps to midpoint &middot; Delete key removes &middot; {"\u2318"}Z undo
         </p>
       </div>
 
@@ -469,6 +588,7 @@ export function ContentEditor({
         brandName={brandName}
         text={text}
         onExport={handleExport}
+        onEditSelectedText={handleEditSelectedText}
       />
     </div>
   );
