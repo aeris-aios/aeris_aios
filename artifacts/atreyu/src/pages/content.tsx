@@ -1043,50 +1043,8 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
         </div>
       )}
 
-      {/* Body — always horizontal (image left, content right) */}
-      <div className={`flex flex-1 ${!fmt.isText ? "flex-row" : "flex-col"}`}>
-
-        {/* ── LEFT: preview fills the full card height ── */}
-        {!fmt.isText && (
-          <div className="w-[260px] flex-shrink-0 self-stretch relative overflow-hidden border-r border-border/30 bg-black/[0.03] dark:bg-white/[0.02] min-h-[320px]">
-            {savedImage ? (
-              <>
-                <img src={savedImage} alt="Saved design" className="w-full h-full object-cover" />
-                <div className="absolute top-2 left-2">
-                  <span className="px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
-                    Modified
-                  </span>
-                </div>
-                <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent text-center">
-                  <p className="text-[9px] text-white/80 leading-snug">
-                    Saved design · Download for full resolution
-                  </p>
-                </div>
-              </>
-            ) : (preview && !streaming) ? (
-              <>
-                <img src={preview} alt="Post preview" className="w-full h-full object-cover" />
-                <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent text-center">
-                  <p className="text-[9px] text-white/80 leading-snug">
-                    {fmt.canvasW}×{fmt.canvasH}px · Download for full resolution
-                  </p>
-                </div>
-              </>
-            ) : previewLoading ? (
-              <div className="w-full h-full flex items-center justify-center">
-                <Loader2 className="h-6 w-6 animate-spin text-primary/40" />
-              </div>
-            ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                <ImagePlus className="h-8 w-8 text-muted-foreground/20" />
-                <span className="text-[10px] text-muted-foreground/40">Generating preview…</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── RIGHT: header + buttons + text ── */}
-        <div className="flex flex-col flex-1 min-w-0">
+      {/* Body — vertical stack: header → thumbnail → actions → copy */}
+      <div className="flex flex-col flex-1">
 
           {/* Card header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-border/40">
@@ -1120,6 +1078,45 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
               </button>
             </div>
           </div>
+
+          {/* ── Thumbnail — full aspect ratio, never cropped ── */}
+          {!fmt.isText && (
+            <div className="relative bg-black flex items-center justify-center overflow-hidden border-b border-border/20" style={{ minHeight: 240 }}>
+              {savedImage ? (
+                <>
+                  <img src={savedImage} alt="Saved design" className="max-w-full object-contain block" style={{ maxHeight: 560 }} />
+                  <div className="absolute top-2 left-2">
+                    <span className="px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold shadow">
+                      Modified
+                    </span>
+                  </div>
+                  <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent text-center">
+                    <p className="text-[9px] text-white/80 leading-snug">
+                      Saved design · Download for full resolution
+                    </p>
+                  </div>
+                </>
+              ) : (preview && !streaming) ? (
+                <>
+                  <img src={preview} alt="Post preview" className="max-w-full object-contain block" style={{ maxHeight: 560 }} />
+                  <div className="absolute bottom-0 left-0 right-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent text-center">
+                    <p className="text-[9px] text-white/80 leading-snug">
+                      {fmt.canvasW}×{fmt.canvasH}px · Download for full resolution
+                    </p>
+                  </div>
+                </>
+              ) : previewLoading ? (
+                <div className="h-[240px] flex items-center justify-center">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary/40" />
+                </div>
+              ) : (
+                <div className="h-[240px] flex flex-col items-center justify-center gap-3">
+                  <ImagePlus className="h-8 w-8 text-muted-foreground/20" />
+                  <span className="text-[10px] text-muted-foreground/40">Generating preview…</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* AI Photo + Edit buttons (image formats) */}
           {!streaming && text && !fmt.isText && (
@@ -1161,8 +1158,8 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
             </div>
           )}
 
-          {/* Text content */}
-          <div className="px-6 py-5 flex-1 min-h-[120px] overflow-y-auto">
+          {/* ── Copy text ── */}
+          <div className="px-6 py-5 min-h-[100px] border-t border-border/30">
             {text ? (
               <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap font-[inherit]">
                 {deepCleanText(text)}
@@ -1177,7 +1174,6 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
             )}
           </div>
 
-        </div>{/* end right column */}
       </div>{/* end body */}
 
       {/* No API Key Modal */}
