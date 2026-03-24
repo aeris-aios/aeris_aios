@@ -1350,6 +1350,7 @@ export default function ContentStudio() {
   const [writingStyle, setWritingStyle] = useState<WritingStyle>("adam_robinson");
   const [customStyle, setCustomStyle] = useState("");
   const [originalPost, setOriginalPost] = useState("");
+  const [copyMode, setCopyMode]       = useState<"ai" | "own">("ai");
 
   /* ── Format state ── */
   const [formatId, setFormatId]         = useState<string|null>(null);
@@ -1441,7 +1442,7 @@ export default function ContentStudio() {
   /* ── Navigation ── */
   const canNext = (
     (step===0 && (sourceMode==="brand_kit" || (sourceMode==="social_import" && socialUrl.trim().length>5))) ||
-    (step===1 && brief.trim().length>0) ||
+    (step===1 && brief.trim().length>5) ||
     (step===2 && !!formatId)
   );
 
@@ -1455,6 +1456,18 @@ export default function ContentStudio() {
     if (!formatId) return;
     setSavedImages({}); setData(""); setCarouselData(null); setVariants([]); setGenerated(true);
     const fmt = FORMATS.find(f=>f.id===formatId)!;
+
+    /* "Write My Own" mode — skip AI copy generation, use the user's text directly */
+    if (copyMode === "own" && !fmt.isText && !fmt.isCarousel) {
+      setVariants([brief]);
+      /* Auto-open graphic editor immediately for image formats */
+      setEditorText(brief);
+      setEditorAiImage(null);
+      setEditorVariantIndex(0);
+      setEditorMode(true);
+      return;
+    }
+
     await stream("/api/content/generate", {
       type:          fmt.contentType,
       platform:      fmt.platforms.split("·")[0].trim(),
@@ -1483,7 +1496,7 @@ export default function ContentStudio() {
 
   const startOver = () => {
     setStep(0); setSourceMode(null); setSocialUrl(""); setBrief(""); setAudience("");
-    setMethod("standard"); setFormatId(null); setVersionCount(1);
+    setMethod("standard"); setFormatId(null); setVersionCount(1); setCopyMode("ai");
     setGenerated(false); setVariants([]); setCarouselData(null); setData("");
     setProfileData(null); setStyleProfile(null); setProfileLoading(false); setProfileError(null);
     setEditorMode(false); setEditorText(""); setEditorAiImage(null);
@@ -1700,7 +1713,7 @@ export default function ContentStudio() {
                 <div className="text-center space-y-1.5">
                   <p className="hud-label">Step 2 of 3</p>
                   <h2 className="text-xl font-bold">What do you want to say?</h2>
-                  <p className="text-sm text-muted-foreground">Give AERIS a clear brief — the more specific, the better the output.</p>
+                  <p className="text-sm text-muted-foreground">Write your own copy or let AERIS generate it for you.</p>
                 </div>
 
                 {/* Profile analysis (social_import only) */}
@@ -1708,14 +1721,38 @@ export default function ContentStudio() {
                   <ProfileCard profile={profileData} styleProfile={styleProfile} loading={profileLoading} error={profileError} />
                 )}
 
+                {/* ── Copy mode toggle ── */}
+                <div className="flex gap-2 p-1 rounded-2xl neu-inset-sm">
+                  <button onClick={()=>setCopyMode("ai")}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all focus:outline-none
+                      ${copyMode==="ai"?"bg-primary text-primary-foreground shadow-md":"text-muted-foreground hover:text-foreground"}`}>
+                    <Sparkles className="h-4 w-4"/>
+                    AERIS Writes It
+                  </button>
+                  <button onClick={()=>setCopyMode("own")}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all focus:outline-none
+                      ${copyMode==="own"?"bg-primary text-primary-foreground shadow-md":"text-muted-foreground hover:text-foreground"}`}>
+                    <PenTool className="h-4 w-4"/>
+                    I'll Write It
+                  </button>
+                </div>
+
                 <div className="space-y-2">
-                  <label className="text-sm font-semibold">Your Message / Topic *</label>
+                  <label className="text-sm font-semibold">
+                    {copyMode==="own" ? "Your Copy *" : "Your Message / Topic *"}
+                  </label>
                   <NeuInput>
                     <Textarea value={brief} onChange={e=>setBrief(e.target.value)}
-                      placeholder="e.g. We just hit 10,000 customers in 18 months without paid ads. Share the exact 3-step content strategy, include specific numbers, and why most people get step 2 wrong."
+                      placeholder={copyMode==="own"
+                        ? "Type your final copy here — exactly what you want to appear on the graphic. e.g. 1,000 users in 4 days. No ads. Just product."
+                        : "e.g. We just hit 10,000 customers in 18 months without paid ads. Share the exact 3-step content strategy, include specific numbers, and why most people get step 2 wrong."}
                       className="bg-transparent border-0 focus-visible:ring-0 shadow-none min-h-[110px] text-sm resize-none"/>
                   </NeuInput>
-                  <p className="text-xs text-muted-foreground">Include specific numbers, stories, or angles you want covered.</p>
+                  <p className="text-xs text-muted-foreground">
+                    {copyMode==="own"
+                      ? "This text will appear on your graphic as editable layers. You can adjust it in the editor after."
+                      : "Include specific numbers, stories, or angles you want covered."}
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -1727,6 +1764,7 @@ export default function ContentStudio() {
                   </NeuInput>
                 </div>
 
+                {copyMode==="ai" && (
                 <div className="space-y-3">
                   <label className="text-sm font-semibold">Content Method</label>
                   <div className="grid grid-cols-2 gap-3">
@@ -1746,8 +1784,9 @@ export default function ContentStudio() {
                     })}
                   </div>
                 </div>
+                )}
 
-                {method==="viral_replication" && (
+                {copyMode==="ai" && method==="viral_replication" && (
                   <div className="neu-inset-sm rounded-2xl p-5 space-y-2">
                     <label className="text-sm font-semibold flex items-center gap-2">
                       <Repeat2 className="h-4 w-4 text-amber-500"/> Paste the Original Viral Post
@@ -1760,6 +1799,7 @@ export default function ContentStudio() {
                   </div>
                 )}
 
+                {copyMode==="ai" && (
                 <div className="space-y-3">
                   <label className="text-sm font-semibold">Writing Style</label>
                   <div className="flex flex-wrap gap-2">
@@ -1784,6 +1824,7 @@ export default function ContentStudio() {
                     </NeuInput>
                   )}
                 </div>
+                )}
               </div>
             )}
 
@@ -1818,6 +1859,7 @@ export default function ContentStudio() {
                   </div>
                 )}
 
+                {copyMode==="ai" && (
                 <div className="space-y-3">
                   <div className="text-center space-y-0.5">
                     <p className="text-sm font-semibold">How many versions do you want?</p>
@@ -1833,6 +1875,16 @@ export default function ContentStudio() {
                     ))}
                   </div>
                 </div>
+                )}
+
+                {copyMode==="own" && selectedFormat && !selectedFormat.isText && !selectedFormat.isCarousel && (
+                  <div className="flex items-center gap-3 p-4 rounded-2xl neu-inset-sm">
+                    <PenTool className="h-4 w-4 text-primary flex-shrink-0"/>
+                    <p className="text-xs text-muted-foreground">
+                      <strong className="text-foreground">Your copy is ready.</strong> Clicking Generate will open the graphic editor immediately — AERIS will generate a matching background image you can swap or keep.
+                    </p>
+                  </div>
+                )}
 
                 {styleProfile && (
                   <div className="flex items-center gap-2 p-4 rounded-2xl neu-inset-sm">
@@ -1850,7 +1902,8 @@ export default function ContentStudio() {
                   <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground neu-inset-sm rounded-xl px-4 py-3">
                     <CheckCircle2 className="h-4 w-4 text-primary"/>
                     <span>
-                      <strong className="text-foreground">{selectedFormat.label}</strong> · {selectedFormat.platforms} · {versionCount} version{versionCount>1?"s":""}
+                      <strong className="text-foreground">{selectedFormat.label}</strong> · {selectedFormat.platforms}
+                      {copyMode==="ai" && ` · ${versionCount} version${versionCount>1?"s":""}`}
                     </span>
                   </div>
                 )}
@@ -1873,7 +1926,9 @@ export default function ContentStudio() {
               <button onClick={handleGenerate} disabled={!canNext||isStreaming}
                 className="flex items-center gap-2 px-7 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground shadow-[0_0_24px_rgba(99,102,241,0.35)] hover:bg-primary/90 transition-all disabled:opacity-40 focus:outline-none">
                 <Wand2 className={`h-4 w-4 ${isStreaming?"animate-spin":""}`}/>
-                Generate {versionCount>1?`${versionCount} Versions`:"Content"}
+                {copyMode==="own" && selectedFormat && !selectedFormat?.isText && !selectedFormat?.isCarousel
+                  ? "Open Graphic Editor"
+                  : `Generate ${versionCount>1?`${versionCount} Versions`:"Content"}`}
               </button>
             )}
           </div>
