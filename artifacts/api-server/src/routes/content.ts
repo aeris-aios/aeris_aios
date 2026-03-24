@@ -416,15 +416,17 @@ Return ONLY valid JSON — no markdown wrapper, no explanation, no code block. J
     "text":      "#hexcode"
   },
   "mood": "2-4 word description (e.g. warm and aspirational)",
-  "backgroundStyle": "one of: solid | gradient | dark | light | textured",
+  "backgroundStyle": "one of: solid | gradient | dark | light | textured | photographic",
   "typographyStyle": "one of: serif | sans-serif | bold | minimal | script",
   "layoutStyle": "one of: centered | left-aligned | editorial | fullbleed | split",
   "contentStyle": "1-2 sentences describing the overall aesthetic that a designer would follow to replicate this look",
   "designNotes": "bullet-point list of specific recurring visual elements: overlay styles, shapes, borders, patterns, spacing philosophy",
-  "copyTone": "2-3 word description of the written voice (e.g. aspirational and direct, casual and relatable, premium and minimal)"
+  "copyTone": "2-3 word description of the written voice (e.g. aspirational and direct, casual and relatable, premium and minimal)",
+  "backgroundImagePrompt": "A Flux image generation prompt (50-80 words) that recreates ONLY the background aesthetic of these posts — no text, no people, no faces. Focus on: background color/gradient, textures, shapes, lighting atmosphere, and abstract graphic elements. Write it as a direct prompt, e.g.: 'Deep navy blue radial gradient background, soft golden geometric accent lines, subtle luxury texture, premium minimal graphic design, abstract, no text, no faces, no people.'"
 }
 
-For colorPalette: pick actual hex colors from the dominant visual palette. If photos are lifestyle/product with no text overlays, sample the dominant tones of those photos. Ensure text color is readable against primary.`,
+For colorPalette: pick actual hex colors from the dominant visual palette. If photos are lifestyle/product with no text overlays, sample the dominant tones of those photos. Ensure text color is readable against primary.
+For backgroundImagePrompt: Study ONLY the background layer of each post (ignore text overlays). If the account uses solid colored backgrounds, describe the exact color and any subtle texture. If lifestyle photography, describe the scene atmosphere. Always end with: no text, no watermarks, no faces, no people.`,
           },
         ],
       }],
@@ -783,7 +785,7 @@ async function generateWithIdeogram(
 }
 
 router.post("/content/generate-image", async (req, res) => {
-  const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry, referenceImageUrl, userPrompt, provider } = req.body as {
+  const { hook, contentStyle, formatId, brandColors, brandName, mood, backgroundStyle, industry, referenceImageUrl, userPrompt, provider, designNotes, backgroundImagePrompt } = req.body as {
     hook: string;
     contentStyle?: string;
     formatId?: string;
@@ -795,6 +797,8 @@ router.post("/content/generate-image", async (req, res) => {
     referenceImageUrl?: string;
     userPrompt?: string;
     provider?: "replicate" | "ideogram" | "kie" | "auto";
+    designNotes?: string;
+    backgroundImagePrompt?: string;
   };
 
   if (!hook) { res.status(400).json({ error: "hook is required" }); return; }
@@ -861,6 +865,16 @@ router.post("/content/generate-image", async (req, res) => {
         brandName ? `Brand: ${brandName}.` : "",
         colorHint,
         `Absolutely no text, no watermarks, no logos, no letters, no words.`,
+      ].filter(Boolean).join(" ")
+    /* Claude-generated style-matched background prompt (most accurate) */
+    : backgroundImagePrompt?.trim()
+    ? [
+        backgroundImagePrompt.trim(),
+        validatedReferenceUrl ? "Precisely match the visual style, color palette, texture, and atmosphere from the reference image." : "",
+        brandColors?.length ? `Exact brand colors: ${brandColors.slice(0, 3).join(", ")}.` : "",
+        designNotes ? `Design details: ${designNotes}` : "",
+        `Composition: generous negative space in the center and top third for text overlay.`,
+        `Absolutely no text, no watermarks, no logos, no letters, no words, no people, no faces.`,
       ].filter(Boolean).join(" ")
     : [
         `Ultra-high-quality social media marketing visual for "${hook}".`,

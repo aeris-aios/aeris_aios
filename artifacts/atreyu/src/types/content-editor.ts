@@ -115,6 +115,7 @@ export interface StyleProfile {
   contentStyle: string;
   designNotes: string;
   copyTone?: string;
+  backgroundImagePrompt?: string;
 }
 
 export interface OutputFormat {
