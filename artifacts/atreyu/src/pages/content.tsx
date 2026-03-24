@@ -1378,6 +1378,13 @@ export default function ContentStudio() {
     setProfileError(null);
 
     try {
+      /* ── Safe JSON helper — avoids "Unexpected end of JSON" on empty bodies ── */
+      const safeJson = async (res: Response) => {
+        const text = await res.text();
+        if (!text.trim()) return {};
+        try { return JSON.parse(text); } catch { return { _raw: text }; }
+      };
+
       /* 1. Scrape profile */
       const scrapeRes = await fetch("/api/content/scrape-profile", {
         method: "POST",
@@ -1386,15 +1393,16 @@ export default function ContentStudio() {
       });
 
       if (!scrapeRes.ok) {
-        const err = await scrapeRes.json();
-        throw new Error(err.error ?? "Failed to scrape profile");
+        const err = await safeJson(scrapeRes);
+        throw new Error(err.error ?? `Profile scrape failed (${scrapeRes.status})`);
       }
 
-      const profile: ProfileData = await scrapeRes.json();
+      const profile: ProfileData = await safeJson(scrapeRes);
+      if (!profile || !profile.username) throw new Error("Profile not found or is private");
       setProfileData(profile);
 
       /* 2. Analyze style (only if we have post images) */
-      if (profile.posts.length > 0) {
+      if (profile.posts?.length > 0) {
         const analyzeRes = await fetch("/api/content/analyze-style", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1406,8 +1414,8 @@ export default function ContentStudio() {
         });
 
         if (analyzeRes.ok) {
-          const { styleProfile: sp } = await analyzeRes.json();
-          setStyleProfile(sp);
+          const data = await safeJson(analyzeRes);
+          if (data.styleProfile) setStyleProfile(data.styleProfile);
         }
       }
     } catch (err: any) {

@@ -298,12 +298,12 @@ router.post("/content/scrape-profile", async (req, res) => {
 
   try {
     const apifyRes = await fetch(
-      `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?timeout=60`,
+      `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?timeout=45`,
       {
         method:  "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${APIFY_KEY}` },
         body:    JSON.stringify(inputBody),
-        signal:  AbortSignal.timeout(70000),
+        signal:  AbortSignal.timeout(52000),
       }
     );
 
