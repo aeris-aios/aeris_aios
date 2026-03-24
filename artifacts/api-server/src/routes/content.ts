@@ -789,9 +789,6 @@ router.post("/content/generate-image", async (req, res) => {
 
   if (!hook) { res.status(400).json({ error: "hook is required" }); return; }
 
-  const KIE_API_KEY = process.env.KIE_AI_API_KEY;
-  if (!KIE_API_KEY) { res.status(500).json({ error: "KIE_AI_API_KEY not configured" }); return; }
-
   const aspectRatio = KIE_ASPECT_MAP[formatId ?? ""] ?? "1:1";
 
   /* ── Validate reference image URL for style transfer ── */
@@ -875,15 +872,18 @@ router.post("/content/generate-image", async (req, res) => {
   /* ── Determine which provider to use ── */
   const REPLICATE_KEY = process.env.REPLICATE_API_KEY ?? await getSettingValue("replicate_api_key");
   const IDEOGRAM_KEY  = process.env.IDEOGRAM_API_KEY  ?? await getSettingValue("ideogram_api_key");
-  const KIE_KEY       = KIE_API_KEY;
 
   let selectedProvider = provider ?? "auto";
   if (selectedProvider === "auto") {
-    /* Prefer Replicate (best style transfer), then Ideogram, then KIE */
     if (REPLICATE_KEY) selectedProvider = "replicate";
     else if (IDEOGRAM_KEY) selectedProvider = "ideogram";
-    else if (KIE_KEY) selectedProvider = "kie";
-    else { res.status(500).json({ error: "No image generation API configured. Add a Replicate, Ideogram, or KIE.AI key in Settings > Integrations." }); return; }
+    else {
+      res.status(422).json({
+        error: "no_provider",
+        message: "No image or video generation APIs are configured. Go to Settings > Integrations to connect your Replicate or Ideogram API key.",
+      });
+      return;
+    }
   }
 
   console.log(`[generate-image] provider=${selectedProvider} hasRef=${!!validatedReferenceUrl}`);
@@ -892,58 +892,14 @@ router.post("/content/generate-image", async (req, res) => {
     let imageUrl: string;
 
     if (selectedProvider === "replicate") {
-      if (!REPLICATE_KEY) { res.status(500).json({ error: "Replicate API key not configured" }); return; }
+      if (!REPLICATE_KEY) { res.status(422).json({ error: "no_provider", message: "Replicate API key not configured. Go to Settings > Integrations to add it." }); return; }
       imageUrl = await generateWithReplicate(prompt, aspectRatio, validatedReferenceUrl, REPLICATE_KEY);
     } else if (selectedProvider === "ideogram") {
-      if (!IDEOGRAM_KEY) { res.status(500).json({ error: "Ideogram API key not configured" }); return; }
+      if (!IDEOGRAM_KEY) { res.status(422).json({ error: "no_provider", message: "Ideogram API key not configured. Go to Settings > Integrations to add it." }); return; }
       imageUrl = await generateWithIdeogram(prompt, aspectRatio, IDEOGRAM_KEY);
     } else {
-      /* KIE.AI fallback */
-      if (!KIE_KEY) { res.status(500).json({ error: "KIE_AI_API_KEY not configured" }); return; }
-
-      const kieBody: Record<string, unknown> = {
-        prompt, model: "flux-kontext-pro", aspectRatio,
-        outputFormat: "jpeg", safetyTolerance: 2, promptUpsampling: true,
-      };
-      if (validatedReferenceUrl) {
-        kieBody.imageUrl = validatedReferenceUrl;
-        kieBody.imagePromptStrength = 0.35;
-      }
-
-      const submitRes = await fetch("https://api.kie.ai/api/v1/flux/kontext/generate", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${KIE_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify(kieBody),
-      });
-      if (!submitRes.ok) {
-        const errText = await submitRes.text();
-        throw new Error(`KIE.AI error: ${errText.slice(0, 200)}`);
-      }
-
-      const submitData = await submitRes.json();
-      const taskId = submitData?.data?.taskId ?? submitData?.taskId;
-      if (!taskId) throw new Error("No taskId returned from KIE.AI");
-
-      /* Poll KIE.AI — max 90s */
-      let found = false;
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 3_000));
-        try {
-          const pollRes = await fetch(
-            `https://api.kie.ai/api/v1/flux/kontext/record-info?taskId=${encodeURIComponent(taskId)}`,
-            { headers: { Authorization: `Bearer ${KIE_KEY}` }, signal: AbortSignal.timeout(10_000) },
-          );
-          if (!pollRes.ok) continue;
-          const pd = await pollRes.json();
-          const url = pd?.data?.response?.resultImageUrl ?? pd?.data?.response?.originImageUrl;
-          if (pd?.data?.successFlag === 1 && url) { imageUrl = url; found = true; break; }
-          if (pd?.data?.errorCode) throw new Error(pd.data.errorMessage ?? "KIE generation failed");
-        } catch (e: any) {
-          if (e?.message?.includes("KIE generation")) throw e;
-        }
-      }
-      if (!found) throw new Error("KIE.AI generation timed out");
-      imageUrl = imageUrl!;
+      res.status(422).json({ error: "no_provider", message: "Unknown provider. Select Replicate or Ideogram." });
+      return;
     }
 
     console.log(`[generate-image] success via ${selectedProvider}`);

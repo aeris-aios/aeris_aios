@@ -72,7 +72,8 @@ export function EditorToolbar({
   const [exportQuality, setExportQuality] = useState(0.92);
   const [aiPromptOpen, setAiPromptOpen] = useState(false);
   const [userPrompt, setUserPrompt] = useState("");
-  const [aiProvider, setAiProvider] = useState<"auto" | "replicate" | "ideogram" | "kie">("auto");
+  const [aiProvider, setAiProvider] = useState<"auto" | "replicate" | "ideogram">("auto");
+  const [showApiKeyPrompt, setShowApiKeyPrompt] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
@@ -105,7 +106,12 @@ export function EditorToolbar({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error ?? "Image generation failed");
+        if (err?.error === "no_provider") {
+          setShowApiKeyPrompt(true);
+          setAiLoading(false);
+          return;
+        }
+        throw new Error(err?.message ?? err?.error ?? "Image generation failed");
       }
       const { imageUrl } = await res.json();
       editor.setBackgroundImage(imageUrl);
@@ -393,7 +399,6 @@ export function EditorToolbar({
                 { id: "auto", label: "Auto", desc: "Best available" },
                 { id: "replicate", label: "FLUX", desc: "Style transfer" },
                 { id: "ideogram", label: "Ideogram", desc: "Text on image" },
-                { id: "kie", label: "KIE", desc: "Fallback" },
               ] as const).map(p => (
                 <button key={p.id} onClick={() => setAiProvider(p.id)}
                   className={`flex-1 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${
@@ -561,6 +566,37 @@ export function EditorToolbar({
           Full resolution: {format.canvasW}&times;{format.canvasH}px
         </p>
       </Panel>
+
+      {/* ── No API Key Modal ── */}
+      {showApiKeyPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="neu-card rounded-2xl p-6 max-w-sm mx-4 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-xl mx-auto flex items-center justify-center neu-raised-sm">
+                <ImagePlus className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-bold text-foreground">No Image APIs Connected</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                To generate AI images and graphics, connect your API key for Replicate (FLUX) or Ideogram in Settings.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowApiKeyPrompt(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium neu-raised-sm text-muted-foreground hover:text-foreground transition-all"
+              >
+                Cancel
+              </button>
+              <a
+                href="/settings"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground text-center hover:bg-primary/90 transition-all"
+              >
+                Go to Settings
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

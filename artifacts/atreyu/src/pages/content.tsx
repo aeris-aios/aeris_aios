@@ -932,6 +932,7 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
   const [aiImageUrl, setAiImageUrl]         = useState<string | null>(null);
   const [aiImageLoading, setAiImageLoading] = useState(false);
   const [aiImageError, setAiImageError]     = useState<string | null>(null);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const { toast } = useToast();
   const isMobile = navigator.maxTouchPoints > 0;
 
@@ -999,7 +1000,13 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error ?? "Image generation failed");
+        if (err?.error === "no_provider") {
+          setShowApiKeyModal(true);
+          if (aiTimerRef.current) clearInterval(aiTimerRef.current);
+          setAiImageLoading(false);
+          return;
+        }
+        throw new Error(err?.message ?? err?.error ?? "Image generation failed");
       }
       const { imageUrl } = await res.json();
       setAiImageUrl(imageUrl);
@@ -1162,6 +1169,33 @@ function ContentCard({ text, variantNum, totalVariants, fmt, brandName, streamin
 
         </div>{/* end right column */}
       </div>{/* end body */}
+
+      {/* No API Key Modal */}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="neu-card rounded-2xl p-6 max-w-sm mx-4 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-xl mx-auto flex items-center justify-center neu-raised-sm">
+                <ImagePlus className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-bold text-foreground">No Image APIs Connected</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                To generate AI images and graphics, connect your Replicate (FLUX) or Ideogram API key in Settings.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowApiKeyModal(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium neu-raised-sm text-muted-foreground hover:text-foreground transition-all">
+                Cancel
+              </button>
+              <a href="/settings"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground text-center hover:bg-primary/90 transition-all">
+                Go to Settings
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -112,7 +112,8 @@ function GenerateGraphicButton({ text, platformId, brandName }: {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsed, setElapsed] = useState(0);
-  const [provider, setProvider] = useState<"auto" | "replicate" | "ideogram" | "kie">("auto");
+  const [provider, setProvider] = useState<"auto" | "replicate" | "ideogram">("auto");
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { toast } = useToast();
 
@@ -141,7 +142,13 @@ function GenerateGraphicButton({ text, platformId, brandName }: {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error ?? "Image generation failed");
+        if (err?.error === "no_provider") {
+          setShowApiKeyModal(true);
+          if (timerRef.current) clearInterval(timerRef.current);
+          setLoading(false);
+          return;
+        }
+        throw new Error(err?.message ?? err?.error ?? "Image generation failed");
       }
 
       const { imageUrl: url } = await res.json();
@@ -178,7 +185,6 @@ function GenerateGraphicButton({ text, platformId, brandName }: {
           { id: "auto", label: "Auto" },
           { id: "replicate", label: "FLUX" },
           { id: "ideogram", label: "Ideogram" },
-          { id: "kie", label: "KIE" },
         ] as const).map(p => (
           <button key={p.id} onClick={() => setProvider(p.id)}
             className={`flex-1 py-1 rounded-lg text-[10px] font-semibold transition-all ${
@@ -212,6 +218,33 @@ function GenerateGraphicButton({ text, platformId, brandName }: {
         )}
       </div>
       {error && <p className="text-[10px] text-red-400 text-center">{error}</p>}
+
+      {/* No API Key Modal */}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="neu-card rounded-2xl p-6 max-w-sm mx-4 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 rounded-xl mx-auto flex items-center justify-center neu-raised-sm">
+                <ImagePlus className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-bold text-foreground">No Image APIs Connected</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                To generate AI graphics, connect your Replicate (FLUX) or Ideogram API key in Settings.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setShowApiKeyModal(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-medium neu-raised-sm text-muted-foreground hover:text-foreground transition-all">
+                Cancel
+              </button>
+              <a href="/settings"
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground text-center hover:bg-primary/90 transition-all">
+                Go to Settings
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
