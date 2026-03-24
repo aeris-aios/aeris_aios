@@ -422,6 +422,7 @@ Return ONLY valid JSON — no markdown wrapper, no explanation, no code block. J
   "contentStyle": "1-2 sentences describing the overall aesthetic that a designer would follow to replicate this look",
   "designNotes": "bullet-point list of specific recurring visual elements: overlay styles, shapes, borders, patterns, spacing philosophy",
   "copyTone": "2-3 word description of the written voice (e.g. aspirational and direct, casual and relatable, premium and minimal)",
+  "highlightPhrase": "The 2-5 power words this account consistently uses in ACCENT COLOR on their posts (e.g. for news/CEO accounts: a dollar figure like '$2 BILLION', a status word like 'BILLIONAIRE', or a key emotional phrase like 'WIFE AND KIDS'). Return empty string if the account does not use accent-colored text highlights.",
   "backgroundImagePrompt": "A Flux image generation prompt (60-90 words) for a PEOPLE-FREE background image that captures the visual STYLE of this account. CRITICAL RULES: (1) ALWAYS start with 'No people, no faces, no humans — ' (2) If the account uses photos of real people, describe the SETTING/ENVIRONMENT/OBJECTS in those photos instead of the person: e.g. luxury cars on a race track, a modern glass office building exterior, a dramatic city skyline at night, abstract wealth symbols. (3) Describe: scene type, lighting, color temperature, cinematic style, depth, mood. (4) End with: 'photorealistic, cinematic, no text, no watermarks, no people, no faces.'"
 }
 

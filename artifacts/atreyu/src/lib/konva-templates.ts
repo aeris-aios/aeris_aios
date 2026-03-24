@@ -15,6 +15,7 @@ import {
   hexA,
   extractHook,
   pickTemplate,
+  splitHeadline,
   DEFAULT_PALETTE,
   SYSTEM_FONT,
   SERIF_FONT,
@@ -502,6 +503,125 @@ function photoTemplate(
   return elements;
 }
 
+/* ════════════════════════════════════════════
+   NEWS HEADLINE TEMPLATE (bold/photographic profiles)
+   — Big bold all-caps text anchored to bottom strip
+   — Two-tone: accent color for power phrase, white for body
+════════════════════════════════════════════ */
+function newsHeadlineTemplate(
+  W: number,
+  H: number,
+  pal: StyleProfile["colorPalette"],
+  accentLine: string,
+  bodyLine: string,
+  brandName: string,
+): AnyEditorElement[] {
+  const PAD = Math.round(W * 0.065);
+  const STRIP_Y = Math.round(H * 0.58);
+  const STRIP_H = H - STRIP_Y;
+  const accentSize = Math.min(Math.round(W * 0.085), 116);
+  const bodySize = Math.min(Math.round(W * 0.075), 100);
+  const badgeSize = Math.round(W * 0.022);
+  const textInset = Math.round(PAD * 0.9);
+
+  const elements: AnyEditorElement[] = [];
+
+  /* Full-canvas dark overlay (light scrim over photo) */
+  elements.push(
+    makeRect({
+      role: "overlay",
+      x: 0,
+      y: 0,
+      width: W,
+      height: H,
+      fill: "rgba(0,0,0,0.18)",
+      zIndex: 5,
+      locked: true,
+      draggable: false,
+    }),
+  );
+
+  /* Bottom dark strip */
+  elements.push(
+    makeRect({
+      role: "overlay",
+      x: 0,
+      y: STRIP_Y,
+      width: W,
+      height: STRIP_H,
+      fill: "rgba(0,0,0,0.82)",
+      zIndex: 8,
+      locked: true,
+      draggable: false,
+    }),
+  );
+
+  /* Accent-colored power phrase (top of strip) */
+  if (accentLine) {
+    elements.push(
+      makeText({
+        role: "hook",
+        text: accentLine.toUpperCase(),
+        x: textInset,
+        y: STRIP_Y + Math.round(STRIP_H * 0.06),
+        width: W - textInset * 2,
+        height: accentSize * 2.2,
+        fontSize: accentSize,
+        fontStyle: "bold",
+        fill: pal.accent,
+        align: "left",
+        lineHeight: 1.05,
+        letterSpacing: -1,
+        zIndex: 20,
+      }),
+    );
+  }
+
+  /* White body text below accent line */
+  if (bodyLine) {
+    const bodyY = accentLine
+      ? STRIP_Y + Math.round(STRIP_H * 0.06) + accentSize * 2.0
+      : STRIP_Y + Math.round(STRIP_H * 0.08);
+    elements.push(
+      makeText({
+        role: "supporting",
+        text: bodyLine.toUpperCase(),
+        x: textInset,
+        y: bodyY,
+        width: W - textInset * 2,
+        height: bodySize * 2.2,
+        fontSize: bodySize,
+        fontStyle: "bold",
+        fill: "#FFFFFF",
+        align: "left",
+        lineHeight: 1.05,
+        letterSpacing: -1,
+        zIndex: 20,
+      }),
+    );
+  }
+
+  /* Brand badge — bottom-left of strip */
+  elements.push(
+    makeText({
+      role: "brand",
+      text: `@${brandName.toLowerCase()}`,
+      x: textInset,
+      y: H - badgeSize * 2.2,
+      width: W - textInset * 2,
+      height: badgeSize * 2,
+      fontSize: badgeSize,
+      fontStyle: "bold",
+      fill: hexA("#FFFFFF", 0.55),
+      align: "left",
+      letterSpacing: 1,
+      zIndex: 25,
+    }),
+  );
+
+  return elements;
+}
+
 /* ═══════════════════════════════════════════
    PUBLIC — Generate elements for a given template
 ═══════════════════════════════════════════ */
@@ -532,6 +652,12 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
   let backgroundColor: string;
 
   switch (templateName) {
+    case "newsheadline": {
+      const { accentLine, bodyLine } = splitHeadline(hook, styleProfile?.highlightPhrase);
+      backgroundColor = "#0A0A0A";
+      elements = newsHeadlineTemplate(W, H, pal, accentLine, bodyLine, brandName);
+      break;
+    }
     case "cinematic": {
       const bgBase = isDarkColor(pal.primary) ? pal.primary : "#0B0B12";
       backgroundColor = bgBase;

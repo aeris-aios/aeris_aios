@@ -71,26 +71,68 @@ export function extractHook(text: string): { hook: string; supporting: string } 
 }
 
 /* ── Determine which template to use ── */
-export type TemplateName = "cinematic" | "editorial" | "modern" | "photo";
+export type TemplateName = "cinematic" | "editorial" | "modern" | "photo" | "newsheadline";
 
 export function pickTemplate(
   styleProfile: StyleProfile | null | undefined,
   hasBackgroundImage: boolean,
 ): TemplateName {
-  if (hasBackgroundImage) return "photo";
   const bg = styleProfile?.backgroundStyle ?? "gradient";
   const typ = styleProfile?.typographyStyle ?? "sans-serif";
+  const layout = styleProfile?.layoutStyle ?? "centered";
   const pal = styleProfile?.colorPalette;
   const isDark = bg === "dark" || (pal ? isDarkColor(pal.primary) : false);
+
+  const isNewsHeadline =
+    typ === "bold" &&
+    (bg === "photographic" || layout === "fullbleed");
+
+  if (isNewsHeadline) return "newsheadline";
+  if (hasBackgroundImage) return "photo";
+
   const isEditorial =
-    (typ === "serif" ||
-      styleProfile?.layoutStyle === "editorial" ||
-      styleProfile?.layoutStyle === "left-aligned") &&
-    !isDark;
+    (typ === "serif" || layout === "editorial" || layout === "left-aligned") && !isDark;
 
   if (isDark) return "cinematic";
   if (isEditorial) return "editorial";
   return "modern";
+}
+
+/* ── Split hook text into accent and body lines for news headline template ── */
+export function splitHeadline(
+  hook: string,
+  highlightPhrase?: string,
+): { accentLine: string; bodyLine: string } {
+  const text = hook.trim();
+
+  if (highlightPhrase && highlightPhrase.trim()) {
+    const phrase = highlightPhrase.trim();
+    const idx = text.toUpperCase().indexOf(phrase.toUpperCase());
+    if (idx !== -1) {
+      const before = text.slice(0, idx).trim();
+      const matched = text.slice(idx, idx + phrase.length);
+      const after = text.slice(idx + phrase.length).trim().replace(/^[,\s:]+/, "");
+      if (before) {
+        return { accentLine: before, bodyLine: [matched, after].filter(Boolean).join(" ") };
+      }
+      return { accentLine: matched, bodyLine: after };
+    }
+  }
+
+  const commaIdx = text.indexOf(",");
+  if (commaIdx > 10 && commaIdx < text.length * 0.55) {
+    return {
+      accentLine: text.slice(0, commaIdx).trim(),
+      bodyLine: text.slice(commaIdx + 1).trim(),
+    };
+  }
+
+  const words = text.split(/\s+/);
+  const split = Math.max(2, Math.ceil(words.length * 0.4));
+  return {
+    accentLine: words.slice(0, split).join(" "),
+    bodyLine: words.slice(split).join(" "),
+  };
 }
 
 /* ── Default palette ── */

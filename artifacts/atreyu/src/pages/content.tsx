@@ -46,6 +46,7 @@ interface StyleProfile {
   designNotes: string;
   copyTone?: string;
   backgroundImagePrompt?: string;
+  highlightPhrase?: string;
 }
 
 interface ProfilePost { imageUrl: string; caption: string; likes: number; }

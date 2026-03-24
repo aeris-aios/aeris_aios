@@ -116,6 +116,7 @@ export interface StyleProfile {
   designNotes: string;
   copyTone?: string;
   backgroundImagePrompt?: string;
+  highlightPhrase?: string;
 }
 
 export interface OutputFormat {
