@@ -19,6 +19,9 @@ import {
   DEFAULT_PALETTE,
   SYSTEM_FONT,
   SERIF_FONT,
+  DISPLAY_FONT,
+  CONDENSED_FONT,
+  MONO_FONT,
 } from "./content-templates";
 
 let _uid = 0;
@@ -689,7 +692,19 @@ export function generateTemplate(params: TemplateParams): TemplateResult {
   const textAlign = textAlignRaw as "left" | "center" | "right";
   const textX     = PAD;
   const textWidth = Math.round(W * textWidthR);
-  const fontFamily = fontCat === "serif" ? SERIF_FONT : SYSTEM_FONT;
+  /* Pick typeface to match the competitor's fontCategory + weight signal */
+  let fontFamily: string;
+  if (fontCat === "serif") {
+    fontFamily = SERIF_FONT;
+  } else if (fontCat === "mono") {
+    fontFamily = MONO_FONT;
+  } else if (fontCat === "display" || (fontWeight >= 800 && textTransform === "uppercase")) {
+    fontFamily = DISPLAY_FONT;
+  } else if (fontWeight >= 600) {
+    fontFamily = CONDENSED_FONT;
+  } else {
+    fontFamily = SYSTEM_FONT;
+  }
   const fontStyle  = fontWeight >= 600 ? "bold" : "";
 
   /* ── Colors from palette ── */

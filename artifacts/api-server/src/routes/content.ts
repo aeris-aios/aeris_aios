@@ -442,6 +442,7 @@ Return ONLY valid JSON — no markdown, no explanation, just the raw JSON:
     "overlayOpacity": 0.0
   },
 
+  "backgroundStyle": "photographic | dark | gradient | light | solid",
   "highlightPhrase": "",
   "mood": "2-4 word description",
   "contentStyle": "1-2 sentences describing the aesthetic a designer would follow",
@@ -451,6 +452,7 @@ Return ONLY valid JSON — no markdown, no explanation, just the raw JSON:
 }
 
 MEASUREMENT GUIDE for typography and layout values:
+- backgroundStyle: "photographic" = real photos used as backgrounds (celebrity news, luxury lifestyle). "dark" = pure dark/black solid backgrounds. "gradient" = gradient color backgrounds. "light" = white/light clean minimal backgrounds. "solid" = flat solid color background matching brand color.
 - fontWeight: 100-900. Thin minimalist accounts = 300. Normal = 400. Bold CEO/news accounts = 800-900.
 - fontSizeRatio: How large is text relative to image? 0.7 = small elegant. 1.0 = standard. 1.4 = large bold headlines. 1.8 = massive impact text.
 - textTransform: "uppercase" if the account uses ALL CAPS text on graphics. "none" otherwise.

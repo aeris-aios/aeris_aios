@@ -147,5 +147,8 @@ export const DEFAULT_PALETTE: StyleProfile["colorPalette"] = {
   text: "#1A1A1A",
 };
 
-export const SYSTEM_FONT = "-apple-system,'Helvetica Neue',Arial,sans-serif";
-export const SERIF_FONT = "Georgia,'Times New Roman',serif";
+export const SYSTEM_FONT    = "'Inter','Helvetica Neue',Arial,sans-serif";
+export const SERIF_FONT     = "Georgia,'Times New Roman',serif";
+export const DISPLAY_FONT   = "'Bebas Neue',Impact,'Arial Black',sans-serif";
+export const CONDENSED_FONT = "'Oswald','Arial Narrow','Helvetica Neue',sans-serif";
+export const MONO_FONT      = "'JetBrains Mono',Menlo,'Courier New',monospace";
