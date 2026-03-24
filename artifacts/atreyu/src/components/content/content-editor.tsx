@@ -336,11 +336,14 @@ export function ContentEditor({
           textDecoration: textEl.textDecoration || undefined,
           opacity: el.opacity, rotation: el.rotation,
           draggable: el.draggable && !el.locked,
+          listening: true,
           shadowColor: textEl.shadowColor, shadowBlur: textEl.shadowBlur,
           shadowOffsetX: textEl.shadowOffsetX, shadowOffsetY: textEl.shadowOffsetY,
         });
 
         node.on("click tap", () => { if (!el.locked) editorRef.current.select(el.id); });
+        node.on("mouseenter", () => { stage.container().style.cursor = el.locked ? "default" : "move"; });
+        node.on("mouseleave", () => { stage.container().style.cursor = "default"; });
 
         attachSnapDrag(
           node,

@@ -505,18 +505,21 @@ ${analyzedExamples.map((e, i) => `### Example ${i + 1}: ${e.name}\n${e.analysisR
 `;
   }
 
-  /* ── Competitor style block (NEW) ── */
+  /* ── Competitor style block ── */
   let competitorBlock = "";
   if (styleProfile) {
     competitorBlock = `
-## COMPETITOR CONTENT STYLE (Replicate this aesthetic in your copy tone)
-Visual Mood: ${styleProfile.mood ?? ""}
+## COPY STYLE REFERENCE — TONE AND FORMAT ONLY
+Mood: ${styleProfile.mood ?? ""}
 Copy Tone: ${styleProfile.copyTone ?? ""}
-Content Style: ${styleProfile.contentStyle ?? ""}
-Design Notes: ${styleProfile.designNotes ?? ""}
 
-Adopt this competitor's energy, pacing, and copywriting confidence in your output. Write copy that would feel at home on their profile but is unmistakably about this brand's message.
-${socialProfileUrl ? `Competitor profile: ${socialProfileUrl}` : ""}
+Adopt this energy, pacing, and sentence confidence in your output.
+
+CRITICAL RULES:
+1. DO NOT write about topics, stories, or themes from the competitor's posts.
+2. The CONTENT TOPIC comes entirely from the brief below — use it verbatim.
+3. Only borrow the competitor's sentence rhythm, word choice confidence, and brevity.
+${socialProfileUrl ? `Style reference: ${socialProfileUrl}` : ""}
 `;
   }
 
@@ -859,45 +862,52 @@ router.post("/content/generate-image", async (req, res) => {
       visualApproach = "Bright, airy, and clean. Soft diffused light, white space, minimal and premium.";
       break;
     case "photographic":
-      visualApproach = "Cinematic empty scene — luxury environment or dramatic landscape with no people. Wide angle, bokeh depth of field, high contrast, moody atmosphere. No humans, no faces.";
+      visualApproach = "Cinematic empty scene — luxury environment or dramatic landscape with no people. Wide angle, bokeh depth of field, high contrast, moody atmosphere. No humans, no faces. Keep the bottom 50% of the image relatively dark and clear — a dark text overlay will be placed there.";
       break;
     default:
       visualApproach = "Professional, polished commercial photography. Clean composition with clear focal point. No people, no faces.";
   }
 
+  /* Absolute no-text prefix — Flux weights the beginning of the prompt heavily */
+  const NO_TEXT_PREFIX = "PURE PHOTOGRAPHIC IMAGE ONLY — absolutely zero text, zero words, zero letters, zero numbers, zero symbols anywhere in the image.";
+
   /* When the user supplies a custom prompt, use it as the primary directive
      while retaining hook/brand/style as supplementary context */
   const prompt = userPrompt?.trim()
     ? [
+        NO_TEXT_PREFIX,
         userPrompt.trim(),
-        hook ? `Context: this image supports the message "${hook}".` : "",
         validatedReferenceUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
         styleHint,
         moodHint,
         `Composition: clean negative space reserved for text overlay.`,
         brandName ? `Brand: ${brandName}.` : "",
         colorHint,
-        `Absolutely no text, no watermarks, no logos, no letters, no words.`,
+        `No text, no watermarks, no logos, no letters, no words, no people, no faces.`,
       ].filter(Boolean).join(" ")
     /* Claude-generated style-matched background prompt (most accurate) */
     : backgroundImagePrompt?.trim()
     ? (() => {
-        /* Always guarantee "no people" leads the prompt — FLUX respects early negative constraints */
-        const NO_PEOPLE = "No people, no faces, no humans, no persons —";
+        /* Always guarantee "no people" and "no text" lead the prompt — FLUX weights early constraints heavily */
         const base = backgroundImagePrompt.trim();
         const alreadyNegated = /^no people|^no faces|^no humans/i.test(base);
-        const safeBase = alreadyNegated ? base : `${NO_PEOPLE} ${base}`;
+        const safeBase = alreadyNegated ? base : `No people, no faces, no humans — ${base}`;
+        /* For photographic style: bottom strip will be covered by dark overlay — keep it dark/empty */
+        const compositionNote = backgroundStyle === "photographic"
+          ? "Composition: visual interest in the top 60% of the frame; bottom 40% darker and emptier to accommodate a dark text strip overlay."
+          : "Composition: generous empty space in center and top third for text overlay.";
         return [
+          NO_TEXT_PREFIX,
           safeBase,
           validatedReferenceUrl ? "Match the visual style, color palette, texture, and atmosphere from the reference image — no people." : "",
           brandColors?.length ? `Brand colors: ${brandColors.slice(0, 3).join(", ")}.` : "",
-          designNotes ? `Design details: ${designNotes}` : "",
-          `Composition: generous empty space in center and top third for text overlay.`,
-          `Photorealistic, cinematic, no text, no watermarks, no logos, no words, no people, no faces, no hands.`,
+          compositionNote,
+          `Photorealistic, cinematic. No text, no watermarks, no logos, no words, no numbers, no people, no faces, no hands.`,
         ].filter(Boolean).join(" ");
       })()
     : [
-        `Ultra-high-quality social media marketing visual for "${hook}".`,
+        NO_TEXT_PREFIX,
+        `Ultra-high-quality social media marketing visual.`,
         validatedReferenceUrl ? "Adopt the visual style, color palette, and mood from the reference image." : "",
         styleHint,
         moodHint,
@@ -907,7 +917,7 @@ router.post("/content/generate-image", async (req, res) => {
         `Shot on professional DSLR, 85mm lens, f/2.8. Studio-grade lighting.`,
         `Premium stock photo quality suitable for Fortune 500 marketing materials.`,
         brandName ? `Brand context: ${brandName}.` : "",
-        `Absolutely no text, no watermarks, no logos, no letters, no words, no people, no faces.`,
+        `No text, no watermarks, no logos, no letters, no words, no people, no faces.`,
         colorHint,
       ].filter(Boolean).join(" ");
 
