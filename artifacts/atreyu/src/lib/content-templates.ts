@@ -109,13 +109,14 @@ export function splitHeadline(
     const phrase = highlightPhrase.trim();
     const idx = text.toUpperCase().indexOf(phrase.toUpperCase());
     if (idx !== -1) {
-      const before = text.slice(0, idx).trim();
+      const before = text.slice(0, idx).trim().replace(/[,\s]+$/, "");
       const matched = text.slice(idx, idx + phrase.length);
       const after = text.slice(idx + phrase.length).trim().replace(/^[,\s:]+/, "");
-      if (before) {
-        return { accentLine: before, bodyLine: [matched, after].filter(Boolean).join(" ") };
-      }
-      return { accentLine: matched, bodyLine: after };
+      const bodyParts = [before, after].filter(Boolean);
+      return {
+        accentLine: matched,
+        bodyLine: bodyParts.join(" "),
+      };
     }
   }
 
